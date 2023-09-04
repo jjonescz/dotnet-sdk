@@ -343,13 +343,9 @@
 
   <Target Name="PublishRazorSdkTools"
           BeforeTargets="PublishNetSdks">
-    <PropertyGroup>
-      <_LegacyRazorToolVersion>7.0.0-preview.23454.1</_LegacyRazorToolVersion>
-    </PropertyGroup>
     <ItemGroup>
       <_LegacyRazorToolProperty Include="OutputPath=$(ArtifactsBinDir)Microsoft.NET.Sdk.Razor.Tool\$(Configuration)\$(SdkTargetFramework)\legacy\" />
-      <_LegacyRazorToolProperty Include="MicrosoftAspNetCoreMvcRazorExtensionsToolingInternalPackageVersion=$(_LegacyRazorToolVersion)" />
-      <_LegacyRazorToolProperty Include="MicrosoftCodeAnalysisRazorToolingInternalVersion=$(_LegacyRazorToolVersion)" />
+      <_LegacyRazorToolProperty Include="_OverrideRazorVersion=7.0.0-preview.23454.1" />
     </ItemGroup>
     <MSBuild
       Targets="Publish"
