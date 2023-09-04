@@ -343,6 +343,11 @@
 
   <Target Name="PublishRazorSdkTools"
           BeforeTargets="PublishNetSdks">
+    <!--
+      Build a legacy version of the `rzc.dll` tool which depends on the no-longer-published `MS.ANC.Razor.Language.dll` and friends.
+      This is used for building `MVC-2.1` apps which bring in `MS.ANC.Mvc.Razor.Extensions.dll` v2.x which depends on those legacy Razor DLLs
+      during registration process (which de facto requires both the extension and `rzc` to have the same dependencies to work).
+    -->
     <ItemGroup>
       <_LegacyRazorToolProperty Include="OutputPath=$(ArtifactsBinDir)Microsoft.NET.Sdk.Razor.Tool\$(Configuration)\$(SdkTargetFramework)\legacy\" />
       <_LegacyRazorToolProperty Include="_OverrideRazorVersion=7.0.0-preview.23454.1" />
