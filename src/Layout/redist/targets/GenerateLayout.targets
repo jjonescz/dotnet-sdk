@@ -350,7 +350,7 @@
     -->
     <ItemGroup>
       <_LegacyRazorToolProperty Include="OutputPath=$(ArtifactsBinDir)Microsoft.NET.Sdk.Razor.Tool\$(Configuration)\$(SdkTargetFramework)\legacy\" />
-      <_LegacyRazorToolProperty Include="_OverrideRazorVersion=7.0.0-preview.23454.1" />
+      <_LegacyRazorToolProperty Include="_OverrideRazorVersion=7.0.0-preview.23330.1" />
     </ItemGroup>
     <MSBuild
       Targets="Publish"
