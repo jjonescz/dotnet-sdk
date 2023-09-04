@@ -381,7 +381,7 @@
       SkipUnchangedFiles="true" />
     <Copy
       SourceFiles="@(_LegacyRazorToolOutput)"
-      DestinationFolder="$(ArtifactsBinDir)$(Configuration)\Sdks\Microsoft.NET.Sdk.Razor\tools\legacy\"
+      DestinationFolder="$(ArtifactsBinDir)$(Configuration)\Sdks\Microsoft.NET.Sdk.Razor\tools-legacy\"
       SkipUnchangedFiles="true" />
     <Copy
       SourceFiles="@(_RazorSourceGeneratorsOutput)"

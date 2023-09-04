@@ -34,7 +34,7 @@ Copyright (c) .NET Foundation. All rights reserved.
     <_RazorSdkTasksTFM Condition=" '$(_RazorSdkTasksTFM)' == ''">net472</_RazorSdkTasksTFM>
     <RazorSdkBuildTasksAssembly>$(RazorSdkBuildTasksDirectoryRoot)$(_RazorSdkTasksTFM)\Microsoft.NET.Sdk.Razor.Tasks.dll</RazorSdkBuildTasksAssembly>
     <_RazorSdkToolAssembly>$(RazorSdkDirectoryRoot)tools\rzc.dll</_RazorSdkToolAssembly>
-    <_RazorSdkLegacyToolAssembly>$(RazorSdkDirectoryRoot)tools\legacy\rzc.dll</_RazorSdkLegacyToolAssembly>
+    <_RazorSdkLegacyToolAssembly>$(RazorSdkDirectoryRoot)tools-legacy\rzc.dll</_RazorSdkLegacyToolAssembly>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(DOTNET_HOST_PATH)' == ''">
