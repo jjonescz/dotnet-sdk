@@ -352,7 +352,7 @@
       Projects="$(RepoRoot)/src/RazorSdk/Tool/Microsoft.NET.Sdk.Razor.Tool.csproj"
       Properties="Configuration=$(Configuration)" />
     <MSBuild
-      Targets="Publish"
+      Targets="Restore;Build;Publish"
       Projects="$(RepoRoot)/src/RazorSdk/Tool/Microsoft.NET.Sdk.Razor.Tool.csproj"
       Properties="Configuration=$(Configuration);@(_LegacyRazorToolProperty)" />
   </Target>
