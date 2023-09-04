@@ -343,26 +343,45 @@
 
   <Target Name="PublishRazorSdkTools"
           BeforeTargets="PublishNetSdks">
+    <PropertyGroup>
+      <_LegacyRazorToolVersion>7.0.0-preview.23454.1</_LegacyRazorToolVersion>
+    </PropertyGroup>
+    <ItemGroup>
+      <_LegacyRazorToolProperty Include="OutputPath=$(ArtifactsBinDir)Microsoft.NET.Sdk.Razor.Tool\$(Configuration)\$(SdkTargetFramework)\legacy\" />
+      <_LegacyRazorToolProperty Include="MicrosoftAspNetCoreMvcRazorExtensionsToolingInternalPackageVersion=$(_LegacyRazorToolVersion)" />
+      <_LegacyRazorToolProperty Include="MicrosoftCodeAnalysisRazorToolingInternalVersion=$(_LegacyRazorToolVersion)" />
+    </ItemGroup>
     <MSBuild
       Targets="Publish"
       Projects="$(RepoRoot)/src/RazorSdk/Tool/Microsoft.NET.Sdk.Razor.Tool.csproj"
       Properties="Configuration=$(Configuration)" />
+    <MSBuild
+      Targets="Publish"
+      Projects="$(RepoRoot)/src/RazorSdk/Tool/Microsoft.NET.Sdk.Razor.Tool.csproj"
+      Properties="Configuration=$(Configuration);@(_LegacyRazorToolProperty)" />
   </Target>
 
   <Target Name="MoveRazorSdkTools" AfterTargets="PublishRazorSdkTools">
     <ItemGroup>
       <_RazorToolOutput Include="$(ArtifactsBinDir)Microsoft.NET.Sdk.Razor.Tool\$(Configuration)\$(SdkTargetFramework)\publish\*.*" />
+      <_LegacyRazorToolOutput Include="$(ArtifactsBinDir)Microsoft.NET.Sdk.Razor.Tool\$(Configuration)\$(SdkTargetFramework)\legacy\publish\*.*" />
       <!-- To reduce the size of the SDK, we use the compiler dependencies that are located in the `Rosyln/bincore` location
       instead of shipping our own copies in the Razor compiler. These assemblies will be resolved by path in the
       rzc executable. -->
       <_RazorToolOutput Remove="$(ArtifactsBinDir)Microsoft.NET.Sdk.Razor.Tool\$(Configuration)\$(SdkTargetFramework)\publish\Microsoft.CodeAnalysis.dll" />
+      <_LegacyRazorToolOutput Remove="$(ArtifactsBinDir)Microsoft.NET.Sdk.Razor.Tool\$(Configuration)\$(SdkTargetFramework)\legacy\publish\Microsoft.CodeAnalysis.dll" />
       <_RazorToolOutput Remove="$(ArtifactsBinDir)Microsoft.NET.Sdk.Razor.Tool\$(Configuration)\$(SdkTargetFramework)\publish\Microsoft.CodeAnalysis.CSharp.dll" />
+      <_LegacyRazorToolOutput Remove="$(ArtifactsBinDir)Microsoft.NET.Sdk.Razor.Tool\$(Configuration)\$(SdkTargetFramework)\legacy\publish\Microsoft.CodeAnalysis.CSharp.dll" />
       <_RazorSourceGeneratorsOutput Include="$(PkgMicrosoft_NET_Sdk_Razor_SourceGenerators_Transport)\source-generators\*" />
     </ItemGroup>
 
     <Copy
       SourceFiles="@(_RazorToolOutput)"
       DestinationFolder="$(ArtifactsBinDir)$(Configuration)\Sdks\Microsoft.NET.Sdk.Razor\tools\"
+      SkipUnchangedFiles="true" />
+    <Copy
+      SourceFiles="@(_LegacyRazorToolOutput)"
+      DestinationFolder="$(ArtifactsBinDir)$(Configuration)\Sdks\Microsoft.NET.Sdk.Razor\tools\legacy\"
       SkipUnchangedFiles="true" />
     <Copy
       SourceFiles="@(_RazorSourceGeneratorsOutput)"
