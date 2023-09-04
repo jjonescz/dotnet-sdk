@@ -75,9 +75,16 @@ Copyright (c) .NET Foundation. All rights reserved.
     DependsOnTargets="Compile" />
 
   <Target
+    Name="_UseLegacyRazorTool">
+    <PropertyGroup>
+      <_RazorSdkToolAssembly Condition="'%(ResolvedRazorExtension.Identity)' == 'MVC-2.1'">$(_RazorSdkLegacyToolAssembly)</_RazorSdkToolAssembly>
+    </PropertyGroup>
+  </Target>
+
+  <Target
     Name="ResolveTagHelperRazorGenerateInputs"
     Inputs="$(MSBuildAllProjects);@(RazorReferencePath)"
-    DependsOnTargets="_RazorEnsureCompiled"
+    DependsOnTargets="_RazorEnsureCompiled;_UseLegacyRazorTool"
     Outputs="$(_RazorTagHelperInputCache)"
     Condition="'@(RazorGenerateWithTargetPath)' != ''">
 
