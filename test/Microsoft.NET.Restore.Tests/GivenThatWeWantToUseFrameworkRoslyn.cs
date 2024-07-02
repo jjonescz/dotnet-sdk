@@ -9,6 +9,16 @@ namespace Microsoft.NET.Restore.Tests
         {
         }
 
+        private static void EnsureToolsetPackageCanBeRestored(TestAsset testAsset)
+        {
+            // Add built packages to NuGet.config so it is possible to download
+            // the Microsoft.Net.Sdk.Compilers.Toolset package
+            // (it is downloaded at the same version as the SDK
+            // which does not exist in any feed at the time the test is running).
+            var packages = Path.Combine(TestContext.GetRepoRoot() ?? AppContext.BaseDirectory, "artifacts", "packages", TestContext.RepoConfiguration, "NonShipping");
+            NuGetConfigWriter.Write(testAsset.Path, packages);
+        }
+
         [FullMSBuildOnlyFact]
         public void It_restores_Microsoft_Net_Compilers_Toolset_Framework_when_requested()
         {
@@ -24,17 +34,15 @@ namespace Microsoft.NET.Restore.Tests
             var testAsset = _testAssetsManager
                 .CreateTestProject(project);
 
-            string projectAssetsJsonPath = Path.Combine(
-                testAsset.Path,
-                project.Name,
-                "obj",
-                "project.assets.json");
+            EnsureToolsetPackageCanBeRestored(testAsset);
 
-            var restoreCommand =
-                testAsset.GetRestoreCommand(Log, relativePath: testProjectName);
-            restoreCommand.Execute().Should().Pass();
+            var customPackageDir = Path.Combine(testAsset.Path, "nuget-packages");
 
-            Assert.Contains("Microsoft.Net.Compilers.Toolset.Framework", File.ReadAllText(projectAssetsJsonPath));
+            testAsset.GetRestoreCommand(Log, relativePath: testProjectName)
+                .WithEnvironmentVariable("NUGET_PACKAGES", customPackageDir)
+                .Execute().Should().Pass();
+
+            Assert.True(Directory.Exists(Path.Combine(customPackageDir, "microsoft.net.sdk.compilers.toolset")));
         }
 
         [FullMSBuildOnlyFact]
@@ -53,28 +61,19 @@ namespace Microsoft.NET.Restore.Tests
             var testAsset = _testAssetsManager
                 .CreateTestProject(project);
 
-            string projectAssetsJsonPath = Path.Combine(
-                testAsset.Path,
-                project.Name,
-                "obj",
-                "project.assets.json");
+            EnsureToolsetPackageCanBeRestored(testAsset);
 
-            var restoreCommand =
-                testAsset.GetRestoreCommand(Log, relativePath: testProjectName);
-            restoreCommand.Execute().Should().Pass();
+            var customPackageDir = Path.Combine(testAsset.Path, "nuget-packages");
 
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                Assert.Contains("Microsoft.Net.Compilers.Toolset.Framework", File.ReadAllText(projectAssetsJsonPath));
-            }
-            else
-            {
-                Assert.DoesNotContain("Microsoft.Net.Compilers.Toolset.Framework", File.ReadAllText(projectAssetsJsonPath));
-            }
+            testAsset.GetRestoreCommand(Log, relativePath: testProjectName)
+                .WithEnvironmentVariable("NUGET_PACKAGES", customPackageDir)
+                .Execute().Should().Pass();
+
+            Assert.True(Directory.Exists(Path.Combine(customPackageDir, "microsoft.net.sdk.compilers.toolset")));
         }
 
         [FullMSBuildOnlyFact]
-        public void It_throws_a_warning_when_adding_the_PackageReference_directly()
+        public void It_does_not_throw_a_warning_when_adding_the_PackageReference_directly()
         {
             const string testProjectName = "NetCoreApp";
             var project = new TestProject
@@ -92,7 +91,7 @@ namespace Microsoft.NET.Restore.Tests
                 testAsset.GetRestoreCommand(Log, relativePath: testProjectName);
             var result = restoreCommand.Execute();
             result.Should().Pass();
-            result.Should().HaveStdOutContaining("NETSDK1205");
+            result.Should().NotHaveStdOutContaining("NETSDK");
         }
     }
 }
