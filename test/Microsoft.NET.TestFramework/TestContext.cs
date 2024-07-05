@@ -8,12 +8,6 @@ namespace Microsoft.NET.TestFramework
 {
     public class TestContext
     {
-#if DEBUG
-        public const string RepoConfiguration = "Debug";
-#else
-        public const string RepoConfiguration = "Release";
-#endif
-
         //  Generally the folder the test DLL is in
         public string TestExecutionDirectory { get; set; }
 
@@ -114,7 +108,11 @@ namespace Microsoft.NET.TestFramework
             }
 
             string repoRoot = null;
-            string repoConfiguration = RepoConfiguration;
+#if DEBUG
+            string repoConfiguration = "Debug";
+#else
+            string repoConfiguration = "Release";
+#endif
 
             if (commandLine.SDKRepoPath != null)
             {

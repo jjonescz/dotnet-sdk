@@ -9,16 +9,6 @@ namespace Microsoft.NET.Restore.Tests
         {
         }
 
-        private static void EnsureToolsetPackageCanBeRestored(TestAsset testAsset)
-        {
-            // Add built packages to NuGet.config so it is possible to download
-            // the Microsoft.Net.Sdk.Compilers.Toolset package
-            // (it is downloaded at the same version as the SDK
-            // which does not exist in any feed at the time the test is running).
-            var packages = Path.Combine(TestContext.GetRepoRoot() ?? AppContext.BaseDirectory, "artifacts", "packages", TestContext.RepoConfiguration, "NonShipping");
-            NuGetConfigWriter.Write(testAsset.Path, packages);
-        }
-
         [FullMSBuildOnlyFact]
         public void It_restores_Microsoft_Net_Compilers_Toolset_Framework_when_requested()
         {
@@ -34,7 +24,7 @@ namespace Microsoft.NET.Restore.Tests
             var testAsset = _testAssetsManager
                 .CreateTestProject(project);
 
-            EnsureToolsetPackageCanBeRestored(testAsset);
+            NuGetConfigWriter.Write(testAsset.Path, TestContext.Current.TestPackages);
 
             var customPackageDir = Path.Combine(testAsset.Path, "nuget-packages");
 
@@ -61,7 +51,7 @@ namespace Microsoft.NET.Restore.Tests
             var testAsset = _testAssetsManager
                 .CreateTestProject(project);
 
-            EnsureToolsetPackageCanBeRestored(testAsset);
+            NuGetConfigWriter.Write(testAsset.Path, TestContext.Current.TestPackages);
 
             var customPackageDir = Path.Combine(testAsset.Path, "nuget-packages");
 
