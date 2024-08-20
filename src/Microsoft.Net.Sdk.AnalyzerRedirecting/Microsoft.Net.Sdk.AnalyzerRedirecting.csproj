@@ -21,4 +21,8 @@
     <PackageReference Include="Microsoft.VisualStudio.Sdk" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Microsoft.Net.Sdk.AnalyzerRedirecting.Tests" />
+  </ItemGroup>
+
 </Project>
