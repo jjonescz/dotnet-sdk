@@ -12,17 +12,15 @@ namespace Microsoft.Net.Sdk.AnalyzerRedirecting;
 [Export(typeof(IAnalyzerAssemblyResolver))]
 public sealed class RedirectingAnalyzerAssemblyResolver : IAnalyzerAssemblyResolver
 {
-    private readonly string _insertedAnalyzersDirectory;
+    private readonly string? _insertedAnalyzersDirectory;
     private readonly Lazy<ImmutableDictionary<string, List<AnalyzerInfo>>> _analyzerMap;
 
     [ImportingConstructor]
     public RedirectingAnalyzerAssemblyResolver()
-        : this(@"D:\sdk-4\artifacts\bin\Debug\RuntimeAnalyzers")
-    {
-    }
+        : this(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SDK", "RuntimeAnalyzers")) { }
 
     // Internal for testing.
-    internal RedirectingAnalyzerAssemblyResolver(string insertedAnalyzersDirectory)
+    internal RedirectingAnalyzerAssemblyResolver(string? insertedAnalyzersDirectory)
     {
         _insertedAnalyzersDirectory = insertedAnalyzersDirectory;
         _analyzerMap = new(CreateAnalyzerMap);
