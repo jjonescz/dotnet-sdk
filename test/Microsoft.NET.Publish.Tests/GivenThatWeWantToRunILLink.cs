@@ -678,6 +678,8 @@ namespace Microsoft.NET.Publish.Tests
                 .CopyTestAsset(testAssetName, identifier: targetFramework)
                 .WithSource();
 
+            NuGetConfigWriter.Write(testAsset.Path, TestContext.Current.TestPackages);
+
             var publishCommand = new PublishCommand(testAsset, "App");
             publishCommand.Execute($"/p:RuntimeIdentifier={rid}")
                 .Should().Pass()
@@ -700,6 +702,8 @@ namespace Microsoft.NET.Publish.Tests
             var testAsset = _testAssetsManager
                 .CopyTestAsset(testAssetName, identifier: targetFramework)
                 .WithSource();
+
+            NuGetConfigWriter.Write(testAsset.Path, TestContext.Current.TestPackages);
 
             var publishCommand = new PublishCommand(testAsset, "App");
             publishCommand.Execute($"/p:RuntimeIdentifier={rid}", "/p:TrimmerSingleWarn=false")
@@ -726,6 +730,8 @@ namespace Microsoft.NET.Publish.Tests
                     SetMetadata(project, "ProjectReference", "TrimmerSingleWarn", "true");
                     SetMetadata(project, "App", "TrimmerSingleWarn", "true");
                 });
+
+            NuGetConfigWriter.Write(testAsset.Path, TestContext.Current.TestPackages);
 
             var publishCommand = new PublishCommand(testAsset, "App");
             publishCommand.Execute($"/p:RuntimeIdentifier={rid}", "/p:TrimmerSingleWarn=false")

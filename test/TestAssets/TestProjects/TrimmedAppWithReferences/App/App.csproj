@@ -9,10 +9,9 @@
   </PropertyGroup>
 
   <Target Name="BuildLocalNuget" BeforeTargets="Restore">
-    <MSBuild
-      Projects="../PackageReference/PackageReference.csproj"
-      Targets="Restore;Pack"
-    />
+    <Exec
+      Command="&quot;$(MSBuildBinPath)\msbuild&quot; ..\PackageReference\PackageReference.csproj /t:Pack /restore"
+      WorkingDirectory="$(MSBuildProjectDirectory)" />
   </Target>
 
   <ItemGroup>
