@@ -72,6 +72,23 @@ public sealed class RedirectingAnalyzerAssemblyResolver : IAnalyzerAssemblyResol
         return builder.ToImmutable();
     }
 
+    public string? RedirectPath(string fullPath)
+    {
+        if (AnalyzerMap.TryGetValue(Path.GetFileNameWithoutExtension(fullPath), out var analyzers))
+        {
+            foreach (var analyzer in analyzers)
+            {
+                // TODO: Check major version.
+                if (EndsWithIgnoringTrailingSlashes(Path.GetDirectoryName(fullPath), analyzer.PathSuffix))
+                {
+                    return analyzer.FullPath;
+                }
+            }
+        }
+
+        return null;
+    }
+
     public Assembly? ResolveAssembly(AssemblyName assemblyName, string assemblyOriginalDirectory)
     {
         if (AnalyzerMap.TryGetValue(assemblyName.Name, out var analyzers))
@@ -79,7 +96,7 @@ public sealed class RedirectingAnalyzerAssemblyResolver : IAnalyzerAssemblyResol
             foreach (var analyzer in analyzers)
             {
                 if (analyzer.MajorVersion == assemblyName.Version.Major &&
-                    endsWithIgnoringTrailingSlashes(assemblyOriginalDirectory, analyzer.PathSuffix))
+                    EndsWithIgnoringTrailingSlashes(assemblyOriginalDirectory, analyzer.PathSuffix))
                 {
                     return Assembly.LoadFrom(analyzer.FullPath);
                 }
@@ -87,14 +104,14 @@ public sealed class RedirectingAnalyzerAssemblyResolver : IAnalyzerAssemblyResol
         }
 
         return null;
+    }
 
-        static bool endsWithIgnoringTrailingSlashes(string s, string suffix)
-        {
-            var sEndsWithSlash = EndsWithSlash(s);
-            var suffixEndsWithSlash = EndsWithSlash(suffix);
-            var index = s.LastIndexOf(suffix, StringComparison.OrdinalIgnoreCase);
-            return index >= 0 && index + suffix.Length - (suffixEndsWithSlash ? 1 : 0) == s.Length - (sEndsWithSlash ? 1 : 0);
-        }
+    private static bool EndsWithIgnoringTrailingSlashes(string s, string suffix)
+    {
+        var sEndsWithSlash = EndsWithSlash(s);
+        var suffixEndsWithSlash = EndsWithSlash(suffix);
+        var index = s.LastIndexOf(suffix, StringComparison.OrdinalIgnoreCase);
+        return index >= 0 && index + suffix.Length - (suffixEndsWithSlash ? 1 : 0) == s.Length - (sEndsWithSlash ? 1 : 0);
     }
 
     private static bool EndsWithSlash(string s) => !string.IsNullOrEmpty(s) && s[s.Length - 1] is '/' or '\\';
