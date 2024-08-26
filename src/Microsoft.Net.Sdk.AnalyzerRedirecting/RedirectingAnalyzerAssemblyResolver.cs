@@ -78,8 +78,9 @@ public sealed class RedirectingAnalyzerAssemblyResolver : IAnalyzerAssemblyResol
         {
             foreach (var analyzer in analyzers)
             {
-                // TODO: Check major version.
-                if (EndsWithIgnoringTrailingSlashes(Path.GetDirectoryName(fullPath), analyzer.PathSuffix))
+                var directoryPath = Path.GetDirectoryName(fullPath);
+                if (EndsWithIgnoringTrailingSlashes(directoryPath, analyzer.PathSuffix) &&
+                    hasMajorVersion(directoryPath, analyzer.PathSuffix, analyzer.MajorVersion))
                 {
                     loadDirectly = true;
                     return analyzer.FullPath;
@@ -89,6 +90,22 @@ public sealed class RedirectingAnalyzerAssemblyResolver : IAnalyzerAssemblyResol
 
         loadDirectly = false;
         return null;
+
+        static bool hasMajorVersion(string directoryPath, string pathSuffix, int majorVersion)
+        {
+            // Find the version number in the directory path which is in the directory name before the path suffix.
+            int index = directoryPath.LastIndexOf(pathSuffix, StringComparison.OrdinalIgnoreCase);
+            if (index < 0)
+            {
+                return false;
+            }
+            string version = Path.GetFileName(Path.GetDirectoryName(directoryPath.Substring(0, index)));
+
+            // Check the major version part matches.
+            return version.IndexOf('.') is >= 0 and var dotIndex &&
+                int.TryParse(version.Substring(0, dotIndex), out int versionMajor) &&
+                versionMajor == majorVersion;
+        }
     }
 
     public Assembly? ResolveAssembly(AssemblyName assemblyName, string assemblyOriginalDirectory)
