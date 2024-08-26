@@ -72,7 +72,7 @@ public sealed class RedirectingAnalyzerAssemblyResolver : IAnalyzerAssemblyResol
         return builder.ToImmutable();
     }
 
-    public string? RedirectPath(string fullPath)
+    public string? RedirectPath(string fullPath, out bool loadDirectly)
     {
         if (AnalyzerMap.TryGetValue(Path.GetFileNameWithoutExtension(fullPath), out var analyzers))
         {
@@ -81,11 +81,13 @@ public sealed class RedirectingAnalyzerAssemblyResolver : IAnalyzerAssemblyResol
                 // TODO: Check major version.
                 if (EndsWithIgnoringTrailingSlashes(Path.GetDirectoryName(fullPath), analyzer.PathSuffix))
                 {
+                    loadDirectly = true;
                     return analyzer.FullPath;
                 }
             }
         }
 
+        loadDirectly = false;
         return null;
     }
 
