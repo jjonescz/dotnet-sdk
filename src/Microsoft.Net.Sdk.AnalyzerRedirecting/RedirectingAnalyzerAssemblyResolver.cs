@@ -99,7 +99,7 @@ public sealed class RedirectingAnalyzerAssemblyResolver : IAnalyzerAssemblyResol
             }
             string version = Path.GetFileName(Path.GetDirectoryName(directoryPath.Substring(0, index)));
 
-            // Check the major version part matches.
+            // Check that the major version part matches.
             return version.IndexOf('.') is >= 0 and var dotIndex &&
                 int.TryParse(version.Substring(0, dotIndex), out int versionMajor) &&
                 versionMajor == majorVersion;
