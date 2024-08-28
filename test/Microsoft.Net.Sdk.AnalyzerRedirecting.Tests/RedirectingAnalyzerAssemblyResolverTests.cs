@@ -53,8 +53,7 @@ public class RedirectingAnalyzerAssemblyResolverTests(ITestOutputHelper log) : S
         var sdkAnalyzerPath = CompileDll(testDir.Path, @"sdk\packs\Microsoft.AspNetCore.App.Ref\9.0.0-preview.7.24406.2\analyzers\dotnet\cs", "Microsoft.AspNetCore.App.Analyzers", "9.3.4");
 
         var resolver = new RedirectingAnalyzerAssemblyResolver(vsDir);
-        var redirected = resolver.RedirectPath(sdkAnalyzerPath, out var loadDirectly);
-        loadDirectly.Should().BeTrue();
+        var redirected = resolver.RedirectPath(sdkAnalyzerPath);
         redirected.Should().Be(vsAnalyzerPath);
     }
 
@@ -68,8 +67,7 @@ public class RedirectingAnalyzerAssemblyResolverTests(ITestOutputHelper log) : S
         var sdkAnalyzerPath = CompileDll(testDir.Path, @"sdk\packs\Microsoft.AspNetCore.App.Ref\9.0.0-preview.7.24406.2\analyzers\dotnet\cs", "Microsoft.AspNetCore.App.Analyzers", "9.3.4");
 
         var resolver = new RedirectingAnalyzerAssemblyResolver(vsDir);
-        var redirected = resolver.RedirectPath(sdkAnalyzerPath, out var loadDirectly);
-        loadDirectly.Should().BeFalse();
+        var redirected = resolver.RedirectPath(sdkAnalyzerPath);
         redirected.Should().BeNull();
     }
 
