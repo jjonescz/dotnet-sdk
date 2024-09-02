@@ -15,7 +15,7 @@ namespace Microsoft.DotNet.Cli.Build
         {
             StringBuilder sb = new StringBuilder(SWR_HEADER);
 
-            const string installDir = @"Common7\IDE\CommonExtensions\DotNetRuntimeAnalyzers"
+            const string installDir = @"Common7\IDE\CommonExtensions\DotNetRuntimeAnalyzers";
 
             AddFolder(sb,
                       @"AnalyzerRedirecting",
