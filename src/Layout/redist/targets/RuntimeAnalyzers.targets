@@ -12,6 +12,7 @@
   <Target Name="GenerateRuntimeAnalyzers">
 
     <ItemGroup>
+      <RuntimeAnalyzersContent Include="$(ArtifactsBinDir)Microsoft.Net.Sdk.AnalyzerRedirecting\$(Configuration)\net472\**\*.*" DeploymentSubpath="AnalyzerRedirecting"/>
       <RuntimeAnalyzersContent Include="$(RuntimeAnalyzersSourceRoot)$(NetCoreRuntimeAnalyzersSubPath)\**\*.*" DeploymentSubpath="NetCoreAnalyzers"/>
       <RuntimeAnalyzersContent Include="$(RuntimeAnalyzersSourceRoot)$(WindowsDesktopRuntimeAnalyzersSubPath)\**\*.*" DeploymentSubpath="WindowsDesktopAnalyzers"/>
       <RuntimeAnalyzersContent Include="$(RuntimeAnalyzersSourceRoot)$(AspNetCoreRuntimeAnalyzersSubPath)\**\*.*" DeploymentSubpath="AspNetCoreAnalyzers"/>

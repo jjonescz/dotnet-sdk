@@ -18,6 +18,10 @@ namespace Microsoft.DotNet.Cli.Build
             const string installDir = @"Common7\IDE\CommonExtensions\DotNetRuntimeAnalyzers"
 
             AddFolder(sb,
+                      @"AnalyzerRedirecting",
+                      @$"{installDir}\AnalyzerRedirecting");
+
+            AddFolder(sb,
                       @"AspNetCoreAnalyzers",
                       @$"{installDir}\AspNetCoreAnalyzers");
 
