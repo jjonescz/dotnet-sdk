@@ -2,11 +2,11 @@
 
   <PropertyGroup>
     <RuntimeAnalyzersSourceRoot>$(ArtifactsBinDir)redist\$(Configuration)\dotnet\</RuntimeAnalyzersSourceRoot>
-    <NetCoreRuntimeAnalyzersSubPath>packs\Microsoft.NetCore.App.Ref\9.*\analyzers</NetCoreRuntimeAnalyzersSubPath>
-    <WindowsDesktopRuntimeAnalyzersSubPath>packs\Microsoft.WindowsDesktop.App.Ref\9.*\analyzers</WindowsDesktopRuntimeAnalyzersSubPath>
-    <AspNetCoreRuntimeAnalyzersSubPath>packs\Microsoft.AspNetCore.App.Ref\9.*\analyzers</AspNetCoreRuntimeAnalyzersSubPath>
-    <SDKAnalyzersSubPath>sdk\9.*\Sdks\Microsoft.NET.Sdk\Analyzers</SDKAnalyzersSubPath>
-    <WebSDKAnalyzersSubPath>sdk\9.*\Sdks\Microsoft.NET.Sdk.Web\Analyzers</WebSDKAnalyzersSubPath>
+    <NetCoreRuntimeAnalyzersSubPath>packs\Microsoft.NetCore.App.Ref\*\analyzers</NetCoreRuntimeAnalyzersSubPath>
+    <WindowsDesktopRuntimeAnalyzersSubPath>packs\Microsoft.WindowsDesktop.App.Ref\*\analyzers</WindowsDesktopRuntimeAnalyzersSubPath>
+    <AspNetCoreRuntimeAnalyzersSubPath>packs\Microsoft.AspNetCore.App.Ref\*\analyzers</AspNetCoreRuntimeAnalyzersSubPath>
+    <SDKAnalyzersSubPath>sdk\*\Sdks\Microsoft.NET.Sdk\analyzers</SDKAnalyzersSubPath>
+    <WebSDKAnalyzersSubPath>sdk\*\Sdks\Microsoft.NET.Sdk.Web\analyzers</WebSDKAnalyzersSubPath>
   </PropertyGroup>
 
   <Target Name="GenerateRuntimeAnalyzers" AfterTargets="OverlaySdkOnLKG">
