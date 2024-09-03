@@ -25,6 +25,8 @@
     <IsShippingPackage>true</IsShippingPackage>
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <NoPackageAnalysis>true</NoPackageAnalysis>
+    <!-- NETSDK1205: The Microsoft.Net.Compilers.Toolset.Framework package should not be referenced directly. -->
+    <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);NETSDK1205</MSBuildWarningsAsMessages>
   </PropertyGroup>
 
   <ItemGroup>
