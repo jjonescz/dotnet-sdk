@@ -9,7 +9,7 @@
     <WebSDKAnalyzersSubPath>sdk\9.*\Sdks\Microsoft.NET.Sdk.Web\Analyzers</WebSDKAnalyzersSubPath>
   </PropertyGroup>
 
-  <Target Name="GenerateRuntimeAnalyzers">
+  <Target Name="GenerateRuntimeAnalyzers" AfterTargets="OverlaySdkOnLKG">
 
     <ItemGroup>
       <RuntimeAnalyzersContent Include="$(ArtifactsBinDir)Microsoft.Net.Sdk.AnalyzerRedirecting\$(Configuration)\net472\**\*.*" DeploymentSubpath="AnalyzerRedirecting"/>

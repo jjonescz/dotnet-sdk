@@ -132,7 +132,7 @@
 
   <Target Name="PublishRuntimeAnalyzers"
           DependsOnTargets="GenerateRuntimeAnalyzers"
-          BeforeTargets="Build">
+          AfterTargets="OverlaySdkOnLKG">
     <Copy SourceFiles="@(RuntimeAnalyzersContent)"
           DestinationFiles="@(RuntimeAnalyzersContent->'$(ArtifactsBinDir)$(Configuration)\RuntimeAnalyzers\%(DeploymentSubpath)\%(RecursiveDir)%(Filename)%(Extension)')" />
   </Target>
