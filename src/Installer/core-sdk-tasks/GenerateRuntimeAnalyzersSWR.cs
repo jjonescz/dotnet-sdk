@@ -70,7 +70,7 @@ namespace Microsoft.DotNet.Cli.Build
                     }
                 }
             }
-            
+
             IEnumerable<string> files = filesToInclude ??
                 Directory.GetFiles(sourceFolder)
                     .Where(static f =>
