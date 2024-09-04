@@ -54,13 +54,34 @@ namespace Microsoft.DotNet.Cli.Build
             return true;
         }
 
-        private void AddFolder(StringBuilder sb, string relativeSourcePath, string swrInstallDir, bool ngenAssemblies = true, ReadOnlySpan<string> filesToInclude = default)
+        private void AddFolder(StringBuilder sb, string relativeSourcePath, string swrInstallDir, bool ngenAssemblies = true, IEnumerable<string> filesToInclude = null)
         {
             string sourceFolder = Path.Combine(RuntimeAnalyzersLayoutDirectory, relativeSourcePath);
-            var files = Directory.GetFiles(sourceFolder)
-                            .Where(f => !Path.GetExtension(f).Equals(".pdb", StringComparison.OrdinalIgnoreCase) && !Path.GetExtension(f).Equals(".swr", StringComparison.OrdinalIgnoreCase))
-                            .ToList();
-            if (files.Any(f => !Path.GetFileName(f).Equals("_._")))
+
+            // If files were specified explicitly, check that they exist.
+            if (filesToInclude != null)
+            {
+                foreach (var file in filesToInclude)
+                {
+                    var path = Path.Combine(sourceFolder, file);
+                    if (!File.Exists(path))
+                    {
+                        throw new InvalidOperationException($"File not found: {path}");
+                    }
+                }
+            }
+            
+            IEnumerable<string> files = filesToInclude ??
+                Directory.GetFiles(sourceFolder)
+                    .Where(static f =>
+                    {
+                        var extension = Path.GetExtension(f);
+                        return !extension.Equals(".pdb", StringComparison.OrdinalIgnoreCase) &&
+                            !extension.Equals(".swr", StringComparison.OrdinalIgnoreCase) &&
+                            !Path.GetFileName(f).Equals("_._");
+                    });
+
+            if (files.Any())
             {
                 sb.Append(@"folder ""InstallDir:\");
                 sb.Append(swrInstallDir);
@@ -69,11 +90,6 @@ namespace Microsoft.DotNet.Cli.Build
                 foreach (var file in files)
                 {
                     var fileName = Path.GetFileName(file);
-
-                    if (!filesToInclude.IsEmpty && filesToInclude.IndexOf(fileName) < 0)
-                    {
-                        continue;
-                    }
 
                     sb.Append(@"  file source=""$(PkgVS_Redist_Common_Net_Core_SDK_RuntimeAnalyzers)\");
                     sb.Append(Path.Combine(relativeSourcePath, fileName));
@@ -90,7 +106,8 @@ namespace Microsoft.DotNet.Cli.Build
                 sb.AppendLine();
             }
 
-            if (!filesToInclude.IsEmpty)
+            // Don't go to sub-folders if the list of files was explicitly specified.
+            if (filesToInclude != null)
             {
                 return;
             }
@@ -106,7 +123,7 @@ namespace Microsoft.DotNet.Cli.Build
             }
         }
 
-        readonly string SWR_HEADER = @"use vs
+        private static readonly string SWR_HEADER = @"use vs
 
 package name=Microsoft.Net.Core.SDK.RuntimeAnalyzers
         version=$(ProductsBuildVersion)
