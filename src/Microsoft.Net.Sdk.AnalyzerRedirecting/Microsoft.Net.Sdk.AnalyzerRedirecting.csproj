@@ -30,7 +30,11 @@
     <InternalsVisibleTo Include="Microsoft.Net.Sdk.AnalyzerRedirecting.Tests" />
   </ItemGroup>
 
-  <Target Name="GetVsixVersion" Returns="$(VsixVersion)" />
+  <Target Name="GetVsixVersion" Returns="$(VsixVersion)">
+    <PropertyGroup>
+      <VsixVersion Condition="'$(VersionSuffixDateStamp)' != ''">$(VersionPrefix).$(VersionSuffixDateStamp)$(VersionSuffixBuildOfTheDayPadded)</VsixVersion>
+    </PropertyGroup>
+  </Target>
 
   <!-- Order matters here. VSSDK appends to PrepareForRunDependsOn but Microsoft.NET.Sdk overwrites it. See https://github.com/dotnet/msbuild/issues/2393. -->
   <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
