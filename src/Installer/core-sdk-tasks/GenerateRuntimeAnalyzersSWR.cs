@@ -21,7 +21,13 @@ namespace Microsoft.DotNet.Cli.Build
 
             AddFolder(sb,
                       @"AnalyzerRedirecting",
-                      @"Common7\IDE\CommonExtensions\Microsoft\AnalyzerRedirecting");
+                      @"Common7\IDE\CommonExtensions\Microsoft\AnalyzerRedirecting",
+                      filesToInclude:
+                      [
+                          "Microsoft.Net.Sdk.AnalyzerRedirecting.dll",
+                          "Microsoft.Net.Sdk.AnalyzerRedirecting.pkgdef",
+                          "extension.vsixmanifest",
+                      ]);
 
             AddFolder(sb,
                       @"AspNetCoreAnalyzers",
@@ -48,7 +54,7 @@ namespace Microsoft.DotNet.Cli.Build
             return true;
         }
 
-        private void AddFolder(StringBuilder sb, string relativeSourcePath, string swrInstallDir, bool ngenAssemblies = true)
+        private void AddFolder(StringBuilder sb, string relativeSourcePath, string swrInstallDir, bool ngenAssemblies = true, ReadOnlySpan<string> filesToInclude = default)
         {
             string sourceFolder = Path.Combine(RuntimeAnalyzersLayoutDirectory, relativeSourcePath);
             var files = Directory.GetFiles(sourceFolder)
@@ -62,8 +68,15 @@ namespace Microsoft.DotNet.Cli.Build
 
                 foreach (var file in files)
                 {
+                    var fileName = Path.GetFileName(file);
+
+                    if (!filesToInclude.IsEmpty && filesToInclude.IndexOf(fileName) < 0)
+                    {
+                        continue;
+                    }
+
                     sb.Append(@"  file source=""$(PkgVS_Redist_Common_Net_Core_SDK_RuntimeAnalyzers)\");
-                    sb.Append(Path.Combine(relativeSourcePath, Path.GetFileName(file)));
+                    sb.Append(Path.Combine(relativeSourcePath, fileName));
                     sb.Append('"');
 
                     if (ngenAssemblies && file.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
@@ -75,6 +88,11 @@ namespace Microsoft.DotNet.Cli.Build
                 }
 
                 sb.AppendLine();
+            }
+
+            if (!filesToInclude.IsEmpty)
+            {
+                return;
             }
 
             foreach (var subfolder in Directory.GetDirectories(sourceFolder))
