@@ -16,11 +16,12 @@ namespace Microsoft.DotNet.Cli.Build
             StringBuilder sb = new StringBuilder(SWR_HEADER);
 
             // NOTE: Keep in sync with SdkAnalyzerAssemblyRedirector.
-            const string installDir = @"Common7\IDE\CommonExtensions\Microsoft\DotNetRuntimeAnalyzers";
+            // This is intentionally short to avoid long path problems.
+            const string installDir = @"DotNetRuntimeAnalyzers";
 
             AddFolder(sb,
                       @"AnalyzerRedirecting",
-                      @$"{installDir}\AnalyzerRedirecting");
+                      @"Common7\IDE\CommonExtensions\Microsoft\AnalyzerRedirecting");
 
             AddFolder(sb,
                       @"AspNetCoreAnalyzers",
