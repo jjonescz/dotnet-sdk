@@ -30,6 +30,10 @@
     <InternalsVisibleTo Include="Microsoft.Net.Sdk.AnalyzerRedirecting.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="$(ArtifactsBinDir)$(Configuration)\RuntimeAnalyzers\**\*" IncludeInVSIX="true" />
+  </ItemGroup>
+
   <Target Name="GetVsixVersion" Returns="$(VsixVersion)">
     <PropertyGroup>
       <VsixVersion Condition="'$(VersionSuffixDateStamp)' != ''">$(VersionPrefix).$(VersionSuffixDateStamp)$(VersionSuffixBuildOfTheDayPadded)</VsixVersion>

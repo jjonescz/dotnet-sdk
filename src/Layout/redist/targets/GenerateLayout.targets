@@ -136,6 +136,7 @@
           AfterTargets="OverlaySdkOnLKG">
     <Copy SourceFiles="@(RuntimeAnalyzersContent)"
           DestinationFiles="@(RuntimeAnalyzersContent->'$(ArtifactsBinDir)$(Configuration)\RuntimeAnalyzers\%(DeploymentSubpath)\%(RecursiveDir)%(Filename)%(Extension)')" />
+    <MSBuild Projects="$(RepoRoot)src\Microsoft.Net.Sdk.AnalyzerRedirecting\Microsoft.Net.Sdk.AnalyzerRedirecting.csproj" />
   </Target>
 
   <Target Name="PublishNetSdks"

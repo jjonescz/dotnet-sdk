@@ -3,6 +3,7 @@
 
 using System.Collections.Immutable;
 using System.ComponentModel.Composition;
+using System.Reflection;
 using Microsoft.CodeAnalysis.Workspaces.AnalyzerRedirecting;
 
 // Example:
@@ -25,7 +26,7 @@ public sealed class SdkAnalyzerAssemblyRedirector : IAnalyzerAssemblyRedirector
 
     [ImportingConstructor]
     public SdkAnalyzerAssemblyRedirector()
-        : this(Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"..\..\DotNetRuntimeAnalyzers"))) { }
+        : this(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)) { }
 
     // Internal for testing.
     internal SdkAnalyzerAssemblyRedirector(string? insertedAnalyzersDirectory)
@@ -39,10 +40,10 @@ public sealed class SdkAnalyzerAssemblyRedirector : IAnalyzerAssemblyRedirector
         var builder = ImmutableDictionary.CreateBuilder<string, List<AnalyzerInfo>>(StringComparer.OrdinalIgnoreCase);
 
         // Expects layout like:
-        // VsInstallDir\SDK\RuntimeAnalyzers\WindowsDesktopAnalyzers\8.0.8\analyzers\dotnet\System.Windows.Forms.Analyzers.dll
-        //                                   ~~~~~~~~~~~~~~~~~~~~~~~                                                           = topLevelDirectory
-        //                                                           ~~~~~                                                     = versionDirectory
-        //                                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ = analyzerPath
+        // <inserted-analyzers-directory>\WindowsDesktopAnalyzers\8.0.8\analyzers\dotnet\System.Windows.Forms.Analyzers.dll
+        //                                ~~~~~~~~~~~~~~~~~~~~~~~                                                           = topLevelDirectory
+        //                                                        ~~~~~                                                     = versionDirectory
+        //                                                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ = analyzerPath
 
         foreach (string topLevelDirectory in Directory.EnumerateDirectories(_insertedAnalyzersDirectory))
         {
