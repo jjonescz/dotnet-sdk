@@ -78,13 +78,11 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
 
         path ??= testInstance.Path;
 
-        var workingDirectory = testInstance.Path.TrimEnd('/', '\\');
-
         new DotnetCommand(Log, "run", path)
-            .WithWorkingDirectory(workingDirectory)
+            .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Fail()
-            .And.HaveStdErrContaining(string.Format(LocalizableStrings.RunCommandExceptionNoProjects, workingDirectory, "--project"));
+            .And.HaveStdErrContaining("Couldn't find a project to run.");
     }
 
     /// <summary>
@@ -97,13 +95,11 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .WithSource()
             .RemoveProjectFiles();
 
-        var workingDirectory = testInstance.Path.TrimEnd('/', '\\');
-
         new DotnetCommand(Log, "run", "./MSBuildTestApp.csproj")
-            .WithWorkingDirectory(workingDirectory)
+            .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Fail()
-            .And.HaveStdErrContaining(string.Format(LocalizableStrings.RunCommandExceptionNoProjects, workingDirectory, "--project"));
+            .And.HaveStdErrContaining("Couldn't find a project to run.");
     }
 
     /// <summary>
@@ -148,13 +144,11 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         var testInstance = _testAssetsManager.CopyTestAsset("EmptyFolder")
             .WithSource();
 
-        var workingDirectory = testInstance.Path.TrimEnd('/', '\\');
-
         new DotnetCommand(Log, "run", "Program.cs")
-            .WithWorkingDirectory(workingDirectory)
+            .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Fail()
-            .And.HaveStdErrContaining(string.Format(LocalizableStrings.RunCommandExceptionNoProjects, workingDirectory, "--project"));
+            .And.HaveStdErrContaining("Couldn't find a project to run.");
     }
 
     [Fact]
@@ -178,13 +172,11 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .WithSource()
             .RemoveProjectFiles();
 
-        var workingDirectory = Path.Join(testInstance.Path, "TestLibrary").TrimEnd('/', '\\');
-
         new DotnetCommand(Log, "run", "NonExistentFile.cs")
-            .WithWorkingDirectory(workingDirectory)
+            .WithWorkingDirectory(Path.Join(testInstance.Path, "TestLibrary"))
             .Execute()
             .Should().Fail()
-            .And.HaveStdErrContaining(string.Format(LocalizableStrings.RunCommandExceptionNoProjects, workingDirectory, "--project"));
+            .And.HaveStdErrContaining("Couldn't find a project to run.");
     }
 
     [Fact]
