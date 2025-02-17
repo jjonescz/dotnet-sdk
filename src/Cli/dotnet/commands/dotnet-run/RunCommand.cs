@@ -78,6 +78,7 @@ namespace Microsoft.DotNet.Tools.Run
                 return 1;
             }
 
+            Func<ProjectCollection, ProjectInstance>? projectFactory = null;
             if (ShouldBuild)
             {
                 if (string.Equals("true", launchSettings?.DotNetRunMessages, StringComparison.OrdinalIgnoreCase))
@@ -85,12 +86,12 @@ namespace Microsoft.DotNet.Tools.Run
                     Reporter.Output.WriteLine(LocalizableStrings.RunCommandBuilding);
                 }
 
-                EnsureProjectIsBuilt();
+                EnsureProjectIsBuilt(out projectFactory);
             }
 
             try
             {
-                ICommand targetCommand = GetTargetCommand();
+                ICommand targetCommand = GetTargetCommand(projectFactory);
                 ApplyLaunchSettingsProfileToCommand(targetCommand, launchSettings);
 
                 // Env variables specified on command line override those specified in launch profile:
@@ -213,10 +214,12 @@ namespace Microsoft.DotNet.Tools.Run
             }
         }
 
-        private void EnsureProjectIsBuilt()
+        private void EnsureProjectIsBuilt(out Func<ProjectCollection, ProjectInstance>? projectFactory)
         {
+            projectFactory = null;
             var buildResult = EntryPointFileFullPath is not null
-                ? new VirtualProjectBuildingCommand() { EntryPointFileFullPath = EntryPointFileFullPath }.Execute()
+                ? new VirtualProjectBuildingCommand() { EntryPointFileFullPath = EntryPointFileFullPath }
+                .Execute(out projectFactory)
                 : new RestoringCommand(
                     RestoreArgs.Prepend(ProjectFileFullPath),
                     NoRestore,
@@ -250,10 +253,10 @@ namespace Microsoft.DotNet.Tools.Run
             return args.ToArray();
         }
 
-        private ICommand GetTargetCommand()
+        private ICommand GetTargetCommand(Func<ProjectCollection, ProjectInstance>? projectFactory)
         {
             FacadeLogger? logger = DetermineBinlogger(RestoreArgs);
-            var project = EvaluateProject(ProjectFileFullPath, RestoreArgs, logger);
+            var project = EvaluateProject(ProjectFileFullPath, projectFactory, RestoreArgs, logger);
             ValidatePreconditions(project);
             InvokeRunArgumentsTarget(project, RestoreArgs, Verbosity, logger);
             logger?.ReallyShutdown();
@@ -261,8 +264,10 @@ namespace Microsoft.DotNet.Tools.Run
             var command = CreateCommandFromRunProperties(project, runProperties);
             return command;
 
-            static ProjectInstance EvaluateProject(string projectFilePath, string[] restoreArgs, ILogger? binaryLogger)
+            static ProjectInstance EvaluateProject(string? projectFilePath, Func<ProjectCollection, ProjectInstance>? projectFactory, string[] restoreArgs, ILogger? binaryLogger)
             {
+                Debug.Assert(projectFilePath is not null || projectFactory is not null);
+
                 var globalProperties = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
                 {
                     // This property disables default item globbing to improve performance
@@ -280,7 +285,9 @@ namespace Microsoft.DotNet.Tools.Run
                     }
                 }
                 var collection = new ProjectCollection(globalProperties: globalProperties, loggers: binaryLogger is null ? null : [binaryLogger], toolsetDefinitionLocations: ToolsetDefinitionLocations.Default);
-                return collection.LoadProject(projectFilePath).CreateProjectInstance();
+                return projectFilePath is not null
+                    ? collection.LoadProject(projectFilePath).CreateProjectInstance()
+                    : projectFactory(collection);
             }
 
             static void ValidatePreconditions(ProjectInstance project)

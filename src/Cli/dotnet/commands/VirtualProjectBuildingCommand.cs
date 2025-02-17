@@ -1,9 +1,12 @@
 ﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+#nullable enable
+
 using System.Xml;
 using Microsoft.Build.Construction;
 using Microsoft.Build.Definition;
+using Microsoft.Build.Evaluation;
 using Microsoft.Build.Execution;
 using Microsoft.Build.Framework;
 using Microsoft.Build.Logging;
@@ -15,7 +18,7 @@ internal sealed class VirtualProjectBuildingCommand
 {
     public required string EntryPointFileFullPath { get; init; }
 
-    public int Execute()
+    public int Execute(out Func<ProjectCollection, ProjectInstance>? projectFactory)
     {
         // Setup MSBuild.
         var binaryLogger = new BinaryLogger
@@ -77,8 +80,21 @@ internal sealed class VirtualProjectBuildingCommand
                     </Target>
                 </Project>
                 """;
-            using var xmlReader = XmlReader.Create(new StringReader(projectFileText));
-            var projectRoot = ProjectRootElement.Create(xmlReader);
+            projectFactory = (projectCollection) =>
+            {
+                ProjectRootElement projectRoot;
+                using (var xmlReader = XmlReader.Create(new StringReader(projectFileText)))
+                {
+                    projectRoot = ProjectRootElement.Create(xmlReader, projectCollection);
+                }
+                projectRoot.FullPath = projectFileFullPath;
+                return ProjectInstance.FromProjectRootElement(projectRoot, new ProjectOptions());
+            };
+            ProjectRootElement projectRoot;
+            using (var xmlReader = XmlReader.Create(new StringReader(projectFileText)))
+            {
+                projectRoot = ProjectRootElement.Create(xmlReader);
+            }
             projectRoot.FullPath = projectFileFullPath;
 
             // Do a restore first (equivalent to MSBuild's "implicit restore", i.e., `/restore`).
@@ -117,6 +133,7 @@ internal sealed class VirtualProjectBuildingCommand
         catch (Exception e)
         {
             Console.Error.WriteLine(e.Message);
+            projectFactory = null;
             return 1;
         }
         finally
