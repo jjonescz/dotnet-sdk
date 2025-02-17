@@ -14,12 +14,13 @@ namespace Microsoft.DotNet.Cli.Run.Tests
         [Fact]
         public void ItFailsWithAnAppropriateErrorMessage()
         {
+            var workingDirectory = Path.GetTempPath().TrimEnd('/', '\\');
             new DotnetCommand(Log, "run")
                 // executing in a known path, with no project, is a sure way to get run to throw a parse error
-                .WithWorkingDirectory(Path.GetTempPath())
+                .WithWorkingDirectory(workingDirectory)
                 .Execute("--", "1")
                 .Should().Fail()
-                .And.HaveStdErrContainingOnce(LocalizableStrings.RunCommandExceptionNoProjects);
+                .And.HaveStdErrContainingOnce(string.Format(LocalizableStrings.RunCommandExceptionNoProjects, workingDirectory, "--project"));
         }
     }
 }
