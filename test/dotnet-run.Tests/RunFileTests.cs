@@ -30,7 +30,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     /// <c>dotnet run folder/file.cs</c> -> ok
     /// </summary>
     [Fact]
-    public void FilePath_OutsideWorkdir()
+    public void FilePath_OutsideWorkDir()
     {
         var testInstance = _testAssetsManager.CopyTestAsset("MSBuildTestApp")
             .WithSource()
@@ -55,10 +55,8 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .WithSource()
             .RemoveProjectFiles();
 
-        var workingDirectory = testInstance.Path.TrimEnd('/', '\\');
-
         new DotnetCommand(Log, "run", "--project", "Program.cs")
-            .WithWorkingDirectory(workingDirectory)
+            .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Fail()
             .And.HaveStdErrContaining(LocalizableStrings.RunCommandException);
@@ -126,5 +124,97 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
                 echo args:./MSBuildTestApp.csproj
                 Hello World!
                 """);
+    }
+
+    [Fact]
+    public void MultipleEntryPoints()
+    {
+        var testInstance = _testAssetsManager.CopyTestAsset("MSBuildTestApp")
+            .WithSource()
+            .RemoveProjectFiles();
+
+        File.Copy(Path.Join(testInstance.Path, "Program.cs"), Path.Join(testInstance.Path, "Program2.cs"));
+
+        new DotnetCommand(Log, "run", "Program.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining(LocalizableStrings.RunCommandException);
+    }
+
+    [Fact]
+    public void NoCode()
+    {
+        var testInstance = _testAssetsManager.CopyTestAsset("EmptyFolder")
+            .WithSource();
+
+        var workingDirectory = testInstance.Path.TrimEnd('/', '\\');
+
+        new DotnetCommand(Log, "run", "Program.cs")
+            .WithWorkingDirectory(workingDirectory)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining(string.Format(LocalizableStrings.RunCommandExceptionNoProjects, workingDirectory, "--project"));
+    }
+
+    [Fact]
+    public void ClassLibrary_EntryPointFileExists()
+    {
+        var testInstance = _testAssetsManager.CopyTestAsset("AppWithLibrary")
+            .WithSource()
+            .RemoveProjectFiles();
+
+        new DotnetCommand(Log, "run", "Helper.cs")
+            .WithWorkingDirectory(Path.Join(testInstance.Path, "TestLibrary"))
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining(LocalizableStrings.RunCommandException);
+    }
+
+    [Fact]
+    public void ClassLibrary_EntryPointFileDoesNotExist()
+    {
+        var testInstance = _testAssetsManager.CopyTestAsset("AppWithLibrary")
+            .WithSource()
+            .RemoveProjectFiles();
+
+        var workingDirectory = Path.Join(testInstance.Path, "TestLibrary").TrimEnd('/', '\\');
+
+        new DotnetCommand(Log, "run", "NonExistentFile.cs")
+            .WithWorkingDirectory(workingDirectory)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining(string.Format(LocalizableStrings.RunCommandExceptionNoProjects, workingDirectory, "--project"));
+    }
+
+    [Fact]
+    public void MultipleFiles_RunEntryPoint()
+    {
+        var testInstance = _testAssetsManager.CopyTestAsset("AppWithMultipleFiles")
+            .WithSource()
+            .RemoveProjectFiles();
+
+        new DotnetCommand(Log, "run", "Program.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut("""
+                Hello, world!
+                This string came from the test library!
+                """);
+    }
+
+    [Fact]
+    public void MultipleFiles_RunLibraryFile()
+    {
+        var testInstance = _testAssetsManager.CopyTestAsset("AppWithMultipleFiles")
+            .WithSource()
+            .RemoveProjectFiles();
+
+        new DotnetCommand(Log, "run", "Helper.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining("TODO");
     }
 }
