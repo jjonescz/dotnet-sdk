@@ -46,6 +46,25 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     }
 
     /// <summary>
+    /// <c>dotnet run --project file.cs</c> -> fails
+    /// </summary>
+    [Fact]
+    public void FilePath_AsProjectArgument()
+    {
+        var testInstance = _testAssetsManager.CopyTestAsset("MSBuildTestApp")
+            .WithSource()
+            .RemoveProjectFiles();
+
+        var workingDirectory = testInstance.Path.TrimEnd('/', '\\');
+
+        new DotnetCommand(Log, "run", "--project", "Program.cs")
+            .WithWorkingDirectory(workingDirectory)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContainingOnce(LocalizableStrings.RunCommandException);
+    }
+
+    /// <summary>
     /// <c>dotnet run folder</c> -> not supported
     /// </summary>
     [Theory]
