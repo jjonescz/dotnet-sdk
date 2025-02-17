@@ -58,8 +58,8 @@ namespace Microsoft.DotNet.Tools.Run
         {
             NoBuild = noBuild;
             ProjectFileOrDirectory = projectFileOrDirectory;
-            EntryPointFileFullPath = DiscoverEntryPointFilePath(ref args);
-            ProjectFileFullPath = DiscoverProjectFilePath(projectFileOrDirectory);
+            ProjectFileFullPath = DiscoverProjectFilePath(projectFileOrDirectory, ref args, out string? entryPointFileFullPath);
+            EntryPointFileFullPath = entryPointFileFullPath;
             LaunchProfile = launchProfile;
             NoLaunchProfile = noLaunchProfile;
             NoLaunchProfileArguments = noLaunchProfileArguments;
@@ -555,10 +555,52 @@ namespace Microsoft.DotNet.Tools.Run
                         project.GetPropertyValue("OutputType")));
         }
 
-        private string? DiscoverEntryPointFilePath(ref string[] args)
+        private static string? DiscoverProjectFilePath(string? projectFileOrDirectoryPath, ref string[] args, out string? entryPointFilePath)
         {
-            if (!string.IsNullOrWhiteSpace(ProjectFileOrDirectory) ||
-                args is not [var arg, ..] ||
+            bool emptyProjectOption = string.IsNullOrWhiteSpace(projectFileOrDirectoryPath);
+            if (emptyProjectOption)
+            {
+                projectFileOrDirectoryPath = Directory.GetCurrentDirectory();
+            }
+
+            string? projectFilePath = Directory.Exists(projectFileOrDirectoryPath)
+                ? TryFindSingleProjectInDirectory(projectFileOrDirectoryPath)
+                : projectFileOrDirectoryPath;
+
+            // If no project exists in the directory and no --project was given,
+            // try to resolve an entry-point file instead.
+            entryPointFilePath = projectFilePath is null && emptyProjectOption
+                ? TryFindEntryPointFilePath(ref args)
+                : null;
+
+            if (entryPointFilePath is null && projectFilePath is null)
+            {
+                throw new GracefulException(LocalizableStrings.RunCommandExceptionNoProjects, projectFileOrDirectoryPath, "--project");
+            }
+
+            return projectFilePath;
+        }
+
+        private static string? TryFindSingleProjectInDirectory(string directory)
+        {
+            string[] projectFiles = Directory.GetFiles(directory, "*.*proj");
+
+            if (projectFiles.Length == 0)
+            {
+                return null;
+            }
+
+            if (projectFiles.Length > 1)
+            {
+                throw new GracefulException(LocalizableStrings.RunCommandExceptionMultipleProjects, directory);
+            }
+
+            return projectFiles[0];
+        }
+
+        private static string? TryFindEntryPointFilePath(ref string[] args)
+        {
+            if (args is not [var arg, ..] ||
                 string.IsNullOrWhiteSpace(arg) ||
                 !File.Exists(arg))
             {
@@ -567,42 +609,6 @@ namespace Microsoft.DotNet.Tools.Run
 
             args = args[1..];
             return arg;
-        }
-
-        private string? DiscoverProjectFilePath(string? projectFileOrDirectoryPath)
-        {
-            if (EntryPointFileFullPath is not null)
-            {
-                Debug.Assert(projectFileOrDirectoryPath is null);
-                return null;
-            }
-
-            if (string.IsNullOrWhiteSpace(projectFileOrDirectoryPath))
-            {
-                projectFileOrDirectoryPath = Directory.GetCurrentDirectory();
-            }
-
-            if (Directory.Exists(projectFileOrDirectoryPath))
-            {
-                projectFileOrDirectoryPath = FindSingleProjectInDirectory(projectFileOrDirectoryPath);
-            }
-            return projectFileOrDirectoryPath;
-        }
-
-        private static string? FindSingleProjectInDirectory(string directory)
-        {
-            string[] projectFiles = Directory.GetFiles(directory, "*.*proj");
-
-            if (projectFiles.Length == 0)
-            {
-                throw new GracefulException(LocalizableStrings.RunCommandExceptionNoProjects, directory, "--project");
-            }
-            else if (projectFiles.Length > 1)
-            {
-                throw new GracefulException(LocalizableStrings.RunCommandExceptionMultipleProjects, directory);
-            }
-
-            return projectFiles[0];
         }
     }
 }
