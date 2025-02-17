@@ -1,7 +1,7 @@
 ﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Reflection;
+using System.Diagnostics;
 using Microsoft.Build.Evaluation;
 using Microsoft.Build.Exceptions;
 using Microsoft.Build.Execution;
@@ -20,7 +20,8 @@ namespace Microsoft.DotNet.Tools.Run
 
         public bool NoBuild { get; }
         public string? ProjectFileOrDirectory { get; }
-        public string ProjectFileFullPath { get; }
+        public string? ProjectFileFullPath { get; }
+        public string? EntryPointFileFullPath { get; }
         public string[] Args { get; set; }
         public bool NoRestore { get; }
         public VerbosityOptions? Verbosity { get; }
@@ -57,6 +58,7 @@ namespace Microsoft.DotNet.Tools.Run
         {
             NoBuild = noBuild;
             ProjectFileOrDirectory = projectFileOrDirectory;
+            EntryPointFileFullPath = DiscoverEntryPointFilePath(ref args);
             ProjectFileFullPath = DiscoverProjectFilePath(projectFileOrDirectory);
             LaunchProfile = launchProfile;
             NoLaunchProfile = noLaunchProfile;
@@ -213,8 +215,9 @@ namespace Microsoft.DotNet.Tools.Run
 
         private void EnsureProjectIsBuilt()
         {
-            var buildResult =
-                new RestoringCommand(
+            var buildResult = EntryPointFileFullPath is not null
+                ? new VirtualProjectBuildingCommand() { EntryPointFileFullPath = EntryPointFileFullPath }.Execute()
+                : new RestoringCommand(
                     RestoreArgs.Prepend(ProjectFileFullPath),
                     NoRestore,
                     advertiseWorkloadUpdates: false
@@ -545,8 +548,28 @@ namespace Microsoft.DotNet.Tools.Run
                         project.GetPropertyValue("OutputType")));
         }
 
-        private string DiscoverProjectFilePath(string? projectFileOrDirectoryPath)
+        private string? DiscoverEntryPointFilePath(ref string[] args)
         {
+            if (!string.IsNullOrWhiteSpace(ProjectFileOrDirectory) ||
+                args is not [var arg, ..] ||
+                string.IsNullOrWhiteSpace(arg) ||
+                !File.Exists(arg))
+            {
+                return null;
+            }
+
+            args = args[1..];
+            return arg;
+        }
+
+        private string? DiscoverProjectFilePath(string? projectFileOrDirectoryPath)
+        {
+            if (EntryPointFileFullPath is not null)
+            {
+                Debug.Assert(projectFileOrDirectoryPath is null);
+                return null;
+            }
+
             if (string.IsNullOrWhiteSpace(projectFileOrDirectoryPath))
             {
                 projectFileOrDirectoryPath = Directory.GetCurrentDirectory();
@@ -559,7 +582,7 @@ namespace Microsoft.DotNet.Tools.Run
             return projectFileOrDirectoryPath;
         }
 
-        public static string FindSingleProjectInDirectory(string directory)
+        private static string? FindSingleProjectInDirectory(string directory)
         {
             string[] projectFiles = Directory.GetFiles(directory, "*.*proj");
 
