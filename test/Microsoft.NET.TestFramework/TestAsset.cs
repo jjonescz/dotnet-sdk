@@ -255,6 +255,21 @@ namespace Microsoft.NET.TestFramework
 
         }
 
+        public TestAsset RemoveProjectFiles()
+        {
+            if (_projectFiles == null)
+            {
+                FindProjectFiles();
+            }
+
+            foreach (var projectFile in _projectFiles ?? [])
+            {
+                File.Delete(projectFile);
+            }
+
+            return this;
+        }
+
         public RestoreCommand GetRestoreCommand(ITestOutputHelper log, string relativePath = "")
         {
             return new RestoreCommand(log, System.IO.Path.Combine(TestRoot, relativePath));
