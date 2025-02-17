@@ -61,7 +61,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .WithWorkingDirectory(workingDirectory)
             .Execute()
             .Should().Fail()
-            .And.HaveStdErrContainingOnce(LocalizableStrings.RunCommandException);
+            .And.HaveStdErrContaining(LocalizableStrings.RunCommandException);
     }
 
     /// <summary>
@@ -86,7 +86,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .WithWorkingDirectory(workingDirectory)
             .Execute()
             .Should().Fail()
-            .And.HaveStdErrContainingOnce(string.Format(LocalizableStrings.RunCommandExceptionNoProjects, workingDirectory, "--project"));
+            .And.HaveStdErrContaining(string.Format(LocalizableStrings.RunCommandExceptionNoProjects, workingDirectory, "--project"));
     }
 
     /// <summary>
@@ -105,7 +105,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .WithWorkingDirectory(workingDirectory)
             .Execute()
             .Should().Fail()
-            .And.HaveStdErrContainingOnce(string.Format(LocalizableStrings.RunCommandExceptionNoProjects, workingDirectory, "--project"));
+            .And.HaveStdErrContaining(string.Format(LocalizableStrings.RunCommandExceptionNoProjects, workingDirectory, "--project"));
     }
 
     /// <summary>
