@@ -328,7 +328,8 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     /// </code>
     /// executing <c>dotnet run app/file.cs</c> will include the nested <c>.cs</c> file in the compilation.
     /// Hence we could consider reporting an error in this situation.
-    /// However, same problem exists for normal builds with explicit project files.
+    /// However, the same problem exists for normal builds with explicit project files
+    /// and usually the build fails because there are multiple entry points or other clashes.
     /// </summary>
     [Fact]
     public void NestedProjectFiles()
