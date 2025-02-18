@@ -432,7 +432,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     /// <c>dotnet run --unknown-arg file.cs</c> fallbacks to normal <c>dotnet run</c> behavior.
     /// </summary>
     [Fact]
-    public void Arguments_Unrecognized_BeforeFile()
+    public void Arguments_Unrecognized()
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
         File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
@@ -447,33 +447,19 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     /// <summary>
     /// <c>dotnet run --some-known-arg file.cs</c> is supported.
     /// </summary>
-    [Fact]
-    public void Arguments_Recognized_BeforeFile()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Arguments_Recognized(bool beforeFile)
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
         File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
 
-        new DotnetCommand(Log, ["run", "-c", "Release", "Program.cs", "more", "args"])
-            .WithWorkingDirectory(testInstance.Path)
-            .Execute()
-            .Should().Pass()
-            .And.HaveStdOut("""
-                echo args:more;args
-                Hello from Program
-                Release config
-                """);
-    }
+        string[] args = beforeFile
+            ? ["run", "-c", "Release", "Program.cs", "more", "args"]
+            : ["run", "Program.cs", "-c", "Release", "more", "args"];
 
-    /// <summary>
-    /// <c>dotnet run file.cs --some-known-arg</c> is supported.
-    /// </summary>
-    [Fact]
-    public void Arguments_Recognized_AfterFile()
-    {
-        var testInstance = _testAssetsManager.CreateTestDirectory();
-        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
-
-        new DotnetCommand(Log, ["run", "Program.cs", "-c", "Release", "more", "args"])
+        new DotnetCommand(Log, args)
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Pass()
@@ -487,14 +473,19 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     /// <summary>
     /// Some arguments of <c>dotnet run</c> are not supported without a project.
     /// </summary>
-    [Fact]
-    public void Arguments_Unsupported_BeforeFile()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Arguments_Unsupported(bool beforeFile)
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
         File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
 
-        // TODO: Test also after file.
-        new DotnetCommand(Log, ["run", "-lp", "test", "Program.cs"])
+        string[] args = beforeFile
+            ? ["run", "-lp", "test", "Program.cs"]
+            : ["run", "Program.cs", "-lp", "test"];
+
+        new DotnetCommand(Log, args)
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Fail()
