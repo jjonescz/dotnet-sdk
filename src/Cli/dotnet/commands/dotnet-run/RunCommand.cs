@@ -106,6 +106,10 @@ namespace Microsoft.DotNet.Tools.Run
 
                 EnsureProjectIsBuilt(out projectFactory);
             }
+            else if (EntryPointFileFullPath is not null)
+            {
+                throw new GracefulException(string.Format(LocalizableStrings.RunFileUnsupportedSwitch, RunCommandParser.NoBuildOption.Name, EntryPointFileFullPath));
+            }
 
             try
             {
@@ -173,7 +177,7 @@ namespace Microsoft.DotNet.Tools.Run
                     Reporter.Error.WriteLine(string.Format(LocalizableStrings.RunFileUnsupportedSwitch, RunCommandParser.LaunchProfileOption.Name, EntryPointFileFullPath).Bold().Red());
                 }
 
-                return false;
+                return true;
             }
 
             var launchSettingsPath = TryFindLaunchSettings(ProjectFileFullPath);

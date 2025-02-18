@@ -447,9 +447,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     /// <summary>
     /// <c>dotnet run --some-known-arg file.cs</c> is supported.
     /// </summary>
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
+    [Theory, CombinatorialData]
     public void Arguments_Recognized(bool beforeFile)
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
@@ -473,31 +471,31 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     /// <summary>
     /// Some arguments of <c>dotnet run</c> are not supported without a project.
     /// </summary>
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void LaunchProfile(bool beforeFile)
+    [Theory, CombinatorialData]
+    public void Arguments_Unsupported(
+        bool beforeFile,
+        [CombinatorialValues("--launch-profile;test", "--no-build")]
+        string input)
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
         File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
 
+        string[] innerArgs = input.Split(';');
         string[] args = beforeFile
-            ? ["run", "-lp", "test", "Program.cs"]
-            : ["run", "Program.cs", "-lp", "test"];
+            ? ["run", .. innerArgs, "Program.cs"]
+            : ["run", "Program.cs", .. innerArgs];
 
         new DotnetCommand(Log, args)
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Fail()
-            .And.HaveStdErrContaining("The option '--launch-profile' is not supported when running a file without a project:");
+            .And.HaveStdErrContaining($"The option '{innerArgs[0]}' is not supported when running a file without a project:");
     }
 
     /// <summary>
     /// <c>dotnet run --bl file.cs</c> produces a binary log.
     /// </summary>
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
+    [Theory, CombinatorialData]
     public void BinaryLog(bool beforeFile)
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
