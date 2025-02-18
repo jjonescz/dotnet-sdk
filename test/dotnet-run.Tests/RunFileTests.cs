@@ -182,29 +182,36 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     [Fact]
     public void MultipleFiles_RunEntryPoint()
     {
-        var testInstance = _testAssetsManager.CopyTestAsset("AppWithMultipleFiles")
+        var testInstance = _testAssetsManager.CopyTestAsset("AppWithLibrary")
             .WithSource()
             .RemoveProjectFiles();
 
+        var appDirectory = Path.Join(testInstance.Path, "TestApp");
+
+        // Copy .cs files into one folder.
+        File.Copy(Path.Join(testInstance.Path, "TestLibrary/Helper.cs"), Path.Join(appDirectory, "Helper.cs"));
+
         new DotnetCommand(Log, "run", "Program.cs")
-            .WithWorkingDirectory(testInstance.Path)
+            .WithWorkingDirectory(appDirectory)
             .Execute()
             .Should().Pass()
-            .And.HaveStdOut("""
-                Hello, world!
-                This string came from the test library!
-                """);
+            .And.HaveStdOut("This string came from the test library!");
     }
 
     [Fact]
     public void MultipleFiles_RunLibraryFile()
     {
-        var testInstance = _testAssetsManager.CopyTestAsset("AppWithMultipleFiles")
+        var testInstance = _testAssetsManager.CopyTestAsset("AppWithLibrary")
             .WithSource()
             .RemoveProjectFiles();
 
+        var appDirectory = Path.Join(testInstance.Path, "TestApp");
+
+        // Copy .cs files into one folder.
+        File.Copy(Path.Join(testInstance.Path, "TestLibrary/Helper.cs"), Path.Join(appDirectory, "Helper.cs"));
+
         new DotnetCommand(Log, "run", "Helper.cs")
-            .WithWorkingDirectory(testInstance.Path)
+            .WithWorkingDirectory(appDirectory)
             .Execute()
             .Should().Fail()
             .And.HaveStdErrContaining("TODO");
