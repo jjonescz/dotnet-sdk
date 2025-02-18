@@ -7,6 +7,62 @@ namespace Microsoft.DotNet.Cli.Run.Tests;
 
 public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
 {
+    private static readonly string s_program = """
+        if (args.Length > 0)
+        {
+            Console.WriteLine("echo args:" + string.Join(";", args));
+        }
+        Console.WriteLine("Hello World!");
+        """;
+
+    private static readonly string s_programDependingOnUtil = """
+        if (args.Length > 0)
+        {
+            Console.WriteLine("echo args:" + string.Join(";", args));
+        }
+        Console.WriteLine("Hello, " + Util.GetMessage());
+        """;
+
+    private static readonly string s_util = """
+        static class Util
+        {
+            public static string GetMessage()
+            {
+                return "String from Util";
+            }
+        }
+        """;
+
+    private static readonly string s_consoleProject = """
+        <Project Sdk="Microsoft.NET.Sdk">
+          <PropertyGroup>
+            <OutputType>Exe</OutputType>
+            <TargetFramework>$(CurrentTargetFramework)</TargetFramework>
+            <ImplicitUsings>enable</ImplicitUsings>
+          </PropertyGroup>
+        </Project>
+        """;
+
+    private static readonly string s_runCommandExceptionNoProjects =
+        Prefix(LocalizableStrings.RunCommandExceptionNoProjects);
+
+    private static readonly string s_noTopLevelStatements =
+        Prefix(LocalizableStrings.NoTopLevelStatements);
+
+    /// <summary>
+    /// Extracts a constant prefix from a formattable string that can be searched for in the output.
+    /// </summary>
+    private static string Prefix(string text)
+    {
+        var index = text.IndexOf('{');
+        return index switch
+        {
+            < 0 => text,
+            < 10 => throw new InvalidOperationException("Prefix is too short."),
+            _ => text[..index],
+        };
+    }
+
     /// <summary>
     /// <c>dotnet run file.cs</c> -> ok
     /// </summary>
@@ -17,11 +73,13 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     [InlineData("program.CS")]
     public void FilePath(string? path)
     {
-        var testInstance = _testAssetsManager.CopyTestAsset("MSBuildTestApp")
-            .WithSource()
-            .RemoveProjectFiles();
+        var testInstance = _testAssetsManager.CreateTestDirectory();
 
-        path ??= Path.Join(testInstance.Path, "Program.cs");
+        var programPath = Path.Join(testInstance.Path, "Program.cs");
+
+        File.WriteAllText(programPath, s_program);
+
+        path ??= programPath;
 
         new DotnetCommand(Log, "run", path)
             .WithWorkingDirectory(testInstance.Path)
@@ -36,9 +94,8 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     [Fact]
     public void FilePath_OutsideWorkDir()
     {
-        var testInstance = _testAssetsManager.CopyTestAsset("MSBuildTestApp")
-            .WithSource()
-            .RemoveProjectFiles();
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
 
         var dirName = Path.GetFileName(testInstance.Path);
 
@@ -55,9 +112,8 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     [Fact]
     public void FilePath_AsProjectArgument()
     {
-        var testInstance = _testAssetsManager.CopyTestAsset("MSBuildTestApp")
-            .WithSource()
-            .RemoveProjectFiles();
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
 
         new DotnetCommand(Log, "run", "--project", "Program.cs")
             .WithWorkingDirectory(testInstance.Path)
@@ -76,9 +132,8 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     [InlineData("../MSBuildTestApp/")]
     public void FolderPath(string? path)
     {
-        var testInstance = _testAssetsManager.CopyTestAsset("MSBuildTestApp")
-            .WithSource()
-            .RemoveProjectFiles();
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
 
         path ??= testInstance.Path;
 
@@ -86,7 +141,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Fail()
-            .And.HaveStdErrContaining("Couldn't find a project to run.");
+            .And.HaveStdErrContaining(s_runCommandExceptionNoProjects);
     }
 
     /// <summary>
@@ -95,15 +150,14 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     [Fact]
     public void ProjectPath_DoesNotExist()
     {
-        var testInstance = _testAssetsManager.CopyTestAsset("MSBuildTestApp")
-            .WithSource()
-            .RemoveProjectFiles();
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
 
-        new DotnetCommand(Log, "run", "./MSBuildTestApp.csproj")
+        new DotnetCommand(Log, "run", "./App.csproj")
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Fail()
-            .And.HaveStdErrContaining("Couldn't find a project to run.");
+            .And.HaveStdErrContaining(s_runCommandExceptionNoProjects);
     }
 
     /// <summary>
@@ -113,15 +167,16 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     [Fact]
     public void ProjectPath_Exists()
     {
-        var testInstance = _testAssetsManager.CopyTestAsset("MSBuildTestApp")
-            .WithSource();
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
+        File.WriteAllText(Path.Join(testInstance.Path, "App.csproj"), s_consoleProject);
 
-        new DotnetCommand(Log, "run", "./MSBuildTestApp.csproj")
+        new DotnetCommand(Log, "run", "./App.csproj")
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Pass()
             .And.HaveStdOut("""
-                echo args:./MSBuildTestApp.csproj
+                echo args:./App.csproj
                 Hello World!
                 """);
     }
@@ -136,17 +191,14 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     [InlineData("Program.vb")]
     public void NonCsFileExtension(string fileName)
     {
-        var testInstance = _testAssetsManager.CopyTestAsset("MSBuildTestApp")
-            .WithSource()
-            .RemoveProjectFiles();
-
-        File.Move(Path.Join(testInstance.Path, "Program.cs"), Path.Join(testInstance.Path, fileName));
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, fileName), s_program);
 
         new DotnetCommand(Log, "run", fileName)
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Fail()
-            .And.HaveStdErrContaining("Couldn't find a project to run.");
+            .And.HaveStdErrContaining(s_runCommandExceptionNoProjects);
     }
 
     /// <summary>
@@ -155,9 +207,8 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     [Fact]
     public void Arguments()
     {
-        var testInstance = _testAssetsManager.CopyTestAsset("MSBuildTestApp")
-            .WithSource()
-            .RemoveProjectFiles();
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
 
         new DotnetCommand(Log, "run", "Program.cs", "other", "args")
             .WithWorkingDirectory(testInstance.Path)
@@ -175,11 +226,9 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     [Fact]
     public void MultipleEntryPoints()
     {
-        var testInstance = _testAssetsManager.CopyTestAsset("MSBuildTestApp")
-            .WithSource()
-            .RemoveProjectFiles();
-
-        File.Copy(Path.Join(testInstance.Path, "Program.cs"), Path.Join(testInstance.Path, "Program2.cs"));
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
+        File.WriteAllText(Path.Join(testInstance.Path, "Program2.cs"), s_program);
 
         new DotnetCommand(Log, "run", "Program.cs")
             .WithWorkingDirectory(testInstance.Path)
@@ -194,31 +243,29 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     [Fact]
     public void NoCode()
     {
-        var testInstance = _testAssetsManager.CopyTestAsset("EmptyFolder")
-            .WithSource();
+        var testInstance = _testAssetsManager.CreateTestDirectory();
 
         new DotnetCommand(Log, "run", "Program.cs")
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Fail()
-            .And.HaveStdErrContaining("Couldn't find a project to run.");
+            .And.HaveStdErrContaining(s_runCommandExceptionNoProjects);
     }
 
     /// <summary>
-    /// Cannot run a non-entry-point file (the build fails - missing entry-point).
+    /// Cannot run a non-entry-point file.
     /// </summary>
     [Fact]
     public void ClassLibrary_EntryPointFileExists()
     {
-        var testInstance = _testAssetsManager.CopyTestAsset("AppWithLibrary")
-            .WithSource()
-            .RemoveProjectFiles();
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Util.cs"), s_util);
 
-        new DotnetCommand(Log, "run", "Helper.cs")
-            .WithWorkingDirectory(Path.Join(testInstance.Path, "TestLibrary"))
+        new DotnetCommand(Log, "run", "Util.cs")
+            .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Fail()
-            .And.HaveStdErrContaining(LocalizableStrings.RunCommandException);
+            .And.HaveStdErrContaining(s_noTopLevelStatements);
     }
 
     /// <summary>
@@ -227,15 +274,14 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     [Fact]
     public void ClassLibrary_EntryPointFileDoesNotExist()
     {
-        var testInstance = _testAssetsManager.CopyTestAsset("AppWithLibrary")
-            .WithSource()
-            .RemoveProjectFiles();
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Util.cs"), s_util);
 
         new DotnetCommand(Log, "run", "NonExistentFile.cs")
-            .WithWorkingDirectory(Path.Join(testInstance.Path, "TestLibrary"))
+            .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Fail()
-            .And.HaveStdErrContaining("Couldn't find a project to run.");
+            .And.HaveStdErrContaining(s_runCommandExceptionNoProjects);
     }
 
     /// <summary>
@@ -244,20 +290,15 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     [Fact]
     public void MultipleFiles_RunEntryPoint()
     {
-        var testInstance = _testAssetsManager.CopyTestAsset("AppWithLibrary")
-            .WithSource()
-            .RemoveProjectFiles();
-
-        var appDirectory = Path.Join(testInstance.Path, "TestApp");
-
-        // Copy .cs files into one folder.
-        File.Copy(Path.Join(testInstance.Path, "TestLibrary/Helper.cs"), Path.Join(appDirectory, "Helper.cs"));
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_programDependingOnUtil);
+        File.WriteAllText(Path.Join(testInstance.Path, "Util.cs"), s_util);
 
         new DotnetCommand(Log, "run", "Program.cs")
-            .WithWorkingDirectory(appDirectory)
+            .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Pass()
-            .And.HaveStdOut("This string came from the test library!");
+            .And.HaveStdOut("Hello, String from Util");
     }
 
     /// <summary>
@@ -266,20 +307,15 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     [Fact]
     public void MultipleFiles_RunLibraryFile()
     {
-        var testInstance = _testAssetsManager.CopyTestAsset("AppWithLibrary")
-            .WithSource()
-            .RemoveProjectFiles();
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_programDependingOnUtil);
+        File.WriteAllText(Path.Join(testInstance.Path, "Util.cs"), s_util);
 
-        var appDirectory = Path.Join(testInstance.Path, "TestApp");
-
-        // Copy .cs files into one folder.
-        File.Copy(Path.Join(testInstance.Path, "TestLibrary/Helper.cs"), Path.Join(appDirectory, "Helper.cs"));
-
-        new DotnetCommand(Log, "run", "Helper.cs")
-            .WithWorkingDirectory(appDirectory)
+        new DotnetCommand(Log, "run", "Util.cs")
+            .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Fail()
-            .And.HaveStdErrContaining("TODO");
+            .And.HaveStdErrContaining(s_noTopLevelStatements);
     }
 
     /// <summary>
@@ -296,12 +332,10 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     [Fact]
     public void NestedProjectFiles()
     {
-        var testInstance = _testAssetsManager.CopyTestAsset("MSBuildTestApp")
-            .WithSource();
-
-        // Move .csproj into a nested folder.
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
         Directory.CreateDirectory(Path.Join(testInstance.Path, "nested"));
-        File.Move(Path.Join(testInstance.Path, "MSBuildTestApp.csproj"), Path.Join(testInstance.Path, "nested", "MSBuildTestApp.csproj"));
+        File.WriteAllText(Path.Join(testInstance.Path, "nested", "App.csproj"), s_consoleProject);
 
         new DotnetCommand(Log, "run", "Program.cs")
             .WithWorkingDirectory(testInstance.Path)
@@ -317,15 +351,48 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     [Fact]
     public void RunNestedProjectFile()
     {
-        var testInstance = _testAssetsManager.CopyTestAsset("MSBuildTestApp")
-            .WithSource();
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
+        File.WriteAllText(Path.Join(testInstance.Path, "App.csproj"), s_consoleProject);
 
         var dirName = Path.GetFileName(testInstance.Path);
 
-        new DotnetCommand(Log, "run", $"{dirName}/MSBuildTestApp.csproj")
+        new DotnetCommand(Log, "run", $"{dirName}/App.csproj")
             .WithWorkingDirectory(Path.GetDirectoryName(testInstance.Path)!)
             .Execute()
             .Should().Fail()
-            .And.HaveStdErrContaining("Couldn't find a project to run.");
+            .And.HaveStdErrContaining(s_runCommandExceptionNoProjects);
+    }
+
+    /// <summary>
+    /// Only top-level statements are supported for now; Main method is not.
+    /// </summary>
+    [Fact]
+    public void MainMethod()
+    {
+        var testInstance = _testAssetsManager.CopyTestAsset("MSBuildTestApp").WithSource();
+        File.Delete(Path.Join(testInstance.Path, "MSBuildTestApp.csproj"));
+
+        new DotnetCommand(Log, "run", "Program.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining(s_noTopLevelStatements);
+    }
+
+    /// <summary>
+    /// Empty file does not contain top-level statements, so that's an error.
+    /// </summary>
+    [Fact]
+    public void EmptyFile()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), string.Empty);
+
+        new DotnetCommand(Log, "run", "Program.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining(s_noTopLevelStatements);
     }
 }

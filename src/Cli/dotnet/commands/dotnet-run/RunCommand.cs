@@ -7,6 +7,9 @@ using Microsoft.Build.Exceptions;
 using Microsoft.Build.Execution;
 using Microsoft.Build.Framework;
 using Microsoft.Build.Logging;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Text;
 using Microsoft.DotNet.Cli;
 using Microsoft.DotNet.Cli.Utils;
 using Microsoft.DotNet.CommandFactory;
@@ -607,8 +610,25 @@ namespace Microsoft.DotNet.Tools.Run
                     return null;
                 }
 
+                if (!HasTopLevelStatements(arg))
+                {
+                    throw new GracefulException(LocalizableStrings.NoTopLevelStatements, arg);
+                }
+
                 args = args[1..];
                 return arg;
+            }
+
+            static bool HasTopLevelStatements(string entryPointFilePath)
+            {
+                var tree = ParseCSharp(entryPointFilePath);
+                return tree.GetRoot().ChildNodes().OfType<GlobalStatementSyntax>().Any();
+            }
+
+            static CSharpSyntaxTree ParseCSharp(string filePath)
+            {
+                using var stream = File.OpenRead(filePath);
+                return (CSharpSyntaxTree)CSharpSyntaxTree.ParseText(SourceText.From(stream, Encoding.UTF8), path: filePath);
             }
         }
     }
