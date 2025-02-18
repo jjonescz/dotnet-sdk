@@ -1,4 +1,6 @@
-using Microsoft.Build.Tasks;
+// Licensed to the .NET Foundation under one or more agreements.
+// The .NET Foundation licenses this file to you under the MIT license.
+
 using Microsoft.DotNet.Tools.Run;
 
 namespace Microsoft.DotNet.Cli.Run.Tests;
@@ -147,6 +149,9 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .And.HaveStdErrContaining("Couldn't find a project to run.");
     }
 
+    /// <summary>
+    /// Command-line arguments should be passed through.
+    /// </summary>
     [Fact]
     public void Arguments()
     {
@@ -164,6 +169,9 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
                 """);
     }
 
+    /// <summary>
+    /// The build fails when there are multiple files with entry points.
+    /// </summary>
     [Fact]
     public void MultipleEntryPoints()
     {
@@ -180,6 +188,9 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .And.HaveStdErrContaining(LocalizableStrings.RunCommandException);
     }
 
+    /// <summary>
+    /// When the entry-point file does not exist, fallback to normal <c>dotnet run</c> behavior.
+    /// </summary>
     [Fact]
     public void NoCode()
     {
@@ -193,6 +204,9 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .And.HaveStdErrContaining("Couldn't find a project to run.");
     }
 
+    /// <summary>
+    /// Cannot run a non-entry-point file (the build fails - missing entry-point).
+    /// </summary>
     [Fact]
     public void ClassLibrary_EntryPointFileExists()
     {
@@ -207,6 +221,9 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .And.HaveStdErrContaining(LocalizableStrings.RunCommandException);
     }
 
+    /// <summary>
+    /// When the entry-point file does not exist, fallback to normal <c>dotnet run</c> behavior.
+    /// </summary>
     [Fact]
     public void ClassLibrary_EntryPointFileDoesNotExist()
     {
@@ -221,6 +238,9 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .And.HaveStdErrContaining("Couldn't find a project to run.");
     }
 
+    /// <summary>
+    /// Other files in the folder are part of the compilation.
+    /// </summary>
     [Fact]
     public void MultipleFiles_RunEntryPoint()
     {
@@ -240,6 +260,9 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .And.HaveStdOut("This string came from the test library!");
     }
 
+    /// <summary>
+    /// <c>dotnet run util.cs</c> fails if <c>util.cs</c> is not the entry-point.
+    /// </summary>
     [Fact]
     public void MultipleFiles_RunLibraryFile()
     {
