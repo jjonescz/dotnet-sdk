@@ -259,7 +259,7 @@ namespace Microsoft.DotNet.Tools.Run
                 AddUserPassedProperties(command.GlobalProperties, RestoreArgs);
 
                 projectFactory = command.CreateProjectInstance;
-                buildResult = command.Execute(RestoreArgs);
+                buildResult = command.Execute(binaryLoggerArgs: RestoreArgs);
             }
             else
             {
