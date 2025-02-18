@@ -124,6 +124,10 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
                 """);
     }
 
+    /// <summary>
+    /// Only <c>.cs</c> files can be recognized as entry-point files,
+    /// others fall back to normal <c>dotnet run</c> behavior.
+    /// </summary>
     [Theory]
     [InlineData("Program")]
     [InlineData("Program.csx")]
@@ -140,7 +144,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Fail()
-            .And.HaveStdErrContaining("TODO");
+            .And.HaveStdErrContaining("Couldn't find a project to run.");
     }
 
     [Fact]
@@ -273,7 +277,8 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     }
 
     /// <summary>
-    /// <c>dotnet run folder/app.csproj</c>
+    /// <c>dotnet run folder/app.csproj</c> -> the argument is not recognized as an entry-point file
+    /// (it does not have <c>.cs</c> file extension), so this fall backs to normal <c>dotnet run</c> behavior.
     /// </summary>
     [Fact]
     public void RunNestedProjectFile()
@@ -287,6 +292,6 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .WithWorkingDirectory(Path.GetDirectoryName(testInstance.Path)!)
             .Execute()
             .Should().Fail()
-            .And.HaveStdErrContaining("TODO");
+            .And.HaveStdErrContaining("Couldn't find a project to run.");
     }
 }

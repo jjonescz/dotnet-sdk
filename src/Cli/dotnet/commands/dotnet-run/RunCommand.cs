@@ -602,6 +602,7 @@ namespace Microsoft.DotNet.Tools.Run
         {
             if (args is not [var arg, ..] ||
                 string.IsNullOrWhiteSpace(arg) ||
+                !arg.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) ||
                 !File.Exists(arg))
             {
                 return null;
