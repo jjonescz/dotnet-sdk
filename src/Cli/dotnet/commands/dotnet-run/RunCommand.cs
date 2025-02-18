@@ -22,9 +22,24 @@ namespace Microsoft.DotNet.Tools.Run
         private record RunProperties(string? RunCommand, string? RunArguments, string? RunWorkingDirectory);
 
         public bool NoBuild { get; }
+
+        /// <summary>
+        /// Value of the <c>--project</c> option.
+        /// </summary>
         public string? ProjectFileOrDirectory { get; }
+
+        /// <summary>
+        /// Full path to a project file to run.
+        /// <see langword="null"/> if running without a project file
+        /// (then <see cref="EntryPointFileFullPath"/> is not <see langword="null"/>).
+        /// </summary>
         public string? ProjectFileFullPath { get; }
+
+        /// <summary>
+        /// Full path to an entry-point <c>.cs</c> file to run without a project file.
+        /// </summary>
         public string? EntryPointFileFullPath { get; }
+
         public string[] Args { get; set; }
         public bool NoRestore { get; }
         public VerbosityOptions? Verbosity { get; }
