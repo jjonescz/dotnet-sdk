@@ -14,99 +14,52 @@ using Microsoft.DotNet.Cli.Utils;
 
 namespace Microsoft.DotNet.Tools;
 
+/// <summary>
+/// Used to build a virtual project file in memory to support <c>dotnet run file.cs</c>.
+/// </summary>
 internal sealed class VirtualProjectBuildingCommand
 {
+    public Dictionary<string, string> GlobalProperties { get; } = new(StringComparer.OrdinalIgnoreCase);
     public required string EntryPointFileFullPath { get; init; }
 
-    public int Execute(out Func<ProjectCollection, ProjectInstance>? projectFactory)
+    public int Execute()
     {
-        // Setup MSBuild.
         var binaryLogger = new BinaryLogger
         {
             Parameters = "msbuild.binlog",
             CollectProjectImports = BinaryLogger.ProjectImportsCollectionMode.Embed,
         };
         var consoleLogger = new ConsoleLogger(LoggerVerbosity.Quiet);
+        Dictionary<string, string?> savedEnvironmentVariables = new();
         try
         {
-            IEnumerable<ILogger> loggers = [binaryLogger, consoleLogger];
-            var globalProperties = MSBuildForwardingAppWithoutLogging.GetMSBuildRequiredEnvironmentVariables();
-            var parameters = new BuildParameters
+            // Set environment variables.
+            foreach (var (key, value) in MSBuildForwardingAppWithoutLogging.GetMSBuildRequiredEnvironmentVariables())
             {
-                GlobalProperties = globalProperties,
-                Loggers = loggers,
+                savedEnvironmentVariables[key] = Environment.GetEnvironmentVariable(key);
+                Environment.SetEnvironmentVariable(key, value);
+            }
+
+            // Setup MSBuild.
+            var projectCollection = new ProjectCollection(
+                GlobalProperties,
+                [binaryLogger, consoleLogger],
+                ToolsetDefinitionLocations.Default);
+            var parameters = new BuildParameters(projectCollection)
+            {
+                Loggers = projectCollection.Loggers,
                 LogTaskInputs = true,
                 LogInitialPropertiesAndItems = true,
             };
             BuildManager.DefaultBuildManager.BeginBuild(parameters);
 
-            // Create a virtual project file.
-            var projectFileFullPath = Path.ChangeExtension(EntryPointFileFullPath, ".csproj");
-            var projectFileText = """
-                <Project>
-                    <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
-
-                    <PropertyGroup>
-                        <OutputType>Exe</OutputType>
-                        <TargetFramework>net9.0</TargetFramework>
-                        <ImplicitUsings>enable</ImplicitUsings>
-                        <Nullable>enable</Nullable>
-                    </PropertyGroup>
-
-                    <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
-
-                    <!-- Override targets which don't work with project files that are not present on disk. -->
-
-                    <Target Name="_FilterRestoreGraphProjectInputItems"
-                            DependsOnTargets="_LoadRestoreGraphEntryPoints"
-                            Returns="@(FilteredRestoreGraphProjectInputItems)">
-                        <ItemGroup>
-                            <FilteredRestoreGraphProjectInputItems Include="@(RestoreGraphProjectInputItems)" />
-                        </ItemGroup>
-                    </Target>
-
-                    <Target Name="_GetAllRestoreProjectPathItems"
-                            DependsOnTargets="_FilterRestoreGraphProjectInputItems"
-                            Returns="@(_RestoreProjectPathItems)">
-                        <ItemGroup>
-                            <_RestoreProjectPathItems Include="@(FilteredRestoreGraphProjectInputItems)" />
-                        </ItemGroup>
-                    </Target>
-
-                    <Target Name="_GenerateRestoreGraph"
-                            DependsOnTargets="_FilterRestoreGraphProjectInputItems;_GetAllRestoreProjectPathItems;_GenerateRestoreGraphProjectEntry;_GenerateProjectRestoreGraph"
-                            Returns="@(_RestoreGraphEntry)">
-                        <!-- Output from dependency _GenerateRestoreGraphProjectEntry and _GenerateProjectRestoreGraph -->
-                    </Target>
-                </Project>
-                """;
-            projectFactory = (projectCollection) =>
-            {
-                ProjectRootElement projectRoot;
-                using (var xmlReader = XmlReader.Create(new StringReader(projectFileText)))
-                {
-                    projectRoot = ProjectRootElement.Create(xmlReader, projectCollection);
-                }
-                projectRoot.FullPath = projectFileFullPath;
-                return ProjectInstance.FromProjectRootElement(projectRoot, new ProjectOptions());
-            };
-            ProjectRootElement projectRoot;
-            using (var xmlReader = XmlReader.Create(new StringReader(projectFileText)))
-            {
-                projectRoot = ProjectRootElement.Create(xmlReader);
-            }
-            projectRoot.FullPath = projectFileFullPath;
-
             // Do a restore first (equivalent to MSBuild's "implicit restore", i.e., `/restore`).
             // See https://github.com/dotnet/msbuild/blob/a1c2e7402ef0abe36bf493e395b04dd2cb1b3540/src/MSBuild/XMake.cs#L1838.
             var restoreRequest = new BuildRequestData(
-                ProjectInstance.FromProjectRootElement(projectRoot, new ProjectOptions
+                CreateProjectInstance(projectCollection, addGlobalProperties: static (globalProperties) =>
                 {
-                    GlobalProperties = new Dictionary<string, string>()
-                    {
-                        ["MSBuildRestoreSessionId"] = Guid.NewGuid().ToString("D"),
-                        ["MSBuildIsRestoring"] = bool.TrueString,
-                    },
+                    globalProperties["MSBuildRestoreSessionId"] = Guid.NewGuid().ToString("D");
+                    globalProperties["MSBuildIsRestoring"] = bool.TrueString;
                 }),
                 targetsToBuild: ["Restore"],
                 hostServices: null,
@@ -119,7 +72,7 @@ internal sealed class VirtualProjectBuildingCommand
 
             // Then do a build.
             var buildRequest = new BuildRequestData(
-                ProjectInstance.FromProjectRootElement(projectRoot, new ProjectOptions()),
+                CreateProjectInstance(projectCollection),
                 targetsToBuild: ["Build"]);
             var buildResult = BuildManager.DefaultBuildManager.BuildRequest(buildRequest);
             if (buildResult.OverallResult != BuildResultCode.Success)
@@ -133,13 +86,91 @@ internal sealed class VirtualProjectBuildingCommand
         catch (Exception e)
         {
             Console.Error.WriteLine(e.Message);
-            projectFactory = null;
             return 1;
         }
         finally
         {
+            foreach (var (key, value) in savedEnvironmentVariables)
+            {
+                Environment.SetEnvironmentVariable(key, value);
+            }
+
             binaryLogger.Shutdown();
             consoleLogger.Shutdown();
         }
+    }
+
+    public ProjectInstance CreateProjectInstance(ProjectCollection projectCollection)
+    {
+        return CreateProjectInstance(projectCollection, addGlobalProperties: null);
+    }
+
+    private ProjectInstance CreateProjectInstance(
+        ProjectCollection projectCollection,
+        Action<IDictionary<string, string>>? addGlobalProperties = null)
+    {
+        var projectRoot = CreateProjectRootElement(projectCollection);
+
+        var globalProperties = projectCollection.GlobalProperties;
+        if (addGlobalProperties is not null)
+        {
+            globalProperties = new Dictionary<string, string>(projectCollection.GlobalProperties, StringComparer.OrdinalIgnoreCase);
+            addGlobalProperties(globalProperties);
+        }
+
+        return ProjectInstance.FromProjectRootElement(projectRoot, new ProjectOptions
+        {
+            GlobalProperties = globalProperties,
+        });
+    }
+
+    private ProjectRootElement CreateProjectRootElement(ProjectCollection projectCollection)
+    {
+        var projectFileFullPath = Path.ChangeExtension(EntryPointFileFullPath, ".csproj");
+        var projectFileText = """
+            <Project>
+                <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+
+                <PropertyGroup>
+                    <OutputType>Exe</OutputType>
+                    <TargetFramework>net9.0</TargetFramework>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <Nullable>enable</Nullable>
+                </PropertyGroup>
+
+                <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
+
+                <!-- Override targets which don't work with project files that are not present on disk. -->
+
+                <Target Name="_FilterRestoreGraphProjectInputItems"
+                        DependsOnTargets="_LoadRestoreGraphEntryPoints"
+                        Returns="@(FilteredRestoreGraphProjectInputItems)">
+                    <ItemGroup>
+                        <FilteredRestoreGraphProjectInputItems Include="@(RestoreGraphProjectInputItems)" />
+                    </ItemGroup>
+                </Target>
+
+                <Target Name="_GetAllRestoreProjectPathItems"
+                        DependsOnTargets="_FilterRestoreGraphProjectInputItems"
+                        Returns="@(_RestoreProjectPathItems)">
+                    <ItemGroup>
+                        <_RestoreProjectPathItems Include="@(FilteredRestoreGraphProjectInputItems)" />
+                    </ItemGroup>
+                </Target>
+
+                <Target Name="_GenerateRestoreGraph"
+                        DependsOnTargets="_FilterRestoreGraphProjectInputItems;_GetAllRestoreProjectPathItems;_GenerateRestoreGraphProjectEntry;_GenerateProjectRestoreGraph"
+                        Returns="@(_RestoreGraphEntry)">
+                    <!-- Output from dependency _GenerateRestoreGraphProjectEntry and _GenerateProjectRestoreGraph -->
+                </Target>
+            </Project>
+            """;
+        ProjectRootElement projectRoot;
+        using (var xmlReader = XmlReader.Create(new StringReader(projectFileText)))
+        {
+            projectRoot = ProjectRootElement.Create(xmlReader, projectCollection);
+        }
+        projectRoot.FullPath = projectFileFullPath;
+        return projectRoot;
     }
 }

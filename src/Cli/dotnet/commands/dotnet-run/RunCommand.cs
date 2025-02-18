@@ -234,15 +234,28 @@ namespace Microsoft.DotNet.Tools.Run
 
         private void EnsureProjectIsBuilt(out Func<ProjectCollection, ProjectInstance>? projectFactory)
         {
-            projectFactory = null;
-            var buildResult = EntryPointFileFullPath is not null
-                ? new VirtualProjectBuildingCommand() { EntryPointFileFullPath = EntryPointFileFullPath }
-                .Execute(out projectFactory)
-                : new RestoringCommand(
+            int buildResult;
+            if (EntryPointFileFullPath is not null)
+            {
+                var command = new VirtualProjectBuildingCommand
+                {
+                    EntryPointFileFullPath = EntryPointFileFullPath,
+                };
+
+                AddUserPassedProperties(command.GlobalProperties, RestoreArgs);
+
+                projectFactory = command.CreateProjectInstance;
+                buildResult = command.Execute();
+            }
+            else
+            {
+                projectFactory = null;
+                buildResult = new RestoringCommand(
                     RestoreArgs.Prepend(ProjectFileFullPath),
                     NoRestore,
                     advertiseWorkloadUpdates: false
                 ).Execute();
+            }
 
             if (buildResult != 0)
             {
@@ -294,14 +307,8 @@ namespace Microsoft.DotNet.Tools.Run
                     { Constants.MSBuildExtensionsPath, AppContext.BaseDirectory }
                 };
 
-                var userPassedProperties = DeriveUserPassedProperties(restoreArgs);
-                if (userPassedProperties is not null)
-                {
-                    foreach (var (key, values) in userPassedProperties)
-                    {
-                        globalProperties[key] = string.Join(";", values);
-                    }
-                }
+                AddUserPassedProperties(globalProperties, restoreArgs);
+
                 var collection = new ProjectCollection(globalProperties: globalProperties, loggers: binaryLogger is null ? null : [binaryLogger], toolsetDefinitionLocations: ToolsetDefinitionLocations.Default);
                 return projectFilePath is not null
                     ? collection.LoadProject(projectFilePath).CreateProjectInstance()
@@ -314,35 +321,6 @@ namespace Microsoft.DotNet.Tools.Run
                 {
                     ThrowUnableToRunError(project);
                 }
-            }
-
-            static Dictionary<string, List<string>>? DeriveUserPassedProperties(string[] args)
-            {
-                var fakeCommand = new System.CommandLine.CliCommand("dotnet") { CommonOptions.PropertiesOption };
-                var propertyParsingConfiguration = new System.CommandLine.CliConfiguration(fakeCommand);
-                var propertyParseResult = propertyParsingConfiguration.Parse(args);
-                var propertyValues = propertyParseResult.GetValue(CommonOptions.PropertiesOption);
-
-                if (propertyValues != null)
-                {
-                    var userPassedProperties = new Dictionary<string, List<string>>(propertyValues.Length, StringComparer.OrdinalIgnoreCase);
-                    foreach (var property in propertyValues)
-                    {
-                        foreach (var (key, value) in MSBuildPropertyParser.ParseProperties(property))
-                        {
-                            if (userPassedProperties.TryGetValue(key, out var existingValues))
-                            {
-                                existingValues.Add(value);
-                            }
-                            else
-                            {
-                                userPassedProperties[key] = [value];
-                            }
-                        }
-                    }
-                    return userPassedProperties;
-                }
-                return null;
             }
 
             static RunProperties ReadRunPropertiesFromProject(ProjectInstance project, string[] applicationArgs)
@@ -442,6 +420,35 @@ namespace Microsoft.DotNet.Tools.Run
             {
                 var dispatcher = new PersistentDispatcher(binaryLoggers);
                 return new FacadeLogger(dispatcher);
+            }
+        }
+
+        /// <param name="globalProperties">
+        /// Should have <see cref="StringComparer.OrdinalIgnoreCase"/>.
+        /// </param>
+        private static void AddUserPassedProperties(Dictionary<string, string> globalProperties, string[] args)
+        {
+            var fakeCommand = new System.CommandLine.CliCommand("dotnet") { CommonOptions.PropertiesOption };
+            var propertyParsingConfiguration = new System.CommandLine.CliConfiguration(fakeCommand);
+            var propertyParseResult = propertyParsingConfiguration.Parse(args);
+            var propertyValues = propertyParseResult.GetValue(CommonOptions.PropertiesOption);
+
+            if (propertyValues != null)
+            {
+                foreach (var property in propertyValues)
+                {
+                    foreach (var (key, value) in MSBuildPropertyParser.ParseProperties(property))
+                    {
+                        if (globalProperties.TryGetValue(key, out var existingValues))
+                        {
+                            globalProperties[key] = existingValues + ";" + value;
+                        }
+                        else
+                        {
+                            globalProperties[key] = value;
+                        }
+                    }
+                }
             }
         }
 
@@ -631,7 +638,7 @@ namespace Microsoft.DotNet.Tools.Run
                 }
 
                 args = args[1..];
-                return arg;
+                return Path.GetFullPath(arg);
             }
 
             static bool HasTopLevelStatements(string entryPointFilePath)
