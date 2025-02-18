@@ -579,37 +579,37 @@ namespace Microsoft.DotNet.Tools.Run
             }
 
             return projectFilePath;
-        }
 
-        private static string? TryFindSingleProjectInDirectory(string directory)
-        {
-            string[] projectFiles = Directory.GetFiles(directory, "*.*proj");
-
-            if (projectFiles.Length == 0)
+            static string? TryFindSingleProjectInDirectory(string directory)
             {
-                return null;
+                string[] projectFiles = Directory.GetFiles(directory, "*.*proj");
+
+                if (projectFiles.Length == 0)
+                {
+                    return null;
+                }
+
+                if (projectFiles.Length > 1)
+                {
+                    throw new GracefulException(LocalizableStrings.RunCommandExceptionMultipleProjects, directory);
+                }
+
+                return projectFiles[0];
             }
 
-            if (projectFiles.Length > 1)
+            static string? TryFindEntryPointFilePath(ref string[] args)
             {
-                throw new GracefulException(LocalizableStrings.RunCommandExceptionMultipleProjects, directory);
+                if (args is not [var arg, ..] ||
+                    string.IsNullOrWhiteSpace(arg) ||
+                    !arg.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) ||
+                    !File.Exists(arg))
+                {
+                    return null;
+                }
+
+                args = args[1..];
+                return arg;
             }
-
-            return projectFiles[0];
-        }
-
-        private static string? TryFindEntryPointFilePath(ref string[] args)
-        {
-            if (args is not [var arg, ..] ||
-                string.IsNullOrWhiteSpace(arg) ||
-                !arg.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) ||
-                !File.Exists(arg))
-            {
-                return null;
-            }
-
-            args = args[1..];
-            return arg;
         }
     }
 }
