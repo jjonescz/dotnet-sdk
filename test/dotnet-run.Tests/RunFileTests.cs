@@ -13,6 +13,9 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             Console.WriteLine("echo args:" + string.Join(";", args));
         }
         Console.WriteLine("Hello from " + System.Reflection.Assembly.GetExecutingAssembly().GetName().Name);
+        #if !DEBUG
+        Console.WriteLine("Release config");
+        #endif
         """;
 
     private static readonly string s_programDependingOnUtil = """
@@ -50,7 +53,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         "Cannot run a file without top-level statements and without a project:";
 
     /// <summary>
-    /// <c>dotnet run file.cs</c> -> ok
+    /// <c>dotnet run file.cs</c> succeeds without a project file.
     /// </summary>
     [Theory]
     [InlineData(null)] // will be replaced with an absolute path
@@ -75,7 +78,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     }
 
     /// <summary>
-    /// Casing of the argument is used for the final binary.
+    /// Casing of the argument is used for the output binary name.
     /// </summary>
     [Fact]
     public void FilePath_DifferentCasing()
@@ -90,7 +93,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     }
 
     /// <summary>
-    /// <c>dotnet run folder/file.cs</c> -> ok
+    /// <c>dotnet run folder/file.cs</c> succeeds without a project file.
     /// </summary>
     [Fact]
     public void FilePath_OutsideWorkDir()
@@ -108,7 +111,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     }
 
     /// <summary>
-    /// <c>dotnet run --project file.cs</c> -> fails
+    /// <c>dotnet run --project file.cs</c> fails.
     /// </summary>
     [Fact]
     public void FilePath_AsProjectArgument()
@@ -124,7 +127,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     }
 
     /// <summary>
-    /// <c>dotnet run folder</c> -> not supported
+    /// <c>dotnet run folder</c> without a project file is not supported.
     /// </summary>
     [Theory]
     [InlineData(null)] // will be replaced with an absolute path
@@ -146,7 +149,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     }
 
     /// <summary>
-    /// <c>dotnet run app.csproj</c> where app.csproj does not exist -> fails
+    /// <c>dotnet run app.csproj</c> fails if app.csproj does not exist.
     /// </summary>
     [Fact]
     public void ProjectPath_DoesNotExist()
@@ -163,7 +166,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
 
     /// <summary>
     /// <c>dotnet run app.csproj</c> where app.csproj exists
-    /// -> runs the project and passes 'app.csproj' as an argument
+    /// runs the project and passes 'app.csproj' as an argument.
     /// </summary>
     [Fact]
     public void ProjectPath_Exists()
@@ -183,7 +186,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     }
 
     /// <summary>
-    /// Only <c>.cs</c> files can be recognized as entry-point files,
+    /// Only <c>.cs</c> files can be run without a project file,
     /// others fall back to normal <c>dotnet run</c> behavior.
     /// </summary>
     [Theory]
@@ -200,25 +203,6 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .Execute()
             .Should().Fail()
             .And.HaveStdErrContaining(s_runCommandExceptionNoProjects);
-    }
-
-    /// <summary>
-    /// Command-line arguments should be passed through.
-    /// </summary>
-    [Fact]
-    public void Arguments()
-    {
-        var testInstance = _testAssetsManager.CreateTestDirectory();
-        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
-
-        new DotnetCommand(Log, "run", "Program.cs", "other", "args")
-            .WithWorkingDirectory(testInstance.Path)
-            .Execute()
-            .Should().Pass()
-            .And.HaveStdOut("""
-                echo args:other;args
-                Hello from Program
-                """);
     }
 
     /// <summary>
@@ -348,7 +332,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
 
     /// <summary>
     /// <c>dotnet run folder/app.csproj</c> -> the argument is not recognized as an entry-point file
-    /// (it does not have <c>.cs</c> file extension), so this fall backs to normal <c>dotnet run</c> behavior.
+    /// (it does not have <c>.cs</c> file extension), so this fallbacks to normal <c>dotnet run</c> behavior.
     /// </summary>
     [Fact]
     public void RunNestedProjectFile()
@@ -419,5 +403,101 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .Execute()
             .Should().Pass()
             .And.HaveStdOut("Hello from TestName");
+    }
+
+    /// <summary>
+    /// Command-line arguments should be passed through.
+    /// </summary>
+    [Theory]
+    [InlineData("other;args", "other;args")]
+    [InlineData("--;other;args", "other;args")]
+    [InlineData("--appArg", "--appArg")]
+    [InlineData("-c;Debug;--xyz", "--xyz")]
+    public void Arguments_PassThrough(string input, string output)
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
+
+        new DotnetCommand(Log, ["run", "Program.cs", .. input.Split(';')])
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut($"""
+                echo args:{output}
+                Hello from Program
+                """);
+    }
+
+    /// <summary>
+    /// <c>dotnet run --unknown-arg file.cs</c> fallbacks to normal <c>dotnet run</c> behavior.
+    /// </summary>
+    [Fact]
+    public void Arguments_Unrecognized_BeforeFile()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
+
+        new DotnetCommand(Log, ["run", "--arg", "Program.cs"])
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining(s_runCommandExceptionNoProjects);
+    }
+
+    /// <summary>
+    /// <c>dotnet run --some-known-arg file.cs</c> is supported.
+    /// </summary>
+    [Fact]
+    public void Arguments_Recognized_BeforeFile()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
+
+        new DotnetCommand(Log, ["run", "-c", "Release", "Program.cs", "more", "args"])
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut("""
+                echo args:more;args
+                Hello from Program
+                Release config
+                """);
+    }
+
+    /// <summary>
+    /// <c>dotnet run file.cs --some-known-arg</c> is supported.
+    /// </summary>
+    [Fact]
+    public void Arguments_Recognized_AfterFile()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
+
+        new DotnetCommand(Log, ["run", "Program.cs", "-c", "Release", "more", "args"])
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut("""
+                echo args:more;args
+                Hello from Program
+                Release config
+                """);
+    }
+
+    /// <summary>
+    /// Some arguments of <c>dotnet run</c> are not supported without a project.
+    /// </summary>
+    [Fact]
+    public void Arguments_Unsupported_BeforeFile()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
+
+        // TODO: Test also after file.
+        new DotnetCommand(Log, ["run", "-lp", "test", "Program.cs"])
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining("TODO");
     }
 }
