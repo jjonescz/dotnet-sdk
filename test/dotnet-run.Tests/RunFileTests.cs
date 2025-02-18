@@ -491,4 +491,52 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .Should().Fail()
             .And.HaveStdErrContaining("TODO");
     }
+
+    /// <summary>
+    /// <c>dotnet run --bl file.cs</c> produces a binary log.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void BinaryLog(bool beforeFile)
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
+
+        string[] args = beforeFile
+            ? ["run", "-bl", "Program.cs"]
+            : ["run", "Program.cs", "-bl"];
+
+        new DotnetCommand(Log, args)
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut("Hello from Program");
+
+        new DirectoryInfo(testInstance.Path)
+            .EnumerateFiles("*.binlog", SearchOption.TopDirectoryOnly)
+            .Select(f => f.Name)
+            .Should().BeEquivalentTo(["msbuild.binlog", "msbuild-dotnet-run.binlog"]);
+    }
+
+    /// <summary>
+    /// <c>dotnet run file.cs</c> should not produce a binary log.
+    /// </summary>
+    [Fact]
+    public void BinaryLog_NotSpecified()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
+
+        new DotnetCommand(Log, "run", "Program.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut("Hello from Program");
+
+        new DirectoryInfo(testInstance.Path)
+            .EnumerateFiles("*.binlog", SearchOption.TopDirectoryOnly)
+            .Select(f => f.Name)
+            .Should().BeEmpty();
+    }
 }

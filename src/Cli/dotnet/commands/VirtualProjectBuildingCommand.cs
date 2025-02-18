@@ -22,13 +22,9 @@ internal sealed class VirtualProjectBuildingCommand
     public Dictionary<string, string> GlobalProperties { get; } = new(StringComparer.OrdinalIgnoreCase);
     public required string EntryPointFileFullPath { get; init; }
 
-    public int Execute()
+    public int Execute(string[] args)
     {
-        var binaryLogger = new BinaryLogger
-        {
-            Parameters = "msbuild.binlog",
-            CollectProjectImports = BinaryLogger.ProjectImportsCollectionMode.Embed,
-        };
+        var binaryLogger = GetBinaryLogger(args);
         var consoleLogger = new ConsoleLogger(LoggerVerbosity.Quiet);
         Dictionary<string, string?> savedEnvironmentVariables = new();
         try
@@ -41,15 +37,15 @@ internal sealed class VirtualProjectBuildingCommand
             }
 
             // Setup MSBuild.
+            ReadOnlySpan<ILogger> binaryLoggers = binaryLogger is null ? [] : [binaryLogger];
             var projectCollection = new ProjectCollection(
                 GlobalProperties,
-                [binaryLogger, consoleLogger],
+                [.. binaryLoggers, consoleLogger],
                 ToolsetDefinitionLocations.Default);
             var parameters = new BuildParameters(projectCollection)
             {
                 Loggers = projectCollection.Loggers,
-                LogTaskInputs = true,
-                LogInitialPropertiesAndItems = true,
+                LogTaskInputs = binaryLogger is not null,
             };
             BuildManager.DefaultBuildManager.BeginBuild(parameters);
 
@@ -95,8 +91,29 @@ internal sealed class VirtualProjectBuildingCommand
                 Environment.SetEnvironmentVariable(key, value);
             }
 
-            binaryLogger.Shutdown();
+            binaryLogger?.Shutdown();
             consoleLogger.Shutdown();
+        }
+
+        static ILogger? GetBinaryLogger(string[] args)
+        {
+            for (int i = args.Length - 1; i >= 0; i--)
+            {
+                var arg = args[i];
+                if (arg.StartsWith("/bl:") || arg.Equals("/bl")
+                    || arg.StartsWith("--binaryLogger:") || arg.Equals("--binaryLogger")
+                    || arg.StartsWith("-bl:") || arg.Equals("-bl"))
+                {
+                    return new BinaryLogger
+                    {
+                        Parameters = arg.IndexOf(':') is >= 0 and var index
+                            ? arg[(index + 1)..]
+                            : "msbuild.binlog",
+                    };
+                }
+            }
+
+            return null;
         }
     }
 
