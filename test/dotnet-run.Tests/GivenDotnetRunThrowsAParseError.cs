@@ -19,7 +19,7 @@ namespace Microsoft.DotNet.Cli.Run.Tests
                 .WithWorkingDirectory(Path.GetTempPath())
                 .Execute("--", "1")
                 .Should().Fail()
-                .And.HaveStdErrContainingOnce("Couldn't find a project to run.");
+                .And.HaveStdErrContainingOnce(LocalizableStrings.RunCommandExceptionNoProjects);
         }
     }
 }
