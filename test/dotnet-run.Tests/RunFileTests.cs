@@ -12,7 +12,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         {
             Console.WriteLine("echo args:" + string.Join(";", args));
         }
-        Console.WriteLine("Hello World!");
+        Console.WriteLine("Hello from " + System.Reflection.Assembly.GetExecutingAssembly().GetName().Name);
         """;
 
     private static readonly string s_programDependingOnUtil = """
@@ -85,7 +85,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Pass()
-            .And.HaveStdOut("Hello World!");
+            .And.HaveStdOut("Hello from Program");
     }
 
     /// <summary>
@@ -103,7 +103,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .WithWorkingDirectory(Path.GetDirectoryName(testInstance.Path)!)
             .Execute()
             .Should().Pass()
-            .And.HaveStdOut("Hello World!");
+            .And.HaveStdOut("Hello from Program");
     }
 
     /// <summary>
@@ -177,7 +177,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .Should().Pass()
             .And.HaveStdOut("""
                 echo args:./App.csproj
-                Hello World!
+                Hello from Program
                 """);
     }
 
@@ -216,7 +216,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .Should().Pass()
             .And.HaveStdOut("""
                 echo args:other;args
-                Hello World!
+                Hello from Program
                 """);
     }
 
@@ -341,7 +341,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Pass()
-            .And.HaveStdOut("Hello World!");
+            .And.HaveStdOut("Hello from Program");
     }
 
     /// <summary>
