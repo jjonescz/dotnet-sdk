@@ -44,24 +44,10 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         """;
 
     private static readonly string s_runCommandExceptionNoProjects =
-        Prefix(LocalizableStrings.RunCommandExceptionNoProjects);
+        "Couldn't find a project to run.";
 
     private static readonly string s_noTopLevelStatements =
-        Prefix(LocalizableStrings.NoTopLevelStatements);
-
-    /// <summary>
-    /// Extracts a constant prefix from a formattable string that can be searched for in the output.
-    /// </summary>
-    private static string Prefix(string text)
-    {
-        var index = text.IndexOf('{');
-        return index switch
-        {
-            < 0 => text,
-            < 10 => throw new InvalidOperationException("Prefix is too short."),
-            _ => text[..index],
-        };
-    }
+        "Cannot run a file without top-level statements and without a project:";
 
     /// <summary>
     /// <c>dotnet run file.cs</c> -> ok
