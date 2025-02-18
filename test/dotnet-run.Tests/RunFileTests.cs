@@ -37,7 +37,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         <Project Sdk="Microsoft.NET.Sdk">
           <PropertyGroup>
             <OutputType>Exe</OutputType>
-            <TargetFramework>$(CurrentTargetFramework)</TargetFramework>
+            <TargetFramework>net10.0</TargetFramework>
             <ImplicitUsings>enable</ImplicitUsings>
           </PropertyGroup>
         </Project>
@@ -178,7 +178,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .Should().Pass()
             .And.HaveStdOut("""
                 echo args:./App.csproj
-                Hello from Program
+                Hello from App
                 """);
     }
 
