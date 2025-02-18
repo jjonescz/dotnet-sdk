@@ -175,6 +175,7 @@ namespace Microsoft.DotNet.Tools.Run
                 if (!string.IsNullOrEmpty(LaunchProfile))
                 {
                     Reporter.Error.WriteLine(string.Format(LocalizableStrings.RunFileUnsupportedSwitch, RunCommandParser.LaunchProfileOption.Name, EntryPointFileFullPath).Bold().Red());
+                    return false;
                 }
 
                 return true;
