@@ -1,3 +1,4 @@
+using Microsoft.Build.Tasks;
 using Microsoft.DotNet.Tools.Run;
 
 namespace Microsoft.DotNet.Cli.Run.Tests;
@@ -11,6 +12,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     [InlineData(null)] // will be replaced with an absolute path
     [InlineData("Program.cs")]
     [InlineData("./Program.cs")]
+    [InlineData("program.CS")]
     public void FilePath(string? path)
     {
         var testInstance = _testAssetsManager.CopyTestAsset("MSBuildTestApp")
@@ -122,6 +124,42 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
                 """);
     }
 
+    [Theory]
+    [InlineData("Program")]
+    [InlineData("Program.csx")]
+    [InlineData("Program.vb")]
+    public void NonCsFileExtension(string fileName)
+    {
+        var testInstance = _testAssetsManager.CopyTestAsset("MSBuildTestApp")
+            .WithSource()
+            .RemoveProjectFiles();
+
+        File.Move(Path.Join(testInstance.Path, "Program.cs"), Path.Join(testInstance.Path, fileName));
+
+        new DotnetCommand(Log, "run", fileName)
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining("TODO");
+    }
+
+    [Fact]
+    public void Arguments()
+    {
+        var testInstance = _testAssetsManager.CopyTestAsset("MSBuildTestApp")
+            .WithSource()
+            .RemoveProjectFiles();
+
+        new DotnetCommand(Log, "run", "Program.cs", "other", "args")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut("""
+                echo args:other;args
+                Hello World!
+                """);
+    }
+
     [Fact]
     public void MultipleEntryPoints()
     {
@@ -212,6 +250,41 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
 
         new DotnetCommand(Log, "run", "Helper.cs")
             .WithWorkingDirectory(appDirectory)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining("TODO");
+    }
+
+    [Fact]
+    public void NestedProjectFiles()
+    {
+        var testInstance = _testAssetsManager.CopyTestAsset("MSBuildTestApp")
+            .WithSource();
+
+        // Move .csproj into a nested folder.
+        Directory.CreateDirectory(Path.Join(testInstance.Path, "nested"));
+        File.Move(Path.Join(testInstance.Path, "MSBuildTestApp.csproj"), Path.Join(testInstance.Path, "nested", "MSBuildTestApp.csproj"));
+
+        new DotnetCommand(Log, "run", "Program.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining("TODO");
+    }
+
+    /// <summary>
+    /// <c>dotnet run folder/app.csproj</c>
+    /// </summary>
+    [Fact]
+    public void RunNestedProjectFile()
+    {
+        var testInstance = _testAssetsManager.CopyTestAsset("MSBuildTestApp")
+            .WithSource();
+
+        var dirName = Path.GetFileName(testInstance.Path);
+
+        new DotnetCommand(Log, "run", $"{dirName}/MSBuildTestApp.csproj")
+            .WithWorkingDirectory(Path.GetDirectoryName(testInstance.Path)!)
             .Execute()
             .Should().Fail()
             .And.HaveStdErrContaining("TODO");
