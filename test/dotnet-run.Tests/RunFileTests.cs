@@ -476,7 +476,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void Arguments_Unsupported(bool beforeFile)
+    public void LaunchProfile(bool beforeFile)
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
         File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
@@ -489,7 +489,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Fail()
-            .And.HaveStdErrContaining("TODO");
+            .And.HaveStdErrContaining("The option '--launch-profile' is not supported when running a file without a project:");
     }
 
     /// <summary>

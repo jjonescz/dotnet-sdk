@@ -166,6 +166,16 @@ namespace Microsoft.DotNet.Tools.Run
                 return true;
             }
 
+            if (ProjectFileFullPath is null)
+            {
+                if (!string.IsNullOrEmpty(LaunchProfile))
+                {
+                    Reporter.Error.WriteLine(string.Format(LocalizableStrings.RunFileUnsupportedSwitch, RunCommandParser.LaunchProfileOption.Name, EntryPointFileFullPath).Bold().Red());
+                }
+
+                return false;
+            }
+
             var launchSettingsPath = TryFindLaunchSettings(ProjectFileFullPath);
             if (!File.Exists(launchSettingsPath))
             {
