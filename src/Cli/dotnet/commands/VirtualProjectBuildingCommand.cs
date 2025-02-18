@@ -22,10 +22,10 @@ internal sealed class VirtualProjectBuildingCommand
     public Dictionary<string, string> GlobalProperties { get; } = new(StringComparer.OrdinalIgnoreCase);
     public required string EntryPointFileFullPath { get; init; }
 
-    public int Execute(string[] binaryLoggerArgs)
+    public int Execute(string[] binaryLoggerArgs, LoggerVerbosity verbosity)
     {
         var binaryLogger = GetBinaryLogger(binaryLoggerArgs);
-        var consoleLogger = new ConsoleLogger(LoggerVerbosity.Quiet);
+        var consoleLogger = new ConsoleLogger(verbosity);
         Dictionary<string, string?> savedEnvironmentVariables = new();
         try
         {

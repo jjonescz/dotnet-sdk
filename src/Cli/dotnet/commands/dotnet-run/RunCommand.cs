@@ -260,7 +260,18 @@ namespace Microsoft.DotNet.Tools.Run
                 AddUserPassedProperties(command.GlobalProperties, RestoreArgs);
 
                 projectFactory = command.CreateProjectInstance;
-                buildResult = command.Execute(binaryLoggerArgs: RestoreArgs);
+                buildResult = command.Execute(
+                    binaryLoggerArgs: RestoreArgs,
+                    verbosity: Verbosity switch
+                    {
+                        null => Interactive ? LoggerVerbosity.Minimal : LoggerVerbosity.Quiet,
+                        VerbosityOptions.quiet | VerbosityOptions.q => LoggerVerbosity.Quiet,
+                        VerbosityOptions.minimal | VerbosityOptions.m => LoggerVerbosity.Minimal,
+                        VerbosityOptions.normal | VerbosityOptions.n => LoggerVerbosity.Normal,
+                        VerbosityOptions.detailed | VerbosityOptions.d => LoggerVerbosity.Detailed,
+                        VerbosityOptions.diagnostic | VerbosityOptions.diag => LoggerVerbosity.Diagnostic,
+                        _ => throw new Exception($"Unexpected verbosity '{Verbosity}'"),
+                    });
             }
             else
             {
