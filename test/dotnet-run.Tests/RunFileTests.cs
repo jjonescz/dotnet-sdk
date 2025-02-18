@@ -56,7 +56,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     [InlineData(null)] // will be replaced with an absolute path
     [InlineData("Program.cs")]
     [InlineData("./Program.cs")]
-    [InlineData("program.CS")]
+    [InlineData("Program.CS")]
     public void FilePath(string? path)
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
@@ -72,6 +72,21 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .Execute()
             .Should().Pass()
             .And.HaveStdOut("Hello from Program");
+    }
+
+    /// <summary>
+    /// Casing of the argument is used for the final binary.
+    /// </summary>
+    [Fact]
+    public void FilePath_DifferentCasing()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
+        new DotnetCommand(Log, "run", "program.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut("Hello from program");
     }
 
     /// <summary>
