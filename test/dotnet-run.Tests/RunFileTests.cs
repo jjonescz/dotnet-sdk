@@ -259,6 +259,17 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .And.HaveStdErrContaining("TODO");
     }
 
+    /// <summary>
+    /// If there are nested project files like
+    /// <code>
+    ///  app/file.cs
+    ///  app/nested/x.csproj
+    ///  app/nested/another.cs
+    /// </code>
+    /// executing <c>dotnet run app/file.cs</c> will include the nested <c>.cs</c> file in the compilation.
+    /// Hence we could consider reporting an error in this situation.
+    /// However, same problem exists for normal builds with explicit project files.
+    /// </summary>
     [Fact]
     public void NestedProjectFiles()
     {
@@ -272,8 +283,8 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         new DotnetCommand(Log, "run", "Program.cs")
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
-            .Should().Fail()
-            .And.HaveStdErrContaining("TODO");
+            .Should().Pass()
+            .And.HaveStdOut("Hello World!");
     }
 
     /// <summary>
