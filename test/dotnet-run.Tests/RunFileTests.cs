@@ -396,4 +396,27 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .Should().Fail()
             .And.HaveStdErrContaining(s_noTopLevelStatements);
     }
+
+    /// <summary>
+    /// Implicit build files have an effect.
+    /// </summary>
+    [Fact]
+    public void DirectoryBuildProps()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
+        File.WriteAllText(Path.Join(testInstance.Path, "Directory.Build.props"), """
+            <Project>
+                <PropertyGroup>
+                    <AssemblyName>TestName</AssemblyName>
+                </PropertyGroup>
+            </Project>
+            """);
+
+        new DotnetCommand(Log, "run", "Program.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut("Hello from TestName");
+    }
 }
