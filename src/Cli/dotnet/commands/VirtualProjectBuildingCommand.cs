@@ -143,12 +143,12 @@ internal sealed class VirtualProjectBuildingCommand
 
     // Keep in sync with the default `dotnet new console` project file.
     private const string CommonProjectContent = """
-            <PropertyGroup>
-                <OutputType>Exe</OutputType>
-                <TargetFramework>net9.0</TargetFramework>
-                <ImplicitUsings>enable</ImplicitUsings>
-                <Nullable>enable</Nullable>
-            </PropertyGroup>
+          <PropertyGroup>
+            <OutputType>Exe</OutputType>
+            <TargetFramework>net10.0</TargetFramework>
+            <ImplicitUsings>enable</ImplicitUsings>
+            <Nullable>enable</Nullable>
+          </PropertyGroup>
         """;
 
     public static string GetNonVirtualProjectFileText()
@@ -168,38 +168,38 @@ internal sealed class VirtualProjectBuildingCommand
         var projectFileFullPath = Path.ChangeExtension(EntryPointFileFullPath, ".csproj");
         var projectFileText = $"""
             <Project>
-                <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+              <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
 
             {CommonProjectContent}
 
-                <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
+              <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
 
-                <!--
-                    Override targets which don't work with project files that are not present on disk.
-                    See https://github.com/NuGet/Home/issues/14148.
-                -->
+              <!--
+                Override targets which don't work with project files that are not present on disk.
+                See https://github.com/NuGet/Home/issues/14148.
+              -->
 
-                <Target Name="_FilterRestoreGraphProjectInputItems"
-                        DependsOnTargets="_LoadRestoreGraphEntryPoints"
-                        Returns="@(FilteredRestoreGraphProjectInputItems)">
-                    <ItemGroup>
-                        <FilteredRestoreGraphProjectInputItems Include="@(RestoreGraphProjectInputItems)" />
-                    </ItemGroup>
-                </Target>
+              <Target Name="_FilterRestoreGraphProjectInputItems"
+                      DependsOnTargets="_LoadRestoreGraphEntryPoints"
+                      Returns="@(FilteredRestoreGraphProjectInputItems)">
+                <ItemGroup>
+                  <FilteredRestoreGraphProjectInputItems Include="@(RestoreGraphProjectInputItems)" />
+                </ItemGroup>
+              </Target>
 
-                <Target Name="_GetAllRestoreProjectPathItems"
-                        DependsOnTargets="_FilterRestoreGraphProjectInputItems"
-                        Returns="@(_RestoreProjectPathItems)">
-                    <ItemGroup>
-                        <_RestoreProjectPathItems Include="@(FilteredRestoreGraphProjectInputItems)" />
-                    </ItemGroup>
-                </Target>
+              <Target Name="_GetAllRestoreProjectPathItems"
+                      DependsOnTargets="_FilterRestoreGraphProjectInputItems"
+                      Returns="@(_RestoreProjectPathItems)">
+                <ItemGroup>
+                  <_RestoreProjectPathItems Include="@(FilteredRestoreGraphProjectInputItems)" />
+                </ItemGroup>
+              </Target>
 
-                <Target Name="_GenerateRestoreGraph"
-                        DependsOnTargets="_FilterRestoreGraphProjectInputItems;_GetAllRestoreProjectPathItems;_GenerateRestoreGraphProjectEntry;_GenerateProjectRestoreGraph"
-                        Returns="@(_RestoreGraphEntry)">
-                    <!-- Output from dependency _GenerateRestoreGraphProjectEntry and _GenerateProjectRestoreGraph -->
-                </Target>
+              <Target Name="_GenerateRestoreGraph"
+                      DependsOnTargets="_FilterRestoreGraphProjectInputItems;_GetAllRestoreProjectPathItems;_GenerateRestoreGraphProjectEntry;_GenerateProjectRestoreGraph"
+                      Returns="@(_RestoreGraphEntry)">
+                <!-- Output from dependency _GenerateRestoreGraphProjectEntry and _GenerateProjectRestoreGraph -->
+              </Target>
             </Project>
             """;
         ProjectRootElement projectRoot;
