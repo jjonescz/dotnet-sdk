@@ -25,6 +25,10 @@ public sealed class DotnetProjectAddTests(ITestOutputHelper log) : SdkTest(log)
             .Execute()
             .Should().Pass();
 
+        var dotnetProjectAddProject = Directory.EnumerateFiles(dotnetProjectAdd, "*.csproj").Single();
+
+        Path.GetFileName(dotnetProjectAddProject).Should().Be("Program.csproj");
+
         var dotnetNewConsole = Path.Join(testInstance.Path, "DotnetNewConsole");
         Directory.CreateDirectory(dotnetNewConsole);
 
@@ -33,9 +37,63 @@ public sealed class DotnetProjectAddTests(ITestOutputHelper log) : SdkTest(log)
             .Execute()
             .Should().Pass();
 
-        var projectFile1 = File.ReadAllText(Directory.EnumerateFiles(dotnetProjectAdd, "*.csproj").Single());
-        var projectFile2 = File.ReadAllText(Directory.EnumerateFiles(dotnetNewConsole, "*.csproj").Single());
-        projectFile1.Should().Be(projectFile2)
+        var dotnetNewConsoleProject = Directory.EnumerateFiles(dotnetNewConsole, "*.csproj").Single();
+
+        var dotnetProjectAddProjectText = File.ReadAllText(dotnetProjectAddProject);
+        var dotnetNewConsoleProjectText = File.ReadAllText(dotnetNewConsoleProject);
+        dotnetProjectAddProjectText.Should().Be(dotnetNewConsoleProjectText)
             .And.StartWith("""<Project Sdk="Microsoft.NET.Sdk">""");
+    }
+
+    [Fact]
+    public void ProjectFileAlreadyExists()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "App.csproj"), "");
+
+        new DotnetCommand(Log, "project", "add")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining("The target directory already contains a project file");
+    }
+
+    [Fact]
+    public void MultipleEntryPointFiles()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program1.cs"), "_ = 0;");
+        File.WriteAllText(Path.Join(testInstance.Path, "Program2.cs"), "_ = 0;");
+
+        new DotnetCommand(Log, "project", "add")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining("Multiple entry-point files");
+    }
+
+    [Fact]
+    public void NoEntryPointFile()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+
+        new DotnetCommand(Log, "project", "add")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining("No entry-point C# file with top-level statements found in directory");
+    }
+
+    [Fact]
+    public void NoTopLevelStatements()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), "class C;");
+
+        new DotnetCommand(Log, "project", "add")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining("No entry-point C# file with top-level statements found in directory");
     }
 }
