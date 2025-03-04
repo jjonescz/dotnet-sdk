@@ -11,6 +11,9 @@ using Microsoft.Build.Evaluation;
 using Microsoft.Build.Execution;
 using Microsoft.Build.Framework;
 using Microsoft.Build.Logging;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Text;
 using Microsoft.DotNet.Cli.Utils;
 using Microsoft.DotNet.Tools.Run;
 
@@ -138,19 +141,36 @@ internal sealed class VirtualProjectBuildingCommand
         });
     }
 
+    // Keep in sync with the default `dotnet new console` project file.
+    private const string CommonProjectContent = """
+            <PropertyGroup>
+                <OutputType>Exe</OutputType>
+                <TargetFramework>net9.0</TargetFramework>
+                <ImplicitUsings>enable</ImplicitUsings>
+                <Nullable>enable</Nullable>
+            </PropertyGroup>
+        """;
+
+    public static string GetNonVirtualProjectFileText()
+    {
+        return $"""
+            <Project Sdk="Microsoft.NET.Sdk">
+
+            {CommonProjectContent}
+
+            </Project>
+
+            """;
+    }
+
     private ProjectRootElement CreateProjectRootElement(ProjectCollection projectCollection)
     {
         var projectFileFullPath = Path.ChangeExtension(EntryPointFileFullPath, ".csproj");
-        var projectFileText = """
+        var projectFileText = $"""
             <Project>
                 <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
 
-                <PropertyGroup>
-                    <OutputType>Exe</OutputType>
-                    <TargetFramework>net9.0</TargetFramework>
-                    <ImplicitUsings>enable</ImplicitUsings>
-                    <Nullable>enable</Nullable>
-                </PropertyGroup>
+            {CommonProjectContent}
 
                 <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
 
@@ -189,5 +209,17 @@ internal sealed class VirtualProjectBuildingCommand
         }
         projectRoot.FullPath = projectFileFullPath;
         return projectRoot;
+    }
+
+    public static bool HasTopLevelStatements(string entryPointFilePath)
+    {
+        var tree = ParseCSharp(entryPointFilePath);
+        return tree.GetRoot().ChildNodes().OfType<GlobalStatementSyntax>().Any();
+
+        static CSharpSyntaxTree ParseCSharp(string filePath)
+        {
+            using var stream = File.OpenRead(filePath);
+            return (CSharpSyntaxTree)CSharpSyntaxTree.ParseText(SourceText.From(stream, Encoding.UTF8), path: filePath);
+        }
     }
 }
