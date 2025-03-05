@@ -400,8 +400,9 @@ namespace Microsoft.DotNet.Tools.Run
             {
                 List<BinaryLogger> binaryLoggers = new();
 
-                foreach (var blArg in restoreArgs)
+                for (int i = restoreArgs.Length - 1; i >= 0; i--)
                 {
+                    string blArg = restoreArgs[i];
                     if (!IsBinLogArgument(blArg))
                     {
                         continue;
@@ -425,6 +426,9 @@ namespace Microsoft.DotNet.Tools.Run
                         var filename = "msbuild-dotnet-run" + ".binlog";
                         binaryLoggers.Add(new BinaryLogger { Parameters = filename });
                     }
+
+                    // Like in MSBuild, only the last binary logger is used.
+                    break;
                 }
 
                 // this binaryLogger needs to be used for both evaluation and execution, so we need to only call it with a single IEventSource across
