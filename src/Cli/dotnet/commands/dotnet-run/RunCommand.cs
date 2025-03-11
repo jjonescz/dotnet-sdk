@@ -657,8 +657,7 @@ namespace Microsoft.DotNet.Tools.Run
             static string? TryFindEntryPointFilePath(ref string[] args)
             {
                 if (args is not [{ } arg, ..] ||
-                    !arg.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) ||
-                    !File.Exists(arg))
+                    !VirtualProjectBuildingCommand.IsValidEntryPointPath(arg))
                 {
                     return null;
                 }

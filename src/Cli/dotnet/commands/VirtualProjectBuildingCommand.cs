@@ -145,15 +145,11 @@ internal sealed class VirtualProjectBuildingCommand
     }
 
     // Keep in sync with the default `dotnet new console` project file.
-    private const string CommonProjectContent = """
-          <PropertyGroup>
+    private const string CommonProjectProperties = """
             <OutputType>Exe</OutputType>
             <TargetFramework>net10.0</TargetFramework>
             <ImplicitUsings>enable</ImplicitUsings>
             <Nullable>enable</Nullable>
-
-            <EnableDefaultItems>false</EnableDefaultItems>
-          </PropertyGroup>
         """;
 
     public static string GetNonVirtualProjectFileText()
@@ -161,7 +157,9 @@ internal sealed class VirtualProjectBuildingCommand
         return $"""
             <Project Sdk="Microsoft.NET.Sdk">
 
-            {CommonProjectContent}
+              <PropertyGroup>
+            {CommonProjectProperties}
+              </PropertyGroup>
 
             </Project>
 
@@ -176,7 +174,11 @@ internal sealed class VirtualProjectBuildingCommand
               <!-- We need to explicitly import Sdk props/targets so we can override the targets below. -->
               <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
 
-            {CommonProjectContent}
+              <PropertyGroup>
+            {CommonProjectProperties}
+
+                <EnableDefaultItems>false</EnableDefaultItems>
+              </PropertyGroup>
 
               <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
 
@@ -216,6 +218,11 @@ internal sealed class VirtualProjectBuildingCommand
         projectRoot.AddItem(itemType: "Compile", include: EntryPointFileFullPath);
         projectRoot.FullPath = projectFileFullPath;
         return projectRoot;
+    }
+
+    public static bool IsValidEntryPointPath(string entryPointFilePath)
+    {
+        return entryPointFilePath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) && File.Exists(entryPointFilePath);
     }
 
     public static bool HasTopLevelStatements(string entryPointFilePath)

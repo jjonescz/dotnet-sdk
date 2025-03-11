@@ -20,12 +20,12 @@ public sealed class DotnetProjectAddTests(ITestOutputHelper log) : SdkTest(log)
         var csFile = Path.Combine(dotnetProjectAdd, "Program.cs");
         File.WriteAllText(csFile, """Console.WriteLine("Test");""");
 
-        new DotnetCommand(Log, "project", "add")
+        new DotnetCommand(Log, "project", "add", "Program.cs")
             .WithWorkingDirectory(dotnetProjectAdd)
             .Execute()
             .Should().Pass();
 
-        var dotnetProjectAddProject = Directory.EnumerateFiles(dotnetProjectAdd, "*.csproj").Single();
+        var dotnetProjectAddProject = Directory.EnumerateFiles(Path.Join(dotnetProjectAdd, "Program"), "*.csproj").Single();
 
         Path.GetFileName(dotnetProjectAddProject).Should().Be("Program.csproj");
 
@@ -46,34 +46,42 @@ public sealed class DotnetProjectAddTests(ITestOutputHelper log) : SdkTest(log)
     }
 
     [Fact]
-    public void ProjectFileAlreadyExists()
+    public void DirectoryAlreadyExists()
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
-        File.WriteAllText(Path.Join(testInstance.Path, "App.csproj"), "");
+        Directory.CreateDirectory(Path.Join(testInstance.Path, "MyApp"));
+        File.WriteAllText(Path.Join(testInstance.Path, "MyApp.cs"), "Console.WriteLine();");
 
-        new DotnetCommand(Log, "project", "add")
+        new DotnetCommand(Log, "project", "add", "MyApp.cs")
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Fail()
-            .And.HaveStdErrContaining("The target directory already contains a project file");
+            .And.HaveStdErrContaining("The target directory already exists");
     }
 
     [Fact]
     public void MultipleEntryPointFiles()
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
-        File.WriteAllText(Path.Join(testInstance.Path, "Program1.cs"), "_ = 0;");
-        File.WriteAllText(Path.Join(testInstance.Path, "Program2.cs"), "_ = 0;");
+        File.WriteAllText(Path.Join(testInstance.Path, "Program1.cs"), "Console.WriteLine(1);");
+        File.WriteAllText(Path.Join(testInstance.Path, "Program2.cs"), "Console.WriteLine(2);");
 
-        new DotnetCommand(Log, "project", "add")
+        new DotnetCommand(Log, "project", "add", "Program1.cs")
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
-            .Should().Fail()
-            .And.HaveStdErrContaining("Multiple entry-point files");
+            .Should().Pass();
+
+        new DirectoryInfo(testInstance.Path)
+            .EnumerateDirectories().Select(d => d.Name).Order()
+            .Should().BeEquivalentTo(["Program1"]);
+
+        new DirectoryInfo(Path.Join(testInstance.Path, "Program1"))
+            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
+            .Should().BeEquivalentTo(["Program1.csproj", "Program1.cs"]);
     }
 
     [Fact]
-    public void NoEntryPointFile()
+    public void NoFileArgument()
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
 
@@ -81,7 +89,48 @@ public sealed class DotnetProjectAddTests(ITestOutputHelper log) : SdkTest(log)
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Fail()
-            .And.HaveStdErrContaining("No entry-point C# file with top-level statements found in directory");
+            .And.HaveStdErrContaining("Required argument missing for command");
+    }
+
+    [Fact]
+    public void NonExistentFile()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+
+        new DotnetCommand(Log, "project", "add", "NotHere.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining("The specified file must exist");
+    }
+
+    [Fact]
+    public void NonCSharpFile()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.vb"), "");
+
+        new DotnetCommand(Log, "project", "add", "Program.vb")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining("The specified file must exist and have '.cs' file extension");
+    }
+
+    [Fact]
+    public void ExtensionCasing()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.CS"), "Console.WriteLine();");
+
+        new DotnetCommand(Log, "project", "add", "Program.CS")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass();
+
+        new DirectoryInfo(Path.Join(testInstance.Path, "Program"))
+            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
+            .Should().BeEquivalentTo(["Program.csproj", "Program.CS"]);
     }
 
     [Fact]
@@ -90,10 +139,28 @@ public sealed class DotnetProjectAddTests(ITestOutputHelper log) : SdkTest(log)
         var testInstance = _testAssetsManager.CreateTestDirectory();
         File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), "class C;");
 
-        new DotnetCommand(Log, "project", "add")
+        new DotnetCommand(Log, "project", "add", "Program.cs")
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Fail()
-            .And.HaveStdErrContaining("No entry-point C# file with top-level statements found in directory");
+            .And.HaveStdErrContaining("The specified file must have top-level statements");
+    }
+
+    [Fact]
+    public void NestedDirectory()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        var appDirectory = Path.Join(testInstance.Path, "app");
+        Directory.CreateDirectory(appDirectory);
+        File.WriteAllText(Path.Join(appDirectory, "Program.cs"), "Console.WriteLine();");
+
+        new DotnetCommand(Log, "project", "add", "app/Program.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass();
+
+        new DirectoryInfo(Path.Join(testInstance.Path, "app", "Program"))
+            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
+            .Should().BeEquivalentTo(["Program.csproj", "Program.cs"]);
     }
 }

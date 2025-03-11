@@ -11,50 +11,40 @@ namespace Microsoft.DotNet.Tools.Project.Add;
 
 internal sealed class ProjectAddCommand : CommandBase
 {
-    private readonly string _directory;
+    private readonly string _file;
 
     public ProjectAddCommand(ParseResult parseResult) : base(parseResult)
     {
-        _directory = parseResult.GetValue(ProjectAddCommandParser.DirectoryOption) ?? Environment.CurrentDirectory;
+        _file = parseResult.GetValue(ProjectAddCommandParser.FileArgument) ?? string.Empty;
     }
 
     public override int Execute()
     {
-        string? existingProjectFile = Directory.EnumerateFiles(_directory, "*.*proj").FirstOrDefault();
-        if (existingProjectFile is not null)
+        string file = Path.GetFullPath(_file);
+        if (!VirtualProjectBuildingCommand.IsValidEntryPointPath(file))
         {
-            throw new GracefulException(LocalizableStrings.ProjectFileAlreadyExists, existingProjectFile);
+            throw new GracefulException(LocalizableStrings.InvalidFilePath, file);
         }
 
-        string entryPointFile = FindSingleEntryPointFile(_directory);
-        string projectFilePath = Path.ChangeExtension(entryPointFile, ".csproj");
+        if (!VirtualProjectBuildingCommand.HasTopLevelStatements(file))
+        {
+            throw new GracefulException(LocalizableStrings.NoTopLevelStatements, file);
+        }
+
+        string targetDirectory = Path.ChangeExtension(file, null);
+        if (Directory.Exists(targetDirectory))
+        {
+            throw new GracefulException(LocalizableStrings.DirectoryAlreadyExists, targetDirectory);
+        }
+
+        Directory.CreateDirectory(targetDirectory);
+
+        string projectFile = Path.Join(targetDirectory, Path.GetFileNameWithoutExtension(file) + ".csproj");
         string projectFileText = VirtualProjectBuildingCommand.GetNonVirtualProjectFileText();
-        File.WriteAllText(path: projectFilePath, contents: projectFileText);
+        File.WriteAllText(path: projectFile, contents: projectFileText);
+
+        File.Move(file, Path.Join(targetDirectory, Path.GetFileName(file)));
+
         return 0;
-    }
-
-    static string FindSingleEntryPointFile(string directory)
-    {
-        string? candidate = null;
-        foreach (string file in Directory.EnumerateFiles(directory, "*.cs"))
-        {
-            if (VirtualProjectBuildingCommand.HasTopLevelStatements(file))
-            {
-                if (candidate is not null)
-                {
-                    throw new GracefulException(LocalizableStrings.MultipleEntryPointFiles,
-                        Path.GetFileName(candidate), Path.GetFileName(file), directory);
-                }
-
-                candidate = file;
-            }
-        }
-
-        if (candidate is null)
-        {
-            throw new GracefulException(LocalizableStrings.NoEntryPointFile, directory);
-        }
-
-        return candidate;
     }
 }

@@ -120,19 +120,17 @@
   <data name="AppFullName" xml:space="preserve">
     <value>Migrate a file-based program to a project-based program.</value>
   </data>
-  <data name="CmdDirectoryDescription" xml:space="preserve">
-    <value>Path to the directory containing the root of the file-based program. If not specified, it defaults to the current directory.</value>
+  <data name="CmdFileDescription" xml:space="preserve">
+    <value>Path to the file-based program.</value>
   </data>
-  <data name="CmdDirectoryPathName" xml:space="preserve">
-    <value>DIRECTORY_PATH</value>
+  <data name="InvalidFilePath" xml:space="preserve">
+    <value>The specified file must exist and have '.cs' file extension: '{0}'</value>
+    <comment>{Locked=".cs"}</comment>
   </data>
-  <data name="ProjectFileAlreadyExists" xml:space="preserve">
-    <value>The target directory already contains a project file '{0}'.</value>
+  <data name="NoTopLevelStatements" xml:space="preserve">
+    <value>The specified file must have top-level statements: '{0}'</value>
   </data>
-  <data name="MultipleEntryPointFiles" xml:space="preserve">
-    <value>Multiple entry-point files ('{0}' and '{1}') found in directory '{2}'.</value>
-  </data>
-  <data name="NoEntryPointFile" xml:space="preserve">
-    <value>No entry-point C# file with top-level statements found in directory '{0}'.</value>
+  <data name="DirectoryAlreadyExists" xml:space="preserve">
+    <value>The target directory already exists: '{0}'</value>
   </data>
 </root>

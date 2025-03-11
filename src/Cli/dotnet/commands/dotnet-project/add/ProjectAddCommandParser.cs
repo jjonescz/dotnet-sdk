@@ -11,17 +11,18 @@ namespace Microsoft.DotNet.Cli;
 
 internal sealed class ProjectAddCommandParser
 {
-    public static readonly CliOption<string> DirectoryOption = new("--directory")
+    public static readonly CliArgument<string> FileArgument = new("file")
     {
-        Description = LocalizableStrings.CmdDirectoryDescription,
-        HelpName = LocalizableStrings.CmdDirectoryPathName,
-        Arity = ArgumentArity.ExactlyOne
+        Description = LocalizableStrings.CmdFileDescription,
+        Arity = ArgumentArity.ExactlyOne,
     };
 
     public static CliCommand GetCommand()
     {
-        CliCommand command = new("add", LocalizableStrings.AppFullName);
-        command.Options.Add(DirectoryOption);
+        CliCommand command = new("add", LocalizableStrings.AppFullName)
+        {
+            FileArgument,
+        };
 
         command.SetAction((parseResult) => new ProjectAddCommand(parseResult).Execute());
         return command;

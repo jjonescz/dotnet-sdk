@@ -6,29 +6,24 @@
         <source>Migrate a file-based program to a project-based program.</source>
         <note />
       </trans-unit>
-      <trans-unit id="CmdDirectoryDescription">
-        <source>Path to the directory containing the root of the file-based program. If not specified, it defaults to the current directory.</source>
-        <target state="new">Path to the directory containing the root of the file-based program. If not specified, it defaults to the current directory.</target>
+      <trans-unit id="CmdFileDescription">
+        <source>Path to the file-based program.</source>
+        <target state="new">Path to the file-based program.</target>
         <note />
       </trans-unit>
-      <trans-unit id="CmdDirectoryPathName">
-        <source>DIRECTORY_PATH</source>
-        <target state="new">DIRECTORY_PATH</target>
+      <trans-unit id="DirectoryAlreadyExists">
+        <source>The target directory already exists: '{0}'</source>
+        <target state="new">The target directory already exists: '{0}'</target>
         <note />
       </trans-unit>
-      <trans-unit id="MultipleEntryPointFiles">
-        <source>Multiple entry-point files ('{0}' and '{1}') found in directory '{2}'.</source>
-        <target state="new">Multiple entry-point files ('{0}' and '{1}') found in directory '{2}'.</target>
-        <note />
+      <trans-unit id="InvalidFilePath">
+        <source>The specified file must exist and have '.cs' file extension: '{0}'</source>
+        <target state="new">The specified file must exist and have '.cs' file extension: '{0}'</target>
+        <note>{Locked=".cs"}</note>
       </trans-unit>
-      <trans-unit id="NoEntryPointFile">
-        <source>No entry-point C# file with top-level statements found in directory '{0}'.</source>
-        <target state="new">No entry-point C# file with top-level statements found in directory '{0}'.</target>
-        <note />
-      </trans-unit>
-      <trans-unit id="ProjectFileAlreadyExists">
-        <source>The target directory already contains a project file '{0}'.</source>
-        <target state="new">The target directory already contains a project file '{0}'.</target>
+      <trans-unit id="NoTopLevelStatements">
+        <source>The specified file must have top-level statements: '{0}'</source>
+        <target state="new">The specified file must have top-level statements: '{0}'</target>
         <note />
       </trans-unit>
     </body>
