@@ -151,6 +151,8 @@ internal sealed class VirtualProjectBuildingCommand
             <TargetFramework>net10.0</TargetFramework>
             <ImplicitUsings>enable</ImplicitUsings>
             <Nullable>enable</Nullable>
+
+            <EnableDefaultItems>false</EnableDefaultItems>
           </PropertyGroup>
         """;
 
@@ -171,6 +173,7 @@ internal sealed class VirtualProjectBuildingCommand
         var projectFileFullPath = Path.ChangeExtension(EntryPointFileFullPath, ".csproj");
         var projectFileText = $"""
             <Project>
+              <!-- We need to explicitly import Sdk props/targets so we can override the targets below. -->
               <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
 
             {CommonProjectContent}
@@ -210,6 +213,7 @@ internal sealed class VirtualProjectBuildingCommand
         {
             projectRoot = ProjectRootElement.Create(xmlReader, projectCollection);
         }
+        projectRoot.AddItem(itemType: "Compile", include: EntryPointFileFullPath);
         projectRoot.FullPath = projectFileFullPath;
         return projectRoot;
     }
