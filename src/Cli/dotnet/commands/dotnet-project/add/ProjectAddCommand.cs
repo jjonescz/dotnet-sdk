@@ -55,7 +55,7 @@ internal sealed class ProjectAddCommand : CommandBase
         }
 
         string projectFile = Path.Join(targetDirectory, Path.GetFileNameWithoutExtension(file) + ".csproj");
-        VirtualProjectBuildingCommand.SaveProjectFile(projectFile, directives);
+        VirtualProjectBuildingCommand.SaveProjectFile(projectFile, directives.AsSpan());
 
         return 0;
     }

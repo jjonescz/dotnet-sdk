@@ -3,6 +3,8 @@
 
 #nullable enable
 
+using System;
+using System.Buffers;
 using System.Collections.Immutable;
 using System.Security;
 using System.Text.RegularExpressions;
@@ -162,13 +164,48 @@ internal sealed class VirtualProjectBuildingCommand
             <Nullable>enable</Nullable>
         """;
 
-    public static void SaveProjectFile(string path, ImmutableArray<CSharpDirective> directives)
+    public static void SaveProjectFile(string path, ReadOnlySpan<CSharpDirective> directives)
     {
         using var stream = File.Open(path, FileMode.Create, FileAccess.Write);
         using var writer = new StreamWriter(stream, Encoding.UTF8);
+
+        string sdkValue = "Microsoft.NET.Sdk";
+
+        if (directives is [CSharpDirective.Sdk firstSdk, ..])
+        {
+            sdkValue = firstSdk.ToSlashDelimitedString();
+            directives = directives[1..];
+        }
+
         writer.WriteLine($"""
-            <Project Sdk="Microsoft.NET.Sdk">
-            
+            <Project Sdk="{escapeValue(sdkValue)}">
+
+            """);
+
+        bool anySdkElements = false;
+        for (; directives is [CSharpDirective.Sdk sdk, ..]; directives = directives[1..])
+        {
+            if (sdk.Version is null)
+            {
+                writer.WriteLine($"""
+                      <Sdk Name="{escapeValue(sdk.Name)}" />
+                    """);
+            }
+            else
+            {
+                writer.WriteLine($"""
+                      <Sdk Name="{escapeValue(sdk.Name)}" Version="{escapeValue(sdk.Version)}" />
+                    """);
+            }
+            anySdkElements = true;
+        }
+
+        if (anySdkElements)
+        {
+            writer.WriteLine();
+        }
+
+        writer.WriteLine($"""
               <PropertyGroup>
             {CommonProjectProperties}
               </PropertyGroup>
@@ -188,13 +225,13 @@ internal sealed class VirtualProjectBuildingCommand
                 if (package.Version is null)
                 {
                     writer.WriteLine($"""
-                            <PackageReference Include="{SecurityElement.Escape(package.Name)}" />
+                            <PackageReference Include="{escapeValue(package.Name)}" />
                         """);
                 }
                 else
                 {
                     writer.WriteLine($"""
-                            <PackageReference Include="{SecurityElement.Escape(package.Name)}" Version="{SecurityElement.Escape(package.Version)}" />
+                            <PackageReference Include="{escapeValue(package.Name)}" Version="{escapeValue(package.Version)}" />
                         """);
                 }
             }
@@ -206,6 +243,8 @@ internal sealed class VirtualProjectBuildingCommand
 
             </Project>
             """);
+
+        static string escapeValue(string value) => SecurityElement.Escape(value);
     }
 
     private ProjectRootElement CreateProjectRootElement(ProjectCollection projectCollection)
@@ -302,6 +341,8 @@ internal sealed class VirtualProjectBuildingCommand
             }
         }
 
+        builder.Sort(static (d1, d2) => d1.Order - d2.Order);
+
         return builder.ToImmutable();
     }
 
@@ -313,9 +354,10 @@ internal sealed class VirtualProjectBuildingCommand
 
     private static void AddDirectivesToProject(ImmutableArray<CSharpDirective> directives, ProjectRootElement projectRoot)
     {
+        var context = new DirectiveAddingContext { ProjectRoot = projectRoot };
         foreach (var directive in directives)
         {
-            directive.AddToProject(projectRoot);
+            directive.AddToProject(context);
         }
     }
 
@@ -352,12 +394,26 @@ internal static partial class Patterns
     public static partial Regex Directive { get; }
 }
 
+internal sealed class DirectiveAddingContext
+{
+    public required ProjectRootElement ProjectRoot { get; init; }
+    public bool AddedSdk { get; set; }
+}
+
 /// <summary>
 /// Represents a C# directive starting with <c>#:</c>. Those are ignored by the language but recognized by us.
 /// </summary>
 internal abstract record CSharpDirective
 {
+    private static readonly SearchValues<char> s_separators = SearchValues.Create('/', '=');
+
     private CSharpDirective() { }
+
+    /// <summary>
+    /// Order in which the directives should be added to the project file.
+    /// If two directives have the same order, the one appearing first in the C# file is added first.
+    /// </summary>
+    public abstract int Order { get; }
 
     /// <summary>
     /// Span of the full line including the trailing line break.
@@ -368,12 +424,67 @@ internal abstract record CSharpDirective
     {
         return name switch
         {
+            "sdk" => Sdk.Parse(span, value),
             "package" => Package.Parse(span, value),
             _ => throw new GracefulException($"Unrecognized directive '{name}' at {sourceFile.GetPosition(span)}"),
         };
     }
 
-    public abstract void AddToProject(ProjectRootElement projectRootElement);
+    public abstract void AddToProject(DirectiveAddingContext context);
+
+    private static (string, string?) ParseNameAndOptionalVersion(string value)
+    {
+        var i = value.AsSpan().IndexOfAny(s_separators);
+        if (i < 0)
+        {
+            return (value, null);
+        }
+
+        return (value[..i], value[(i + 1)..]);
+    }
+
+    /// <summary>
+    /// <c>#:sdk</c> directive.
+    /// </summary>
+    public sealed record Sdk : CSharpDirective
+    {
+        private Sdk() { }
+
+        public override int Order => 1;
+
+        public required string Name { get; init; }
+        public string? Version { get; init; }
+
+        public static Sdk Parse(TextSpan span, string value)
+        {
+            var (name, version) = ParseNameAndOptionalVersion(value);
+
+            return new Sdk
+            {
+                Span = span,
+                Name = name,
+                Version = version,
+            };
+        }
+
+        public override void AddToProject(DirectiveAddingContext context)
+        {
+            if (!context.AddedSdk)
+            {
+                context.ProjectRoot.Sdk = ToSlashDelimitedString();
+                context.AddedSdk = true;
+            }
+            else
+            {
+                context.ProjectRoot.CreateProjectSdkElement(Name, Version);
+            }
+        }
+
+        public string ToSlashDelimitedString()
+        {
+            return Version is null ? Name : $"{Name}/{Version}";
+        }
+    }
 
     /// <summary>
     /// <c>#:package</c> directive.
@@ -382,28 +493,26 @@ internal abstract record CSharpDirective
     {
         private Package() { }
 
+        public override int Order => 3;
+
         public required string Name { get; init; }
         public string? Version { get; init; }
 
         public static Package Parse(TextSpan span, string value)
         {
-            var i = value.IndexOf('=');
-            if (i < 0)
-            {
-                return new Package { Span = span, Name = value };
-            }
+            var (name, version) = ParseNameAndOptionalVersion(value);
 
             return new Package
             {
                 Span = span,
-                Name = value[..i],
-                Version = value[(i + 1)..],
+                Name = name,
+                Version = version,
             };
         }
 
-        public override void AddToProject(ProjectRootElement projectRootElement)
+        public override void AddToProject(DirectiveAddingContext context)
         {
-            var packageReference = projectRootElement.AddItem("PackageReference", Name);
+            var packageReference = context.ProjectRoot.AddItem("PackageReference", Name);
             if (Version is not null)
             {
                 packageReference.AddMetadata("Version", Version);
