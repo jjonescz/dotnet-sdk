@@ -35,13 +35,27 @@ internal sealed class ProjectAddCommand : CommandBase
             throw new GracefulException(LocalizableStrings.DirectoryAlreadyExists, targetDirectory);
         }
 
-        Directory.CreateDirectory(targetDirectory); // TODO: Don't do this when the migration fails (e.g., because of unused directive).
+        // Find directives (this can fail, so do this before creating the target directory).
+        var sourceFile = VirtualProjectBuildingCommand.CreateSourceFile(file);
+        var directives = VirtualProjectBuildingCommand.FindDirectives(sourceFile);
+
+        Directory.CreateDirectory(targetDirectory);
+
+        var targetFile = Path.Join(targetDirectory, Path.GetFileName(file));
+
+        // If there were any directives, remove them from the file.
+        if (directives.Length != 0)
+        {
+            VirtualProjectBuildingCommand.RemoveDirectivesFromFile(directives, sourceFile.Text, targetFile);
+            File.Delete(file);
+        }
+        else
+        {
+            File.Move(file, targetFile);
+        }
 
         string projectFile = Path.Join(targetDirectory, Path.GetFileNameWithoutExtension(file) + ".csproj");
-        string projectFileText = VirtualProjectBuildingCommand.GetNonVirtualProjectFileText(file);
-        File.WriteAllText(path: projectFile, contents: projectFileText);
-
-        File.Move(file, Path.Join(targetDirectory, Path.GetFileName(file)));
+        VirtualProjectBuildingCommand.SaveProjectFile(projectFile, directives);
 
         return 0;
     }

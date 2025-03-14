@@ -4,6 +4,7 @@
 #nullable enable
 
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Text.RegularExpressions;
 using System.Xml;
 using Microsoft.Build.Construction;
@@ -153,7 +154,7 @@ internal sealed class VirtualProjectBuildingCommand
             <Nullable>enable</Nullable>
         """;
 
-    public static string GetNonVirtualProjectFileText(string entryPointFileFullPath)
+    public static void SaveProjectFile(string path, ImmutableArray<CSharpDirective> directives)
     {
         var projectCollection = new ProjectCollection();
         var projectFileText = $"""
@@ -167,33 +168,9 @@ internal sealed class VirtualProjectBuildingCommand
 
             """;
         var projectRoot = CreateProjectRootElement(projectFileText, projectCollection);
-
-        // TODO: Share all the code below.
-
-        // Translate `#:` directives to project elements.
-        var sourceFile = CreateSourceFile(entryPointFileFullPath);
-        var directives = EnumerateDirectives(sourceFile).ToImmutableArray();
-        foreach (var directive in directives)
-        {
-            directive.AddToProject(projectRoot);
-        }
-
-        // If there were any directives, remove them from the file.
-        // (This is temporary until Roslyn is updated to ignore them.)
-        if (directives.Length != 0)
-        {
-            for (int i = directives.Length - 1; i >= 0; i--)
-            {
-                var directive = directives[i];
-                sourceFile = sourceFile with { Text = sourceFile.Text.Replace(directive.Span, string.Empty) };
-            }
-
-            using var stream = File.Open(entryPointFileFullPath, FileMode.Create, FileAccess.Write);
-            using var writer = new StreamWriter(stream, Encoding.UTF8);
-            sourceFile.Text.Write(writer);
-        }
-
-        return projectRoot.RawXml; // TODO: Save instead?
+        projectRoot.FullPath = path;
+        AddDirectivesToProject(directives, projectRoot);
+        projectRoot.Save();
     }
 
     private ProjectRootElement CreateProjectRootElement(ProjectCollection projectCollection)
@@ -241,37 +218,27 @@ internal sealed class VirtualProjectBuildingCommand
             </Project>
             """;
         var projectRoot = CreateProjectRootElement(projectFileText, projectCollection);
+        projectRoot.FullPath = projectFileFullPath;
 
         // Translate `#:` directives to project elements.
         var sourceFile = CreateSourceFile(EntryPointFileFullPath);
-        var directives = EnumerateDirectives(sourceFile).ToImmutableArray();
-        foreach (var directive in directives)
-        {
-            directive.AddToProject(projectRoot);
-        }
+        var directives = FindDirectives(sourceFile);
+        AddDirectivesToProject(directives, projectRoot);
 
         // If there were any directives, remove them from the file.
         // (This is temporary until Roslyn is updated to ignore them.)
         string targetFilePath = EntryPointFileFullPath;
         if (directives.Length != 0)
         {
-            for (int i = directives.Length - 1; i >= 0; i--)
-            {
-                var directive = directives[i];
-                sourceFile = sourceFile with { Text = sourceFile.Text.Replace(directive.Span, string.Empty) };
-            }
-
             var targetDirectory = Path.Join(Path.GetDirectoryName(targetFilePath), "obj");
             Directory.CreateDirectory(targetDirectory);
             targetFilePath = Path.Join(targetDirectory, Path.GetFileName(targetFilePath));
-            using var stream = File.Open(targetFilePath, FileMode.Create, FileAccess.Write);
-            using var writer = new StreamWriter(stream, Encoding.UTF8);
-            sourceFile.Text.Write(writer);
+
+            RemoveDirectivesFromFile(directives, sourceFile.Text, targetFilePath);
         }
 
         projectRoot.AddItem(itemType: "Compile", include: targetFilePath);
 
-        projectRoot.FullPath = projectFileFullPath;
         return projectRoot;
     }
 
@@ -287,22 +254,52 @@ internal sealed class VirtualProjectBuildingCommand
         return entryPointFilePath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) && File.Exists(entryPointFilePath);
     }
 
-    private static IEnumerable<CSharpDirective> EnumerateDirectives(SourceFile sourceFile)
+    public static ImmutableArray<CSharpDirective> FindDirectives(SourceFile sourceFile)
     {
-        // When Roslyn is updated to support "ignored directives", we should use its SyntaxTokenParser instead.
+        var builder = ImmutableArray.CreateBuilder<CSharpDirective>();
+
+        // NOTE: When Roslyn is updated to support "ignored directives", we should use its SyntaxTokenParser instead.
         foreach (var line in sourceFile.Text.Lines)
         {
             if (Patterns.Directive.Match(sourceFile.Text.ToString(line.Span)) is { Success: true } match)
             {
-                yield return CSharpDirective.Parse(sourceFile, line.Span, match.Groups[1].Value, match.Groups[2].Value);
+                builder.Add(CSharpDirective.Parse(sourceFile, line.Span, match.Groups[1].Value, match.Groups[2].Value));
             }
         }
+
+        return builder.ToImmutable();
     }
 
-    private static SourceFile CreateSourceFile(string filePath)
+    public static SourceFile CreateSourceFile(string filePath)
     {
         using var stream = File.OpenRead(filePath);
         return new SourceFile(filePath, SourceText.From(stream, Encoding.UTF8));
+    }
+
+    private static void AddDirectivesToProject(ImmutableArray<CSharpDirective> directives, ProjectRootElement projectRoot)
+    {
+        foreach (var directive in directives)
+        {
+            directive.AddToProject(projectRoot);
+        }
+    }
+
+    public static void RemoveDirectivesFromFile(ImmutableArray<CSharpDirective> directives, SourceText text, string filePath)
+    {
+        if (directives.Length == 0)
+        {
+            return;
+        }
+
+        for (int i = directives.Length - 1; i >= 0; i--)
+        {
+            var directive = directives[i];
+            text = text.Replace(directive.Span, string.Empty);
+        }
+
+        using var stream = File.Open(filePath, FileMode.Create, FileAccess.Write);
+        using var writer = new StreamWriter(stream, Encoding.UTF8);
+        text.Write(writer);
     }
 }
 
@@ -320,6 +317,9 @@ internal static partial class Patterns
     public static partial Regex Directive { get; }
 }
 
+/// <summary>
+/// Represents a C# directive starting with <c>#:</c>. Those are ignored by the language but recognized by us.
+/// </summary>
 internal abstract record CSharpDirective
 {
     private CSharpDirective() { }
@@ -337,6 +337,9 @@ internal abstract record CSharpDirective
 
     public abstract void AddToProject(ProjectRootElement projectRootElement);
 
+    /// <summary>
+    /// <c>#:package</c> directive.
+    /// </summary>
     public sealed record Package : CSharpDirective
     {
         private Package() { }
