@@ -263,7 +263,7 @@ internal sealed class VirtualProjectBuildingCommand
         {
             if (Patterns.Directive.Match(sourceFile.Text.ToString(line.Span)) is { Success: true } match)
             {
-                builder.Add(CSharpDirective.Parse(sourceFile, line.Span, match.Groups[1].Value, match.Groups[2].Value));
+                builder.Add(CSharpDirective.Parse(sourceFile, line.SpanIncludingLineBreak, match.Groups[1].Value, match.Groups[2].Value));
             }
         }
 
@@ -313,7 +313,7 @@ internal readonly record struct SourceFile(string Path, SourceText Text)
 
 internal static partial class Patterns
 {
-    [GeneratedRegex("""^\s*#:\s*(\w+)\s*(.*?)\s*$""", RegexOptions.Multiline)]
+    [GeneratedRegex("""^\s*#:\s*(\w+)\s*(.*?)\s*$""")]
     public static partial Regex Directive { get; }
 }
 
@@ -324,6 +324,9 @@ internal abstract record CSharpDirective
 {
     private CSharpDirective() { }
 
+    /// <summary>
+    /// Span of the full line including the trailing line break.
+    /// </summary>
     public required TextSpan Span { get; init; }
 
     public static CSharpDirective Parse(SourceFile sourceFile, TextSpan span, string name, string value)
