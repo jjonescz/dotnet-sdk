@@ -35,10 +35,10 @@ internal sealed class ProjectAddCommand : CommandBase
             throw new GracefulException(LocalizableStrings.DirectoryAlreadyExists, targetDirectory);
         }
 
-        Directory.CreateDirectory(targetDirectory);
+        Directory.CreateDirectory(targetDirectory); // TODO: Don't do this when the migration fails (e.g., because of unused directive).
 
         string projectFile = Path.Join(targetDirectory, Path.GetFileNameWithoutExtension(file) + ".csproj");
-        string projectFileText = VirtualProjectBuildingCommand.GetNonVirtualProjectFileText();
+        string projectFileText = VirtualProjectBuildingCommand.GetNonVirtualProjectFileText(file);
         File.WriteAllText(path: projectFile, contents: projectFileText);
 
         File.Move(file, Path.Join(targetDirectory, Path.GetFileName(file)));

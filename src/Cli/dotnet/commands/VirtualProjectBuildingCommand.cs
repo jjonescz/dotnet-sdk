@@ -3,6 +3,8 @@
 
 #nullable enable
 
+using System.Collections.Immutable;
+using System.Text.RegularExpressions;
 using System.Xml;
 using Microsoft.Build.Construction;
 using Microsoft.Build.Definition;
@@ -10,6 +12,8 @@ using Microsoft.Build.Evaluation;
 using Microsoft.Build.Execution;
 using Microsoft.Build.Framework;
 using Microsoft.Build.Logging;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.Text;
 using Microsoft.DotNet.Cli.Utils;
 using Microsoft.DotNet.Tools.Run;
 
@@ -149,9 +153,10 @@ internal sealed class VirtualProjectBuildingCommand
             <Nullable>enable</Nullable>
         """;
 
-    public static string GetNonVirtualProjectFileText()
+    public static string GetNonVirtualProjectFileText(string entryPointFileFullPath)
     {
-        return $"""
+        var projectCollection = new ProjectCollection();
+        var projectFileText = $"""
             <Project Sdk="Microsoft.NET.Sdk">
 
               <PropertyGroup>
@@ -161,6 +166,34 @@ internal sealed class VirtualProjectBuildingCommand
             </Project>
 
             """;
+        var projectRoot = CreateProjectRootElement(projectFileText, projectCollection);
+
+        // TODO: Share all the code below.
+
+        // Translate `#:` directives to project elements.
+        var sourceFile = CreateSourceFile(entryPointFileFullPath);
+        var directives = EnumerateDirectives(sourceFile).ToImmutableArray();
+        foreach (var directive in directives)
+        {
+            directive.AddToProject(projectRoot);
+        }
+
+        // If there were any directives, remove them from the file.
+        // (This is temporary until Roslyn is updated to ignore them.)
+        if (directives.Length != 0)
+        {
+            for (int i = directives.Length - 1; i >= 0; i--)
+            {
+                var directive = directives[i];
+                sourceFile = sourceFile with { Text = sourceFile.Text.Replace(directive.Span, string.Empty) };
+            }
+
+            using var stream = File.Open(entryPointFileFullPath, FileMode.Create, FileAccess.Write);
+            using var writer = new StreamWriter(stream, Encoding.UTF8);
+            sourceFile.Text.Write(writer);
+        }
+
+        return projectRoot.RawXml; // TODO: Save instead?
     }
 
     private ProjectRootElement CreateProjectRootElement(ProjectCollection projectCollection)
@@ -207,18 +240,133 @@ internal sealed class VirtualProjectBuildingCommand
               </Target>
             </Project>
             """;
-        ProjectRootElement projectRoot;
-        using (var xmlReader = XmlReader.Create(new StringReader(projectFileText)))
+        var projectRoot = CreateProjectRootElement(projectFileText, projectCollection);
+
+        // Translate `#:` directives to project elements.
+        var sourceFile = CreateSourceFile(EntryPointFileFullPath);
+        var directives = EnumerateDirectives(sourceFile).ToImmutableArray();
+        foreach (var directive in directives)
         {
-            projectRoot = ProjectRootElement.Create(xmlReader, projectCollection);
+            directive.AddToProject(projectRoot);
         }
-        projectRoot.AddItem(itemType: "Compile", include: EntryPointFileFullPath);
+
+        // If there were any directives, remove them from the file.
+        // (This is temporary until Roslyn is updated to ignore them.)
+        string targetFilePath = EntryPointFileFullPath;
+        if (directives.Length != 0)
+        {
+            for (int i = directives.Length - 1; i >= 0; i--)
+            {
+                var directive = directives[i];
+                sourceFile = sourceFile with { Text = sourceFile.Text.Replace(directive.Span, string.Empty) };
+            }
+
+            var targetDirectory = Path.Join(Path.GetDirectoryName(targetFilePath), "obj");
+            Directory.CreateDirectory(targetDirectory);
+            targetFilePath = Path.Join(targetDirectory, Path.GetFileName(targetFilePath));
+            using var stream = File.Open(targetFilePath, FileMode.Create, FileAccess.Write);
+            using var writer = new StreamWriter(stream, Encoding.UTF8);
+            sourceFile.Text.Write(writer);
+        }
+
+        projectRoot.AddItem(itemType: "Compile", include: targetFilePath);
+
         projectRoot.FullPath = projectFileFullPath;
         return projectRoot;
+    }
+
+    private static ProjectRootElement CreateProjectRootElement(string text, ProjectCollection projectCollection)
+    {
+        using var reader = new StringReader(text);
+        using var xmlReader = XmlReader.Create(new StringReader(text));
+        return ProjectRootElement.Create(xmlReader, projectCollection);
     }
 
     public static bool IsValidEntryPointPath(string entryPointFilePath)
     {
         return entryPointFilePath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) && File.Exists(entryPointFilePath);
+    }
+
+    private static IEnumerable<CSharpDirective> EnumerateDirectives(SourceFile sourceFile)
+    {
+        // When Roslyn is updated to support "ignored directives", we should use its SyntaxTokenParser instead.
+        foreach (var line in sourceFile.Text.Lines)
+        {
+            if (Patterns.Directive.Match(sourceFile.Text.ToString(line.Span)) is { Success: true } match)
+            {
+                yield return CSharpDirective.Parse(sourceFile, line.Span, match.Groups[1].Value, match.Groups[2].Value);
+            }
+        }
+    }
+
+    private static SourceFile CreateSourceFile(string filePath)
+    {
+        using var stream = File.OpenRead(filePath);
+        return new SourceFile(filePath, SourceText.From(stream, Encoding.UTF8));
+    }
+}
+
+internal readonly record struct SourceFile(string Path, SourceText Text)
+{
+    public FileLinePositionSpan GetPosition(TextSpan span)
+    {
+        return new FileLinePositionSpan(Path, Text.Lines.GetLinePositionSpan(span));
+    }
+}
+
+internal static partial class Patterns
+{
+    [GeneratedRegex("""^\s*#:\s*(\w+)\s*(.*?)\s*$""", RegexOptions.Multiline)]
+    public static partial Regex Directive { get; }
+}
+
+internal abstract record CSharpDirective
+{
+    private CSharpDirective() { }
+
+    public required TextSpan Span { get; init; }
+
+    public static CSharpDirective Parse(SourceFile sourceFile, TextSpan span, string name, string value)
+    {
+        return name switch
+        {
+            "package" => Package.Parse(span, value),
+            _ => throw new GracefulException($"Unrecognized directive '{name}' at {sourceFile.GetPosition(span)}"),
+        };
+    }
+
+    public abstract void AddToProject(ProjectRootElement projectRootElement);
+
+    public sealed record Package : CSharpDirective
+    {
+        private Package() { }
+
+        public required string Name { get; init; }
+        public string? Version { get; init; }
+
+        public static Package Parse(TextSpan span, string value)
+        {
+            var i = value.IndexOf('=');
+            if (i < 0)
+            {
+                return new Package { Span = span, Name = value };
+            }
+
+            return new Package
+            {
+                Span = span,
+                Name = value[..i],
+                Version = value[(i + 1)..],
+            };
+        }
+
+        public override void AddToProject(ProjectRootElement projectRootElement)
+        {
+            var packageReference = projectRootElement.AddItem("PackageReference", Name);
+            if (Version is not null)
+            {
+                packageReference.AddMetadata("Version", Version);
+            }
+        }
     }
 }
