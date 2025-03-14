@@ -4,7 +4,7 @@
 #nullable enable
 
 using System.Collections.Immutable;
-using System.Diagnostics;
+using System.Security;
 using System.Text.RegularExpressions;
 using System.Xml;
 using Microsoft.Build.Construction;
@@ -25,6 +25,14 @@ namespace Microsoft.DotNet.Tools;
 /// </summary>
 internal sealed class VirtualProjectBuildingCommand
 {
+    private static readonly XmlWriterSettings s_projectFileXmlWriterSettings = new XmlWriterSettings
+    {
+        Indent = true,
+        IndentChars = "  ",
+        Encoding = Encoding.UTF8,
+        OmitXmlDeclaration = true,
+    };
+
     public Dictionary<string, string> GlobalProperties { get; } = new(StringComparer.OrdinalIgnoreCase);
     public required string EntryPointFileFullPath { get; init; }
 
@@ -156,21 +164,48 @@ internal sealed class VirtualProjectBuildingCommand
 
     public static void SaveProjectFile(string path, ImmutableArray<CSharpDirective> directives)
     {
-        var projectCollection = new ProjectCollection();
-        var projectFileText = $"""
+        using var stream = File.Open(path, FileMode.Create, FileAccess.Write);
+        using var writer = new StreamWriter(stream, Encoding.UTF8);
+        writer.WriteLine($"""
             <Project Sdk="Microsoft.NET.Sdk">
-
+            
               <PropertyGroup>
             {CommonProjectProperties}
               </PropertyGroup>
+            """);
+
+        if (directives.Length != 0)
+        {
+            writer.WriteLine("""
+
+                  <ItemGroup>
+                """);
+
+            foreach (var directive in directives)
+            {
+                var package = (CSharpDirective.Package)directive;
+
+                if (package.Version is null)
+                {
+                    writer.WriteLine($"""
+                            <PackageReference Include="{SecurityElement.Escape(package.Name)}" />
+                        """);
+                }
+                else
+                {
+                    writer.WriteLine($"""
+                            <PackageReference Include="{SecurityElement.Escape(package.Name)}" Version="{SecurityElement.Escape(package.Version)}" />
+                        """);
+                }
+            }
+
+            writer.WriteLine("  </ItemGroup>");
+        }
+
+        writer.WriteLine("""
 
             </Project>
-
-            """;
-        var projectRoot = CreateProjectRootElement(projectFileText, projectCollection);
-        projectRoot.FullPath = path;
-        AddDirectivesToProject(directives, projectRoot);
-        projectRoot.Save();
+            """);
     }
 
     private ProjectRootElement CreateProjectRootElement(ProjectCollection projectCollection)
