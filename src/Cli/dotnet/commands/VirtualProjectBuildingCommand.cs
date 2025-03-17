@@ -20,6 +20,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Text;
 using Microsoft.DotNet.Cli.Utils;
 using Microsoft.DotNet.Tools.Run;
+using static System.Net.Mime.MediaTypeNames;
 using LocalizableStrings = Microsoft.DotNet.Tools.Run.LocalizableStrings;
 
 namespace Microsoft.DotNet.Tools;
@@ -36,6 +37,9 @@ internal sealed class VirtualProjectBuildingCommand
         Encoding = Encoding.UTF8,
         OmitXmlDeclaration = true,
     };
+
+    private ImmutableArray<CSharpDirective> _directives;
+    private string? _targetFilePath;
 
     public Dictionary<string, string> GlobalProperties { get; } = new(StringComparer.OrdinalIgnoreCase);
     public required string EntryPointFileFullPath { get; init; }
@@ -65,6 +69,8 @@ internal sealed class VirtualProjectBuildingCommand
                 LogTaskInputs = binaryLoggers.Length != 0,
             };
             BuildManager.DefaultBuildManager.BeginBuild(parameters);
+
+            PrepareProjectInstance();
 
             // Do a restore first (equivalent to MSBuild's "implicit restore", i.e., `/restore`).
             // See https://github.com/dotnet/msbuild/blob/a1c2e7402ef0abe36bf493e395b04dd2cb1b3540/src/MSBuild/XMake.cs#L1838
@@ -134,6 +140,31 @@ internal sealed class VirtualProjectBuildingCommand
         }
     }
 
+    /// <summary>
+    /// Needs to be called before the first call to <see cref="CreateProjectInstance(ProjectCollection)"/>.
+    /// </summary>
+    public VirtualProjectBuildingCommand PrepareProjectInstance()
+    {
+        Debug.Assert(_directives.IsDefault && _targetFilePath is null, $"{nameof(PrepareProjectInstance)} should not be called multiple times.");
+
+        var sourceFile = CreateSourceFile(EntryPointFileFullPath);
+        _directives = FindDirectives(sourceFile);
+
+        // If there were any `#:` directives, remove them from the file.
+        // (This is temporary until Roslyn is updated to ignore them.)
+        _targetFilePath = EntryPointFileFullPath;
+        if (_directives.Length != 0)
+        {
+            var targetDirectory = Path.Join(Path.GetDirectoryName(_targetFilePath), "obj");
+            Directory.CreateDirectory(targetDirectory);
+            _targetFilePath = Path.Join(targetDirectory, Path.GetFileName(_targetFilePath));
+
+            RemoveDirectivesFromFile(_directives, sourceFile.Text, _targetFilePath);
+        }
+
+        return this;
+    }
+
     public ProjectInstance CreateProjectInstance(ProjectCollection projectCollection)
     {
         return CreateProjectInstance(projectCollection, addGlobalProperties: null);
@@ -156,6 +187,22 @@ internal sealed class VirtualProjectBuildingCommand
         {
             GlobalProperties = globalProperties,
         });
+
+        ProjectRootElement CreateProjectRootElement(ProjectCollection projectCollection)
+        {
+            Debug.Assert(!_directives.IsDefault && _targetFilePath is not null, $"{nameof(PrepareProjectInstance)} should have been called first.");
+
+            var projectFileFullPath = Path.ChangeExtension(EntryPointFileFullPath, ".csproj");
+            var projectFileWriter = new StringWriter();
+            WriteProjectFile(projectFileWriter, _directives, virtualProjectFile: true, targetFilePath: _targetFilePath);
+            var projectFileText = projectFileWriter.ToString();
+
+            using var reader = new StringReader(projectFileText);
+            using var xmlReader = XmlReader.Create(reader);
+            var projectRoot = ProjectRootElement.Create(xmlReader, projectCollection);
+            projectRoot.FullPath = projectFileFullPath;
+            return projectRoot;
+        }
     }
 
     // Kept in sync with the default `dotnet new console` project file (enforced by `DotnetProjectAddTests.SameAsTemplate`).
@@ -365,40 +412,6 @@ internal sealed class VirtualProjectBuildingCommand
 
         static string escapeName(string value) => XmlConvert.EncodeName(value);
         static string escapeValue(string value) => SecurityElement.Escape(value);
-    }
-
-    private ProjectRootElement CreateProjectRootElement(ProjectCollection projectCollection)
-    {
-        var sourceFile = CreateSourceFile(EntryPointFileFullPath);
-        var directives = FindDirectives(sourceFile);
-
-        // If there were any `#:` directives, remove them from the file.
-        // (This is temporary until Roslyn is updated to ignore them.)
-        string targetFilePath = EntryPointFileFullPath;
-        if (directives.Length != 0)
-        {
-            var targetDirectory = Path.Join(Path.GetDirectoryName(targetFilePath), "obj");
-            Directory.CreateDirectory(targetDirectory);
-            targetFilePath = Path.Join(targetDirectory, Path.GetFileName(targetFilePath));
-
-            RemoveDirectivesFromFile(directives, sourceFile.Text, targetFilePath);
-        }
-
-        var projectFileFullPath = Path.ChangeExtension(EntryPointFileFullPath, ".csproj");
-        var projectFileWriter = new StringWriter();
-        WriteProjectFile(projectFileWriter, directives, virtualProjectFile: true, targetFilePath: targetFilePath);
-        var projectFileText = projectFileWriter.ToString();
-
-        var projectRoot = CreateProjectRootElement(projectFileText, projectCollection);
-        projectRoot.FullPath = projectFileFullPath;
-        return projectRoot;
-    }
-
-    private static ProjectRootElement CreateProjectRootElement(string text, ProjectCollection projectCollection)
-    {
-        using var reader = new StringReader(text);
-        using var xmlReader = XmlReader.Create(new StringReader(text));
-        return ProjectRootElement.Create(xmlReader, projectCollection);
     }
 
     public static bool IsValidEntryPointPath(string entryPointFilePath)
