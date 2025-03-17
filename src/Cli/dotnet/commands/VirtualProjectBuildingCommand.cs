@@ -139,11 +139,6 @@ internal sealed class VirtualProjectBuildingCommand
         }
     }
 
-    public static bool IsValidEntryPointPath(string entryPointFilePath)
-    {
-        return entryPointFilePath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) && File.Exists(entryPointFilePath);
-    }
-
     /// <summary>
     /// Needs to be called before the first call to <see cref="CreateProjectInstance(ProjectCollection)"/>.
     /// </summary>
@@ -456,6 +451,11 @@ internal sealed class VirtualProjectBuildingCommand
         using var stream = File.Open(filePath, FileMode.Create, FileAccess.Write);
         using var writer = new StreamWriter(stream, Encoding.UTF8);
         text.Write(writer);
+    }
+
+    public static bool IsValidEntryPointPath(string entryPointFilePath)
+    {
+        return entryPointFilePath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) && File.Exists(entryPointFilePath);
     }
 }
 
