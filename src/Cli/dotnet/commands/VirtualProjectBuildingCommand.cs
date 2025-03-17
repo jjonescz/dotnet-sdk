@@ -20,7 +20,6 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Text;
 using Microsoft.DotNet.Cli.Utils;
 using Microsoft.DotNet.Tools.Run;
-using static System.Net.Mime.MediaTypeNames;
 using LocalizableStrings = Microsoft.DotNet.Tools.Run.LocalizableStrings;
 
 namespace Microsoft.DotNet.Tools;
@@ -140,6 +139,11 @@ internal sealed class VirtualProjectBuildingCommand
         }
     }
 
+    public static bool IsValidEntryPointPath(string entryPointFilePath)
+    {
+        return entryPointFilePath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) && File.Exists(entryPointFilePath);
+    }
+
     /// <summary>
     /// Needs to be called before the first call to <see cref="CreateProjectInstance(ProjectCollection)"/>.
     /// </summary>
@@ -205,14 +209,6 @@ internal sealed class VirtualProjectBuildingCommand
         }
     }
 
-    // Kept in sync with the default `dotnet new console` project file (enforced by `DotnetProjectAddTests.SameAsTemplate`).
-    private const string CommonProjectProperties = """
-            <OutputType>Exe</OutputType>
-            <TargetFramework>net10.0</TargetFramework>
-            <ImplicitUsings>enable</ImplicitUsings>
-            <Nullable>enable</Nullable>
-        """;
-
     public static void SaveProjectFile(string path, ImmutableArray<CSharpDirective> directives)
     {
         using var stream = File.Open(path, FileMode.Create, FileAccess.Write);
@@ -242,13 +238,13 @@ internal sealed class VirtualProjectBuildingCommand
                 <Project>
 
                   <!-- We need to explicitly import Sdk props/targets so we can override the targets below. -->
-                  <Import Project="Sdk.props" Sdk="{escapeValue(sdkValue)}" />
+                  <Import Project="Sdk.props" Sdk="{EscapeValue(sdkValue)}" />
                 """);
         }
         else
         {
             writer.WriteLine($"""
-                <Project Sdk="{escapeValue(sdkValue)}">
+                <Project Sdk="{EscapeValue(sdkValue)}">
 
                 """);
         }
@@ -258,19 +254,19 @@ internal sealed class VirtualProjectBuildingCommand
             if (virtualProjectFile)
             {
                 writer.WriteLine($"""
-                      <Import Project="Sdk.props" Sdk="{escapeValue(sdk.ToSlashDelimitedString())}" />
+                      <Import Project="Sdk.props" Sdk="{EscapeValue(sdk.ToSlashDelimitedString())}" />
                     """);
             }
             else if (sdk.Version is null)
             {
                 writer.WriteLine($"""
-                      <Sdk Name="{escapeValue(sdk.Name)}" />
+                      <Sdk Name="{EscapeValue(sdk.Name)}" />
                     """);
             }
             else
             {
                 writer.WriteLine($"""
-                      <Sdk Name="{escapeValue(sdk.Name)}" Version="{escapeValue(sdk.Version)}" />
+                      <Sdk Name="{EscapeValue(sdk.Name)}" Version="{EscapeValue(sdk.Version)}" />
                     """);
             }
 
@@ -282,9 +278,13 @@ internal sealed class VirtualProjectBuildingCommand
             writer.WriteLine();
         }
 
+        // Kept in sync with the default `dotnet new console` project file (enforced by `DotnetProjectAddTests.SameAsTemplate`).
         writer.WriteLine($"""
               <PropertyGroup>
-            {CommonProjectProperties}
+                <OutputType>Exe</OutputType>
+                <TargetFramework>net10.0</TargetFramework>
+                <ImplicitUsings>enable</ImplicitUsings>
+                <Nullable>enable</Nullable>
               </PropertyGroup>
             """);
 
@@ -308,7 +308,7 @@ internal sealed class VirtualProjectBuildingCommand
             foreach (var property in propertyDirectives)
             {
                 writer.WriteLine($"""
-                        <{escapeName(property.Name)}>{escapeValue(property.Value)}</{escapeName(property.Name)}>
+                        <{EscapeName(property.Name)}>{EscapeValue(property.Value)}</{EscapeName(property.Name)}>
                     """);
 
                 processedDirectives++;
@@ -329,13 +329,13 @@ internal sealed class VirtualProjectBuildingCommand
                 if (package.Version is null)
                 {
                     writer.WriteLine($"""
-                            <PackageReference Include="{escapeValue(package.Name)}" />
+                            <PackageReference Include="{EscapeValue(package.Name)}" />
                         """);
                 }
                 else
                 {
                     writer.WriteLine($"""
-                            <PackageReference Include="{escapeValue(package.Name)}" Version="{escapeValue(package.Version)}" />
+                            <PackageReference Include="{EscapeValue(package.Name)}" Version="{EscapeValue(package.Version)}" />
                         """);
                 }
 
@@ -354,7 +354,7 @@ internal sealed class VirtualProjectBuildingCommand
             writer.WriteLine($"""
 
                   <ItemGroup>
-                    <Compile Include="{escapeValue(targetFilePath)}" />
+                    <Compile Include="{EscapeValue(targetFilePath)}" />
                   </ItemGroup>
 
                 """);
@@ -362,7 +362,7 @@ internal sealed class VirtualProjectBuildingCommand
             foreach (var sdk in sdkDirectives)
             {
                 writer.WriteLine($"""
-                      <Import Project="Sdk.targets" Sdk="{escapeValue(sdk.ToSlashDelimitedString())}" />
+                      <Import Project="Sdk.targets" Sdk="{EscapeValue(sdk.ToSlashDelimitedString())}" />
                     """);
             }
 
@@ -410,13 +410,9 @@ internal sealed class VirtualProjectBuildingCommand
             </Project>
             """);
 
-        static string escapeName(string value) => XmlConvert.EncodeName(value);
-        static string escapeValue(string value) => SecurityElement.Escape(value);
-    }
+        static string EscapeName(string value) => XmlConvert.EncodeName(value);
 
-    public static bool IsValidEntryPointPath(string entryPointFilePath)
-    {
-        return entryPointFilePath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) && File.Exists(entryPointFilePath);
+        static string EscapeValue(string value) => SecurityElement.Escape(value);
     }
 
     public static ImmutableArray<CSharpDirective> FindDirectives(SourceFile sourceFile)
