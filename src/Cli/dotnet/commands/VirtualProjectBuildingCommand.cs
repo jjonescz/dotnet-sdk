@@ -208,6 +208,11 @@ internal sealed class VirtualProjectBuildingCommand
     {
         using var stream = File.Open(path, FileMode.Create, FileAccess.Write);
         using var writer = new StreamWriter(stream, Encoding.UTF8);
+        WriteProjectFile(writer, directives);
+    }
+
+    public static void WriteProjectFile(TextWriter writer, ImmutableArray<CSharpDirective> directives)
+    {
         WriteProjectFile(writer, directives, virtualProjectFile: false, targetFilePath: null);
     }
 
@@ -433,11 +438,11 @@ internal sealed class VirtualProjectBuildingCommand
         return new SourceFile(filePath, SourceText.From(stream, Encoding.UTF8));
     }
 
-    public static void RemoveDirectivesFromFile(ImmutableArray<CSharpDirective> directives, SourceText text, string filePath)
+    public static SourceText? RemoveDirectivesFromFile(ImmutableArray<CSharpDirective> directives, SourceText text)
     {
         if (directives.Length == 0)
         {
-            return;
+            return null;
         }
 
         Debug.Assert(directives.OrderBy(d => d.Span.Start).SequenceEqual(directives), "Directives should be ordered by source location.");
@@ -448,9 +453,17 @@ internal sealed class VirtualProjectBuildingCommand
             text = text.Replace(directive.Span, string.Empty);
         }
 
-        using var stream = File.Open(filePath, FileMode.Create, FileAccess.Write);
-        using var writer = new StreamWriter(stream, Encoding.UTF8);
-        text.Write(writer);
+        return text;
+    }
+
+    public static void RemoveDirectivesFromFile(ImmutableArray<CSharpDirective> directives, SourceText text, string filePath)
+    {
+        if (RemoveDirectivesFromFile(directives, text) is { } modifiedText)
+        {
+            using var stream = File.Open(filePath, FileMode.Create, FileAccess.Write);
+            using var writer = new StreamWriter(stream, Encoding.UTF8);
+            modifiedText.Write(writer);
+        }
     }
 
     public static bool IsValidEntryPointPath(string entryPointFilePath)

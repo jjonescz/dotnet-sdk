@@ -1,6 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using Microsoft.CodeAnalysis.Text;
+using Microsoft.DotNet.Tools;
+
 namespace Microsoft.DotNet.Cli.Project.Convert.Tests;
 
 public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(log)
@@ -208,5 +211,61 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
         new DirectoryInfo(Path.Join(testInstance.Path, "app", "Program"))
             .EnumerateFileSystemInfos().Select(f => f.Name).Order()
             .Should().BeEquivalentTo(["Program.csproj", "Program.cs"]);
+    }
+
+    [Fact]
+    public void Directives()
+    {
+        VerifyConversion(
+            inputCSharp: """
+                #:sdk Microsoft.NET.Sdk
+                #:sdk Aspire.Hosting.Sdk/9.1.0
+                #:property TargetFramework=net11.0
+                #:package System.CommandLine=2.0.0-beta4.22272.1
+                #:property LangVersion=preview
+                Console.WriteLine();
+                """,
+            expectedProject: """
+                <Project Sdk="Microsoft.NET.Sdk">
+
+                  <Sdk Name="Aspire.Hosting.Sdk" Version="9.1.0" />
+
+                  <PropertyGroup>
+                    <OutputType>Exe</OutputType>
+                    <TargetFramework>net10.0</TargetFramework>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <Nullable>enable</Nullable>
+                  </PropertyGroup>
+
+                  <PropertyGroup>
+                    <TargetFramework>net11.0</TargetFramework>
+                    <LangVersion>preview</LangVersion>
+                  </PropertyGroup>
+
+                  <ItemGroup>
+                    <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
+                  </ItemGroup>
+
+                </Project>
+
+                """,
+            expectedCSharp: """
+                Console.WriteLine();
+                """);
+    }
+
+    /// <param name="expectedCSharp">
+    /// <see langword="null"/> means the conversion should not touch the C# content.
+    /// </param>
+    private static void VerifyConversion(string inputCSharp, string expectedProject, string? expectedCSharp)
+    {
+        var sourceFile = new SourceFile("/app/Program.cs", SourceText.From(inputCSharp, Encoding.UTF8));
+        var directives = VirtualProjectBuildingCommand.FindDirectives(sourceFile);
+        var projectWriter = new StringWriter();
+        VirtualProjectBuildingCommand.WriteProjectFile(projectWriter, directives);
+        var actualProject = projectWriter.ToString();
+        actualProject.Should().Be(expectedProject);
+        var actualCSharp = VirtualProjectBuildingCommand.RemoveDirectivesFromFile(directives, sourceFile.Text)?.ToString();
+        actualCSharp.Should().Be(expectedCSharp);
     }
 }
