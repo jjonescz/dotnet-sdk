@@ -20,6 +20,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Text;
 using Microsoft.DotNet.Cli.Utils;
 using Microsoft.DotNet.Tools.Run;
+using LocalizableStrings = Microsoft.DotNet.Tools.Run.LocalizableStrings;
 
 namespace Microsoft.DotNet.Tools;
 
@@ -250,6 +251,23 @@ internal sealed class VirtualProjectBuildingCommand
         {
             writer.WriteLine("""
 
+                  <PropertyGroup>
+                """);
+
+            for (; directives is [CSharpDirective.Property property, ..]; directives = directives[1..])
+            {
+                writer.WriteLine($"""
+                        <{escapeName(property.Name)}>{escapeValue(property.Value)}</{escapeName(property.Name)}>
+                    """);
+            }
+
+            writer.WriteLine("  </PropertyGroup>");
+        }
+
+        if (directives.Length != 0)
+        {
+            writer.WriteLine("""
+
                   <ItemGroup>
                 """);
 
@@ -338,6 +356,7 @@ internal sealed class VirtualProjectBuildingCommand
             </Project>
             """);
 
+        static string escapeName(string value) => XmlConvert.EncodeName(value);
         static string escapeValue(string value) => SecurityElement.Escape(value);
     }
 
@@ -462,8 +481,9 @@ internal abstract record CSharpDirective
         return name switch
         {
             "sdk" => Sdk.Parse(span, value),
+            "property" => Property.Parse(sourceFile, span, value),
             "package" => Package.Parse(span, value),
-            _ => throw new GracefulException($"Unrecognized directive '{name}' at {sourceFile.GetPosition(span)}"),
+            _ => throw new GracefulException(LocalizableStrings.UnrecognizedDirective, name, sourceFile.GetPosition(span).ToString()),
         };
     }
 
@@ -505,6 +525,36 @@ internal abstract record CSharpDirective
         public string ToSlashDelimitedString()
         {
             return Version is null ? Name : $"{Name}/{Version}";
+        }
+    }
+
+    /// <summary>
+    /// <c>#:property</c> directive.
+    /// </summary>
+    public sealed record Property : CSharpDirective
+    {
+        private Property() { }
+
+        public override int Order => 2;
+
+        public required string Name { get; init; }
+        public required string Value { get; init; }
+
+        public static Property Parse(SourceFile sourceFile, TextSpan span, string text)
+        {
+            var (name, value) = ParseNameAndOptionalVersion(text);
+
+            if (value is null)
+            {
+                throw new GracefulException(LocalizableStrings.PropertyDirectiveMissingParts, sourceFile.GetPosition(span).ToString());
+            }
+
+            return new Property
+            {
+                Span = span,
+                Name = name,
+                Value = value,
+            };
         }
     }
 
