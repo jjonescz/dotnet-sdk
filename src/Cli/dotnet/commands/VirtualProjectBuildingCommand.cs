@@ -345,7 +345,7 @@ internal sealed class VirtualProjectBuildingCommand
             writer.WriteLine("  </ItemGroup>");
         }
 
-        Debug.Assert(processedDirectives == directives.Length);
+        Debug.Assert(processedDirectives + directives.OfType<CSharpDirective.Shebang>().Count() == directives.Length);
 
         if (virtualProjectFile)
         {
@@ -420,7 +420,13 @@ internal sealed class VirtualProjectBuildingCommand
         // NOTE: When Roslyn is updated to support "ignored directives", we should use its SyntaxTokenParser instead.
         foreach (var line in sourceFile.Text.Lines)
         {
-            if (Patterns.Directive.Match(sourceFile.Text.ToString(line.Span)) is { Success: true } match)
+            var lineText = sourceFile.Text.ToString(line.Span);
+
+            if (Patterns.Shebang.IsMatch(lineText))
+            {
+                builder.Add(new CSharpDirective.Shebang { Span = line.SpanIncludingLineBreak });
+            }
+            else if (Patterns.Directive.Match(lineText) is { Success: true } match)
             {
                 builder.Add(CSharpDirective.Parse(sourceFile, line.SpanIncludingLineBreak, match.Groups[1].Value, match.Groups[2].Value));
             }
@@ -483,6 +489,9 @@ internal static partial class Patterns
 {
     [GeneratedRegex("""^\s*#:\s*(\w*)\s*(.*?)\s*$""")]
     public static partial Regex Directive { get; }
+
+    [GeneratedRegex("""^\s*#!.*$""")]
+    public static partial Regex Shebang { get; }
 }
 
 /// <summary>
@@ -530,6 +539,11 @@ internal abstract record CSharpDirective
             return firstPart;
         }
     }
+
+    /// <summary>
+    /// <c>#!</c> directive.
+    /// </summary>
+    public sealed record Shebang : CSharpDirective;
 
     /// <summary>
     /// <c>#:sdk</c> directive.

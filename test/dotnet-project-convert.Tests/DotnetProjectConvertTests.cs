@@ -219,6 +219,7 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     {
         VerifyConversion(
             inputCSharp: """
+                #!/program
                 #:sdk Microsoft.NET.Sdk
                 #:sdk Aspire.Hosting.Sdk/9.1.0
                 #:property TargetFramework=net11.0
