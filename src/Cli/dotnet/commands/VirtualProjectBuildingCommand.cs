@@ -308,7 +308,7 @@ internal sealed class VirtualProjectBuildingCommand
             foreach (var property in propertyDirectives)
             {
                 writer.WriteLine($"""
-                        <{EscapeName(property.Name)}>{EscapeValue(property.Value)}</{EscapeName(property.Name)}>
+                        <{property.Name}>{EscapeValue(property.Value)}</{property.Name}>
                     """);
 
                 processedDirectives++;
@@ -409,8 +409,6 @@ internal sealed class VirtualProjectBuildingCommand
 
             </Project>
             """);
-
-        static string EscapeName(string value) => XmlConvert.EncodeName(value);
 
         static string EscapeValue(string value) => SecurityElement.Escape(value);
     }
@@ -577,6 +575,15 @@ internal abstract record CSharpDirective
             if (propertyValue is null)
             {
                 throw new GracefulException(LocalizableStrings.PropertyDirectiveMissingParts, sourceFile.GetPosition(span).ToString());
+            }
+
+            try
+            {
+                propertyName = XmlConvert.VerifyName(propertyName);
+            }
+            catch (XmlException ex)
+            {
+                throw new GracefulException(string.Format(LocalizableStrings.PropertyDirectiveInvalidName, sourceFile.GetPosition(span).ToString(), ex.Message), ex);
             }
 
             return new Property

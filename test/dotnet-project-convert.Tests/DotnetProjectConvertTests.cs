@@ -375,6 +375,51 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             expectedWildcardPattern: "The property directive needs to have two parts separated by '=' like 'PropertyName=PropertyValue': *");
     }
 
+    [Fact]
+    public void Directives_InvalidPropertyName()
+    {
+        VerifyConversionThrows(
+            inputCSharp: """
+                #:property Name"=Value
+                """,
+            expectedWildcardPattern: """
+                Invalid property name at *. The '"' character, hexadecimal value 0x22, cannot be included in a name.
+                """);
+    }
+
+    [Fact]
+    public void Directives_Escaping()
+    {
+        VerifyConversion(
+            inputCSharp: """
+                #:property Prop=<test">
+                #:sdk <test">/="<>test
+                #:package <test">/="<>test
+                """,
+            expectedProject: """
+                <Project Sdk="&lt;test&quot;&gt;/=&quot;&lt;&gt;test">
+
+                  <PropertyGroup>
+                    <OutputType>Exe</OutputType>
+                    <TargetFramework>net10.0</TargetFramework>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <Nullable>enable</Nullable>
+                  </PropertyGroup>
+
+                  <PropertyGroup>
+                    <Prop>&lt;test&quot;&gt;</Prop>
+                  </PropertyGroup>
+
+                  <ItemGroup>
+                    <PackageReference Include="&lt;test&quot;&gt;" Version="=&quot;&lt;&gt;test" />
+                  </ItemGroup>
+
+                </Project>
+
+                """,
+            expectedCSharp: "");
+    }
+
     private static void Convert(string inputCSharp, out string actualProject, out string? actualCSharp)
     {
         var sourceFile = new SourceFile("/app/Program.cs", SourceText.From(inputCSharp, Encoding.UTF8));

@@ -61,6 +61,11 @@ Defina nombres de perfiles distintos.</target>
         <target state="translated">Solo se puede especificar un proyecto a la vez mediante la opción -p.</target>
         <note>{Locked="-p"}</note>
       </trans-unit>
+      <trans-unit id="PropertyDirectiveInvalidName">
+        <source>Invalid property name at {0}. {1}</source>
+        <target state="new">Invalid property name at {0}. {1}</target>
+        <note>{0} is the file path and line number. {1} is an inner exception message.</note>
+      </trans-unit>
       <trans-unit id="PropertyDirectiveMissingParts">
         <source>The property directive needs to have two parts separated by '=' like 'PropertyName=PropertyValue': {0}</source>
         <target state="new">The property directive needs to have two parts separated by '=' like 'PropertyName=PropertyValue': {0}</target>

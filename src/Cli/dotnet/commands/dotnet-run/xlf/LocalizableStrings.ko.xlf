@@ -61,6 +61,11 @@ Make the profile names distinct.</source>
         <target state="translated">-p 옵션을 사용하여 한 번에 하나의 프로젝트만 지정할 수 있습니다.</target>
         <note>{Locked="-p"}</note>
       </trans-unit>
+      <trans-unit id="PropertyDirectiveInvalidName">
+        <source>Invalid property name at {0}. {1}</source>
+        <target state="new">Invalid property name at {0}. {1}</target>
+        <note>{0} is the file path and line number. {1} is an inner exception message.</note>
+      </trans-unit>
       <trans-unit id="PropertyDirectiveMissingParts">
         <source>The property directive needs to have two parts separated by '=' like 'PropertyName=PropertyValue': {0}</source>
         <target state="new">The property directive needs to have two parts separated by '=' like 'PropertyName=PropertyValue': {0}</target>
