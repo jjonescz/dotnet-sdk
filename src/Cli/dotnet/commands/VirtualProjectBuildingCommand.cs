@@ -6,6 +6,7 @@
 using System;
 using System.Buffers;
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Security;
 using System.Text.RegularExpressions;
 using System.Xml;
@@ -164,10 +165,16 @@ internal sealed class VirtualProjectBuildingCommand
             <Nullable>enable</Nullable>
         """;
 
-    public static void SaveProjectFile(string path, ReadOnlySpan<CSharpDirective> directives)
+    public static void SaveProjectFile(string path, ImmutableArray<CSharpDirective> directives)
     {
         using var stream = File.Open(path, FileMode.Create, FileAccess.Write);
         using var writer = new StreamWriter(stream, Encoding.UTF8);
+        WriteProjectFile(writer, directives.AsSpan(), virtualProjectFile: false, targetFilePath: null);
+    }
+
+    private static void WriteProjectFile(TextWriter writer, ReadOnlySpan<CSharpDirective> directives, bool virtualProjectFile, string? targetFilePath)
+    {
+        var originalDirectives = directives;
 
         string sdkValue = "Microsoft.NET.Sdk";
 
@@ -177,15 +184,33 @@ internal sealed class VirtualProjectBuildingCommand
             directives = directives[1..];
         }
 
-        writer.WriteLine($"""
-            <Project Sdk="{escapeValue(sdkValue)}">
+        if (virtualProjectFile)
+        {
+            writer.WriteLine($"""
+                <Project>
 
-            """);
+                  <!-- We need to explicitly import Sdk props/targets so we can override the targets below. -->
+                  <Import Project="Sdk.props" Sdk="{escapeValue(sdkValue)}" />
+                """);
+        }
+        else
+        {
+            writer.WriteLine($"""
+                <Project Sdk="{escapeValue(sdkValue)}">
+
+                """);
+        }
 
         bool anySdkElements = false;
         for (; directives is [CSharpDirective.Sdk sdk, ..]; directives = directives[1..])
         {
-            if (sdk.Version is null)
+            if (virtualProjectFile)
+            {
+                writer.WriteLine($"""
+                      <Import Project="Sdk.props" Sdk="{escapeValue(sdk.ToSlashDelimitedString())}" />
+                    """);
+            }
+            else if (sdk.Version is null)
             {
                 writer.WriteLine($"""
                       <Sdk Name="{escapeValue(sdk.Name)}" />
@@ -210,6 +235,16 @@ internal sealed class VirtualProjectBuildingCommand
             {CommonProjectProperties}
               </PropertyGroup>
             """);
+
+        if (virtualProjectFile)
+        {
+            writer.WriteLine("""
+
+                  <PropertyGroup>
+                    <EnableDefaultItems>false</EnableDefaultItems>
+                  </PropertyGroup>
+                """);
+        }
 
         if (directives.Length != 0)
         {
@@ -239,6 +274,65 @@ internal sealed class VirtualProjectBuildingCommand
             writer.WriteLine("  </ItemGroup>");
         }
 
+        if (virtualProjectFile)
+        {
+            Debug.Assert(targetFilePath is not null);
+
+            writer.WriteLine($"""
+
+                  <ItemGroup>
+                    <Compile Include="{escapeValue(targetFilePath)}" />
+                  </ItemGroup>
+
+                """);
+
+            directives = originalDirectives;
+            for (; directives is [CSharpDirective.Sdk sdk, ..]; directives = directives[1..])
+            {
+                writer.WriteLine($"""
+                      <Import Project="Sdk.targets" Sdk="{escapeValue(sdk.ToSlashDelimitedString())}" />
+                    """);
+            }
+
+            if (directives.Length == originalDirectives.Length)
+            {
+                Debug.Assert(sdkValue == "Microsoft.NET.Sdk");
+                writer.WriteLine("""
+                      <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
+                    """);
+            }
+
+            writer.WriteLine("""
+
+                  <!--
+                    Override targets which don't work with project files that are not present on disk.
+                    See https://github.com/NuGet/Home/issues/14148.
+                  -->
+
+                  <Target Name="_FilterRestoreGraphProjectInputItems"
+                          DependsOnTargets="_LoadRestoreGraphEntryPoints"
+                          Returns="@(FilteredRestoreGraphProjectInputItems)">
+                    <ItemGroup>
+                      <FilteredRestoreGraphProjectInputItems Include="@(RestoreGraphProjectInputItems)" />
+                    </ItemGroup>
+                  </Target>
+
+                  <Target Name="_GetAllRestoreProjectPathItems"
+                          DependsOnTargets="_FilterRestoreGraphProjectInputItems"
+                          Returns="@(_RestoreProjectPathItems)">
+                    <ItemGroup>
+                      <_RestoreProjectPathItems Include="@(FilteredRestoreGraphProjectInputItems)" />
+                    </ItemGroup>
+                  </Target>
+
+                  <Target Name="_GenerateRestoreGraph"
+                          DependsOnTargets="_FilterRestoreGraphProjectInputItems;_GetAllRestoreProjectPathItems;_GenerateRestoreGraphProjectEntry;_GenerateProjectRestoreGraph"
+                          Returns="@(_RestoreGraphEntry)">
+                    <!-- Output from dependency _GenerateRestoreGraphProjectEntry and _GenerateProjectRestoreGraph -->
+                  </Target>
+                """);
+        }
+
         writer.WriteLine("""
 
             </Project>
@@ -249,57 +343,10 @@ internal sealed class VirtualProjectBuildingCommand
 
     private ProjectRootElement CreateProjectRootElement(ProjectCollection projectCollection)
     {
-        var projectFileFullPath = Path.ChangeExtension(EntryPointFileFullPath, ".csproj");
-        var projectFileText = $"""
-            <Project>
-              <!-- We need to explicitly import Sdk props/targets so we can override the targets below. -->
-              <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
-
-              <PropertyGroup>
-            {CommonProjectProperties}
-
-                <EnableDefaultItems>false</EnableDefaultItems>
-              </PropertyGroup>
-
-              <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
-
-              <!--
-                Override targets which don't work with project files that are not present on disk.
-                See https://github.com/NuGet/Home/issues/14148.
-              -->
-
-              <Target Name="_FilterRestoreGraphProjectInputItems"
-                      DependsOnTargets="_LoadRestoreGraphEntryPoints"
-                      Returns="@(FilteredRestoreGraphProjectInputItems)">
-                <ItemGroup>
-                  <FilteredRestoreGraphProjectInputItems Include="@(RestoreGraphProjectInputItems)" />
-                </ItemGroup>
-              </Target>
-
-              <Target Name="_GetAllRestoreProjectPathItems"
-                      DependsOnTargets="_FilterRestoreGraphProjectInputItems"
-                      Returns="@(_RestoreProjectPathItems)">
-                <ItemGroup>
-                  <_RestoreProjectPathItems Include="@(FilteredRestoreGraphProjectInputItems)" />
-                </ItemGroup>
-              </Target>
-
-              <Target Name="_GenerateRestoreGraph"
-                      DependsOnTargets="_FilterRestoreGraphProjectInputItems;_GetAllRestoreProjectPathItems;_GenerateRestoreGraphProjectEntry;_GenerateProjectRestoreGraph"
-                      Returns="@(_RestoreGraphEntry)">
-                <!-- Output from dependency _GenerateRestoreGraphProjectEntry and _GenerateProjectRestoreGraph -->
-              </Target>
-            </Project>
-            """;
-        var projectRoot = CreateProjectRootElement(projectFileText, projectCollection);
-        projectRoot.FullPath = projectFileFullPath;
-
-        // Translate `#:` directives to project elements.
         var sourceFile = CreateSourceFile(EntryPointFileFullPath);
         var directives = FindDirectives(sourceFile);
-        AddDirectivesToProject(directives, projectRoot);
 
-        // If there were any directives, remove them from the file.
+        // If there were any `#:` directives, remove them from the file.
         // (This is temporary until Roslyn is updated to ignore them.)
         string targetFilePath = EntryPointFileFullPath;
         if (directives.Length != 0)
@@ -311,8 +358,13 @@ internal sealed class VirtualProjectBuildingCommand
             RemoveDirectivesFromFile(directives, sourceFile.Text, targetFilePath);
         }
 
-        projectRoot.AddItem(itemType: "Compile", include: targetFilePath);
+        var projectFileFullPath = Path.ChangeExtension(EntryPointFileFullPath, ".csproj");
+        var projectFileWriter = new StringWriter();
+        WriteProjectFile(projectFileWriter, directives.AsSpan(), virtualProjectFile: true, targetFilePath: targetFilePath);
+        var projectFileText = projectFileWriter.ToString();
 
+        var projectRoot = CreateProjectRootElement(projectFileText, projectCollection);
+        projectRoot.FullPath = projectFileFullPath;
         return projectRoot;
     }
 
@@ -352,15 +404,6 @@ internal sealed class VirtualProjectBuildingCommand
         return new SourceFile(filePath, SourceText.From(stream, Encoding.UTF8));
     }
 
-    private static void AddDirectivesToProject(ImmutableArray<CSharpDirective> directives, ProjectRootElement projectRoot)
-    {
-        var context = new DirectiveAddingContext { ProjectRoot = projectRoot };
-        foreach (var directive in directives)
-        {
-            directive.AddToProject(context);
-        }
-    }
-
     public static void RemoveDirectivesFromFile(ImmutableArray<CSharpDirective> directives, SourceText text, string filePath)
     {
         if (directives.Length == 0)
@@ -394,12 +437,6 @@ internal static partial class Patterns
     public static partial Regex Directive { get; }
 }
 
-internal sealed class DirectiveAddingContext
-{
-    public required ProjectRootElement ProjectRoot { get; init; }
-    public bool AddedSdk { get; set; }
-}
-
 /// <summary>
 /// Represents a C# directive starting with <c>#:</c>. Those are ignored by the language but recognized by us.
 /// </summary>
@@ -429,8 +466,6 @@ internal abstract record CSharpDirective
             _ => throw new GracefulException($"Unrecognized directive '{name}' at {sourceFile.GetPosition(span)}"),
         };
     }
-
-    public abstract void AddToProject(DirectiveAddingContext context);
 
     private static (string, string?) ParseNameAndOptionalVersion(string value)
     {
@@ -467,19 +502,6 @@ internal abstract record CSharpDirective
             };
         }
 
-        public override void AddToProject(DirectiveAddingContext context)
-        {
-            if (!context.AddedSdk)
-            {
-                context.ProjectRoot.Sdk = ToSlashDelimitedString();
-                context.AddedSdk = true;
-            }
-            else
-            {
-                context.ProjectRoot.CreateProjectSdkElement(Name, Version);
-            }
-        }
-
         public string ToSlashDelimitedString()
         {
             return Version is null ? Name : $"{Name}/{Version}";
@@ -508,15 +530,6 @@ internal abstract record CSharpDirective
                 Name = name,
                 Version = version,
             };
-        }
-
-        public override void AddToProject(DirectiveAddingContext context)
-        {
-            var packageReference = context.ProjectRoot.AddItem("PackageReference", Name);
-            if (Version is not null)
-            {
-                packageReference.AddMetadata("Version", Version);
-            }
         }
     }
 }
