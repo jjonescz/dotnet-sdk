@@ -29,7 +29,15 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .Execute()
             .Should().Pass();
 
-        var dotnetProjectConvertProject = Directory.EnumerateFiles(Path.Join(dotnetProjectConvert, "Program"), "*.csproj").Single();
+        new DirectoryInfo(dotnetProjectConvert)
+            .EnumerateFileSystemInfos().Select(d => d.Name).Order()
+            .Should().BeEquivalentTo(["Program"]);
+
+        new DirectoryInfo(Path.Join(dotnetProjectConvert, "Program"))
+            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
+            .Should().BeEquivalentTo(["Program.csproj", "Program.cs"]);
+
+        var dotnetProjectConvertProject = Path.Join(dotnetProjectConvert, "Program", "Program.csproj");
 
         Path.GetFileName(dotnetProjectConvertProject).Should().Be("Program.csproj");
 
@@ -61,6 +69,10 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .Execute()
             .Should().Fail()
             .And.HaveStdErrContaining("The target directory already exists");
+
+        new DirectoryInfo(testInstance.Path)
+            .EnumerateFileSystemInfos().Select(d => d.Name).Order()
+            .Should().BeEquivalentTo(["MyApp", "MyApp.cs"]);
     }
 
     [Fact]
@@ -99,6 +111,10 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .Execute()
             .Should().Fail()
             .And.HaveStdErrContaining("The target directory already exists");
+
+        new DirectoryInfo(testInstance.Path)
+            .EnumerateFileSystemInfos().Select(d => d.Name).Order()
+            .Should().BeEquivalentTo(["MyApp.cs", "SomeOutput"]);
     }
 
     [Fact]
@@ -114,8 +130,8 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .Should().Pass();
 
         new DirectoryInfo(testInstance.Path)
-            .EnumerateDirectories().Select(d => d.Name).Order()
-            .Should().BeEquivalentTo(["Program1"]);
+            .EnumerateFileSystemInfos().Select(d => d.Name).Order()
+            .Should().BeEquivalentTo(["Program1", "Program2.cs"]);
 
         new DirectoryInfo(Path.Join(testInstance.Path, "Program1"))
             .EnumerateFileSystemInfos().Select(f => f.Name).Order()
@@ -132,6 +148,9 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .Execute()
             .Should().Fail()
             .And.HaveStdErrContaining("Required argument missing for command");
+
+        new DirectoryInfo(testInstance.Path)
+            .EnumerateFileSystemInfos().Should().BeEmpty();
     }
 
     [Fact]
@@ -144,6 +163,9 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .Execute()
             .Should().Fail()
             .And.HaveStdErrContaining("The specified file must exist");
+
+        new DirectoryInfo(testInstance.Path)
+            .EnumerateFileSystemInfos().Should().BeEmpty();
     }
 
     [Fact]
@@ -157,6 +179,10 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .Execute()
             .Should().Fail()
             .And.HaveStdErrContaining("The specified file must exist and have '.cs' file extension");
+
+        new DirectoryInfo(testInstance.Path)
+            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
+            .Should().BeEquivalentTo(["Program.vb"]);
     }
 
     [Fact]
@@ -169,6 +195,10 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Pass();
+
+        new DirectoryInfo(testInstance.Path)
+            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
+            .Should().BeEquivalentTo(["Program"]);
 
         new DirectoryInfo(Path.Join(testInstance.Path, "Program"))
             .EnumerateFileSystemInfos().Select(f => f.Name).Order()
@@ -187,6 +217,10 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Pass();
+
+        new DirectoryInfo(testInstance.Path)
+            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
+            .Should().BeEquivalentTo(["Program"]);
 
         new DirectoryInfo(Path.Join(testInstance.Path, "Program"))
             .EnumerateFileSystemInfos().Select(f => f.Name).Order()
@@ -209,9 +243,77 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .Execute()
             .Should().Pass();
 
+        new DirectoryInfo(Path.Join(testInstance.Path, "app"))
+            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
+            .Should().BeEquivalentTo(["Program"]);
+
         new DirectoryInfo(Path.Join(testInstance.Path, "app", "Program"))
             .EnumerateFileSystemInfos().Select(f => f.Name).Order()
             .Should().BeEquivalentTo(["Program.csproj", "Program.cs"]);
+    }
+
+    /// <summary>
+    /// When processing fails due to invalid directives, no conversion should be performed
+    /// (e.g., the target directory should not be created).
+    /// </summary>
+    [Fact]
+    public void ProcessingFails()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), "#:invalid");
+
+        new DotnetCommand(Log, "project", "convert", "Program.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining("Unrecognized directive 'invalid' at");
+
+        new DirectoryInfo(Path.Join(testInstance.Path))
+            .EnumerateDirectories().Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// End-to-end test of directive processing. More cases are covered by faster unit tests below.
+    /// </summary>
+    [Fact]
+    public void ProcessingSucceeds()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), """
+            #:sdk Aspire.Hosting.Sdk/9.1.0
+            Console.WriteLine();
+            """);
+
+        new DotnetCommand(Log, "project", "convert", "Program.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass();
+
+        new DirectoryInfo(testInstance.Path)
+            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
+            .Should().BeEquivalentTo(["Program"]);
+
+        new DirectoryInfo(Path.Join(testInstance.Path, "Program"))
+            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
+            .Should().BeEquivalentTo(["Program.csproj", "Program.cs"]);
+
+        File.ReadAllText(Path.Join(testInstance.Path, "Program", "Program.cs"))
+            .Should().Be("Console.WriteLine();");
+
+        File.ReadAllText(Path.Join(testInstance.Path, "Program", "Program.csproj"))
+            .Should().Be("""
+                <Project Sdk="Aspire.Hosting.Sdk/9.1.0">
+
+                  <PropertyGroup>
+                    <OutputType>Exe</OutputType>
+                    <TargetFramework>net10.0</TargetFramework>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <Nullable>enable</Nullable>
+                  </PropertyGroup>
+
+                </Project>
+
+                """);
     }
 
     [Fact]
