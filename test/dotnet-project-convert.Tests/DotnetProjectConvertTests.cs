@@ -340,7 +340,7 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
                 #:sdk Test
                 #:{directive} Test
                 """,
-            expectedWildcardPattern: $"Unrecognized directive '{directive}' at *");
+            expectedWildcardPattern: $"Unrecognized directive '{directive}' at /app/Program.cs:2.");
     }
 
     [Fact]
@@ -351,7 +351,7 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
                 #:
                 #:sdk Test
                 """,
-            expectedWildcardPattern: "Unrecognized directive '' at *");
+            expectedWildcardPattern: "Unrecognized directive '' at /app/Program.cs:1.");
     }
 
     [Theory, CombinatorialData]
@@ -363,7 +363,7 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             inputCSharp: $"""
                 #:{directive} {value}
                 """,
-            expectedWildcardPattern: $"Missing name of '{directive}' at *");
+            expectedWildcardPattern: $"Missing name of '{directive}' at /app/Program.cs:1.");
     }
 
     [Fact]
@@ -373,7 +373,7 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             inputCSharp: """
                 #:property Test
                 """,
-            expectedWildcardPattern: "The property directive needs to have two parts separated by '=' like 'PropertyName=PropertyValue': *");
+            expectedWildcardPattern: "The property directive needs to have two parts separated by '=' like 'PropertyName=PropertyValue': /app/Program.cs:1");
     }
 
     [Fact]
@@ -384,7 +384,7 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
                 #:property Name"=Value
                 """,
             expectedWildcardPattern: """
-                Invalid property name at *. The '"' character, hexadecimal value 0x22, cannot be included in a name.
+                Invalid property name at /app/Program.cs:1. The '"' character, hexadecimal value 0x22, cannot be included in a name.
                 """);
     }
 
@@ -419,6 +419,50 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
 
                 """,
             expectedCSharp: "");
+    }
+
+    [Fact]
+    public void Directives_Whitespace()
+    {
+        VerifyConversion(
+            inputCSharp: """
+                 #  !  /test
+                  #!  /program   x   
+                    #:   sdk   TestSdk
+                #:property Name=   Value   
+                 # :property Name=Value
+                """,
+            expectedProject: """
+                <Project Sdk="TestSdk">
+
+                  <PropertyGroup>
+                    <OutputType>Exe</OutputType>
+                    <TargetFramework>net10.0</TargetFramework>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <Nullable>enable</Nullable>
+                  </PropertyGroup>
+
+                  <PropertyGroup>
+                    <Name>   Value</Name>
+                  </PropertyGroup>
+
+                </Project>
+
+                """,
+            expectedCSharp: """
+                 #  !  /test
+                 # :property Name=Value
+                """);
+    }
+
+    [Fact]
+    public void Directives_Whitespace_Invalid()
+    {
+        VerifyConversionThrows(
+            inputCSharp: """
+                #:   property   Name   =   Value
+                """,
+            expectedWildcardPattern: "Invalid property name at /app/Program.cs:1. The ' ' character, hexadecimal value 0x20, cannot be included in a name.");
     }
 
     private static void Convert(string inputCSharp, out string actualProject, out string? actualCSharp)
