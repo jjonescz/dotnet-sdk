@@ -482,7 +482,7 @@ internal readonly record struct SourceFile(string Path, SourceText Text)
 
 internal static partial class Patterns
 {
-    [GeneratedRegex("""^\s*#:\s*(\w+)\s*(.*?)\s*$""")]
+    [GeneratedRegex("""^\s*#:\s*(\w*)\s*(.*?)\s*$""")]
     public static partial Regex Directive { get; }
 }
 
@@ -504,22 +504,32 @@ internal abstract record CSharpDirective
     {
         return name switch
         {
-            "sdk" => Sdk.Parse(span, value),
-            "property" => Property.Parse(sourceFile, span, value),
-            "package" => Package.Parse(span, value),
+            "sdk" => Sdk.Parse(sourceFile, span, name, value),
+            "property" => Property.Parse(sourceFile, span, name, value),
+            "package" => Package.Parse(sourceFile, span, name, value),
             _ => throw new GracefulException(LocalizableStrings.UnrecognizedDirective, name, sourceFile.GetPosition(span).ToString()),
         };
     }
 
-    private static (string, string?) ParseNameAndOptionalVersion(string value)
+    private static (string, string?) ParseNameAndOptionalVersion(SourceFile sourceFile, TextSpan span, string name, string value)
     {
         var i = value.AsSpan().IndexOfAny(s_separators);
         if (i < 0)
         {
-            return (value, null);
+            return (checkFirstPart(value), null);
         }
 
-        return (value[..i], value[(i + 1)..]);
+        return (checkFirstPart(value[..i]), value[(i + 1)..]);
+
+        string checkFirstPart(string firstPart)
+        {
+            if (string.IsNullOrWhiteSpace(firstPart))
+            {
+                throw new GracefulException(LocalizableStrings.MissingDirectiveName, name, sourceFile.GetPosition(span).ToString());
+            }
+
+            return firstPart;
+        }
     }
 
     /// <summary>
@@ -532,15 +542,15 @@ internal abstract record CSharpDirective
         public required string Name { get; init; }
         public string? Version { get; init; }
 
-        public static Sdk Parse(TextSpan span, string value)
+        public static new Sdk Parse(SourceFile sourceFile, TextSpan span, string name, string value)
         {
-            var (name, version) = ParseNameAndOptionalVersion(value);
+            var (sdkName, sdkVersion) = ParseNameAndOptionalVersion(sourceFile, span, name, value);
 
             return new Sdk
             {
                 Span = span,
-                Name = name,
-                Version = version,
+                Name = sdkName,
+                Version = sdkVersion,
             };
         }
 
@@ -560,11 +570,11 @@ internal abstract record CSharpDirective
         public required string Name { get; init; }
         public required string Value { get; init; }
 
-        public static Property Parse(SourceFile sourceFile, TextSpan span, string text)
+        public static new Property Parse(SourceFile sourceFile, TextSpan span, string name, string value)
         {
-            var (name, value) = ParseNameAndOptionalVersion(text);
+            var (propertyName, propertyValue) = ParseNameAndOptionalVersion(sourceFile, span, name, value);
 
-            if (value is null)
+            if (propertyValue is null)
             {
                 throw new GracefulException(LocalizableStrings.PropertyDirectiveMissingParts, sourceFile.GetPosition(span).ToString());
             }
@@ -572,8 +582,8 @@ internal abstract record CSharpDirective
             return new Property
             {
                 Span = span,
-                Name = name,
-                Value = value,
+                Name = propertyName,
+                Value = propertyValue,
             };
         }
     }
@@ -588,15 +598,15 @@ internal abstract record CSharpDirective
         public required string Name { get; init; }
         public string? Version { get; init; }
 
-        public static Package Parse(TextSpan span, string value)
+        public static new Package Parse(SourceFile sourceFile, TextSpan span, string name, string value)
         {
-            var (name, version) = ParseNameAndOptionalVersion(value);
+            var (packageName, packageVersion) = ParseNameAndOptionalVersion(sourceFile, span, name, value);
 
             return new Package
             {
                 Span = span,
-                Name = name,
-                Version = version,
+                Name = packageName,
+                Version = packageVersion,
             };
         }
     }

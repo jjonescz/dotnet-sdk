@@ -51,6 +51,11 @@ Diferencie os nomes dos perfis.</target>
         <target state="translated">Um perfil de lançamento com o nome '{0}' não existe.</target>
         <note />
       </trans-unit>
+      <trans-unit id="MissingDirectiveName">
+        <source>Missing name of '{0}' at {1}.</source>
+        <target state="new">Missing name of '{0}' at {1}.</target>
+        <note>{0} is the directive name like 'package' or 'sdk', {1} is the file path and line number.</note>
+      </trans-unit>
       <trans-unit id="OnlyOneProjectAllowed">
         <source>Only one project can be specified at a time using the -p option.</source>
         <target state="translated">Somente um projeto pode ser especificado por vez usando a opção -p.</target>

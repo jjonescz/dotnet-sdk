@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using Microsoft.CodeAnalysis.Text;
+using Microsoft.DotNet.Cli.Utils;
 using Microsoft.DotNet.Tools;
 
 namespace Microsoft.DotNet.Cli.Project.Convert.Tests;
@@ -254,18 +255,149 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
                 """);
     }
 
-    /// <param name="expectedCSharp">
-    /// <see langword="null"/> means the conversion should not touch the C# content.
-    /// </param>
-    private static void VerifyConversion(string inputCSharp, string expectedProject, string? expectedCSharp)
+    [Fact]
+    public void Directives_Variable()
+    {
+        VerifyConversion(
+            inputCSharp: """
+                #:package MyPackage=$(MyProp)
+                #:property MyProp=MyValue
+                """,
+            expectedProject: """
+                <Project Sdk="Microsoft.NET.Sdk">
+
+                  <PropertyGroup>
+                    <OutputType>Exe</OutputType>
+                    <TargetFramework>net10.0</TargetFramework>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <Nullable>enable</Nullable>
+                  </PropertyGroup>
+
+                  <PropertyGroup>
+                    <MyProp>MyValue</MyProp>
+                  </PropertyGroup>
+
+                  <ItemGroup>
+                    <PackageReference Include="MyPackage" Version="$(MyProp)" />
+                  </ItemGroup>
+
+                </Project>
+
+                """,
+            expectedCSharp: "");
+    }
+
+    [Fact]
+    public void Directives_Separators()
+    {
+        VerifyConversion(
+            inputCSharp: """
+                #:property Prop1=One=a/b
+                #:property Prop2/Two/a=b
+                #:sdk First=1.0=a/b
+                #:sdk Second=2.0/a=b
+                #:sdk Third/3.0=a/b
+                #:package P1=1.0/a=b
+                #:package P2/2.0/a=b
+                """,
+            expectedProject: """
+                <Project Sdk="First/1.0=a/b">
+
+                  <Sdk Name="Second" Version="2.0/a=b" />
+                  <Sdk Name="Third" Version="3.0=a/b" />
+
+                  <PropertyGroup>
+                    <OutputType>Exe</OutputType>
+                    <TargetFramework>net10.0</TargetFramework>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <Nullable>enable</Nullable>
+                  </PropertyGroup>
+
+                  <PropertyGroup>
+                    <Prop1>One=a/b</Prop1>
+                    <Prop2>Two/a=b</Prop2>
+                  </PropertyGroup>
+
+                  <ItemGroup>
+                    <PackageReference Include="P1" Version="1.0/a=b" />
+                    <PackageReference Include="P2" Version="2.0/a=b" />
+                  </ItemGroup>
+
+                </Project>
+
+                """,
+            expectedCSharp: "");
+    }
+
+    [Theory]
+    [InlineData("invalid")]
+    [InlineData("SDK")]
+    public void Directives_Unknown(string directive)
+    {
+        VerifyConversionThrows(
+            inputCSharp: $"""
+                #:sdk Test
+                #:{directive} Test
+                """,
+            expectedWildcardPattern: $"Unrecognized directive '{directive}' at *");
+    }
+
+    [Fact]
+    public void Directives_Empty()
+    {
+        VerifyConversionThrows(
+            inputCSharp: """
+                #:
+                #:sdk Test
+                """,
+            expectedWildcardPattern: "Unrecognized directive '' at *");
+    }
+
+    [Theory, CombinatorialData]
+    public void Directives_EmptyName(
+        [CombinatorialValues("sdk", "property", "package")] string directive,
+        [CombinatorialValues("=1.0", "")] string value)
+    {
+        VerifyConversionThrows(
+            inputCSharp: $"""
+                #:{directive} {value}
+                """,
+            expectedWildcardPattern: $"Missing name of '{directive}' at *");
+    }
+
+    [Fact]
+    public void Directives_MissingPropertyValue()
+    {
+        VerifyConversionThrows(
+            inputCSharp: """
+                #:property Test
+                """,
+            expectedWildcardPattern: "The property directive needs to have two parts separated by '=' like 'PropertyName=PropertyValue': *");
+    }
+
+    private static void Convert(string inputCSharp, out string actualProject, out string? actualCSharp)
     {
         var sourceFile = new SourceFile("/app/Program.cs", SourceText.From(inputCSharp, Encoding.UTF8));
         var directives = VirtualProjectBuildingCommand.FindDirectives(sourceFile);
         var projectWriter = new StringWriter();
         VirtualProjectBuildingCommand.WriteProjectFile(projectWriter, directives);
-        var actualProject = projectWriter.ToString();
+        actualProject = projectWriter.ToString();
+        actualCSharp = VirtualProjectBuildingCommand.RemoveDirectivesFromFile(directives, sourceFile.Text)?.ToString();
+    }
+
+    /// <param name="expectedCSharp">
+    /// <see langword="null"/> means the conversion should not touch the C# content.
+    /// </param>
+    private static void VerifyConversion(string inputCSharp, string expectedProject, string? expectedCSharp)
+    {
+        Convert(inputCSharp, out var actualProject, out var actualCSharp);
         actualProject.Should().Be(expectedProject);
-        var actualCSharp = VirtualProjectBuildingCommand.RemoveDirectivesFromFile(directives, sourceFile.Text)?.ToString();
         actualCSharp.Should().Be(expectedCSharp);
+    }
+
+    private static void VerifyConversionThrows(string inputCSharp, string expectedWildcardPattern)
+    {
+        0.Invoking(delegate { Convert(inputCSharp, out _, out _); })
+            .Should().Throw<GracefulException>().WithMessage(expectedWildcardPattern);
     }
 }

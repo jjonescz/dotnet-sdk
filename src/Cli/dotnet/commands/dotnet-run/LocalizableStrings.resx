@@ -248,6 +248,10 @@ Make the profile names distinct.</value>
     <value>Unrecognized directive '{0}' at {1}.</value>
     <comment>{0} is the directive name like 'package' or 'sdk', {1} is the file path and line number.</comment>
   </data>
+  <data name="MissingDirectiveName" xml:space="preserve">
+    <value>Missing name of '{0}' at {1}.</value>
+    <comment>{0} is the directive name like 'package' or 'sdk', {1} is the file path and line number.</comment>
+  </data>
   <data name="PropertyDirectiveMissingParts" xml:space="preserve">
     <value>The property directive needs to have two parts separated by '=' like 'PropertyName=PropertyValue': {0}</value>
     <comment>{0} is the file path and line number. {Locked="="}</comment>

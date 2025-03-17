@@ -51,6 +51,11 @@ Make the profile names distinct.</source>
         <target state="translated">'{0}' adlı bir başlatma profili yok.</target>
         <note />
       </trans-unit>
+      <trans-unit id="MissingDirectiveName">
+        <source>Missing name of '{0}' at {1}.</source>
+        <target state="new">Missing name of '{0}' at {1}.</target>
+        <note>{0} is the directive name like 'package' or 'sdk', {1} is the file path and line number.</note>
+      </trans-unit>
       <trans-unit id="OnlyOneProjectAllowed">
         <source>Only one project can be specified at a time using the -p option.</source>
         <target state="translated">-p seçeneği kullanılarak tek seferde yalnızca bir proje belirtilebilir.</target>

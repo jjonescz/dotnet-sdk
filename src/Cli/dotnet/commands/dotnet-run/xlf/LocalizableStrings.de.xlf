@@ -51,6 +51,11 @@ Erstellen Sie eindeutige Profilnamen.</target>
         <target state="translated">Es ist kein Startprofil mit dem Namen "{0}" vorhanden.</target>
         <note />
       </trans-unit>
+      <trans-unit id="MissingDirectiveName">
+        <source>Missing name of '{0}' at {1}.</source>
+        <target state="new">Missing name of '{0}' at {1}.</target>
+        <note>{0} is the directive name like 'package' or 'sdk', {1} is the file path and line number.</note>
+      </trans-unit>
       <trans-unit id="OnlyOneProjectAllowed">
         <source>Only one project can be specified at a time using the -p option.</source>
         <target state="translated">Nur jeweils ein Projekt kann mithilfe der Option „-p“ angegeben werden.</target>
