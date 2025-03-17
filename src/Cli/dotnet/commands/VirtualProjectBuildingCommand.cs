@@ -472,9 +472,10 @@ internal sealed class VirtualProjectBuildingCommand
 
 internal readonly record struct SourceFile(string Path, SourceText Text)
 {
-    public FileLinePositionSpan GetPosition(TextSpan span)
+    public string GetLocationString(TextSpan span)
     {
-        return new FileLinePositionSpan(Path, Text.Lines.GetLinePositionSpan(span));
+        var positionSpan = new FileLinePositionSpan(Path, Text.Lines.GetLinePositionSpan(span));
+        return $"{positionSpan.Path}:{positionSpan.StartLinePosition.Line + 1}";
     }
 }
 
@@ -505,7 +506,7 @@ internal abstract record CSharpDirective
             "sdk" => Sdk.Parse(sourceFile, span, name, value),
             "property" => Property.Parse(sourceFile, span, name, value),
             "package" => Package.Parse(sourceFile, span, name, value),
-            _ => throw new GracefulException(LocalizableStrings.UnrecognizedDirective, name, sourceFile.GetPosition(span).ToString()),
+            _ => throw new GracefulException(LocalizableStrings.UnrecognizedDirective, name, sourceFile.GetLocationString(span)),
         };
     }
 
@@ -523,7 +524,7 @@ internal abstract record CSharpDirective
         {
             if (string.IsNullOrWhiteSpace(firstPart))
             {
-                throw new GracefulException(LocalizableStrings.MissingDirectiveName, name, sourceFile.GetPosition(span).ToString());
+                throw new GracefulException(LocalizableStrings.MissingDirectiveName, name, sourceFile.GetLocationString(span));
             }
 
             return firstPart;
@@ -574,7 +575,7 @@ internal abstract record CSharpDirective
 
             if (propertyValue is null)
             {
-                throw new GracefulException(LocalizableStrings.PropertyDirectiveMissingParts, sourceFile.GetPosition(span).ToString());
+                throw new GracefulException(LocalizableStrings.PropertyDirectiveMissingParts, sourceFile.GetLocationString(span));
             }
 
             try
@@ -583,7 +584,7 @@ internal abstract record CSharpDirective
             }
             catch (XmlException ex)
             {
-                throw new GracefulException(string.Format(LocalizableStrings.PropertyDirectiveInvalidName, sourceFile.GetPosition(span).ToString(), ex.Message), ex);
+                throw new GracefulException(string.Format(LocalizableStrings.PropertyDirectiveInvalidName, sourceFile.GetLocationString(span), ex.Message), ex);
             }
 
             return new Property
