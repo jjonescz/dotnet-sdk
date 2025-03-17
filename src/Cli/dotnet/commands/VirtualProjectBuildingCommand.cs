@@ -170,19 +170,23 @@ internal sealed class VirtualProjectBuildingCommand
     {
         using var stream = File.Open(path, FileMode.Create, FileAccess.Write);
         using var writer = new StreamWriter(stream, Encoding.UTF8);
-        WriteProjectFile(writer, directives.AsSpan(), virtualProjectFile: false, targetFilePath: null);
+        WriteProjectFile(writer, directives, virtualProjectFile: false, targetFilePath: null);
     }
 
-    private static void WriteProjectFile(TextWriter writer, ReadOnlySpan<CSharpDirective> directives, bool virtualProjectFile, string? targetFilePath)
+    private static void WriteProjectFile(TextWriter writer, ImmutableArray<CSharpDirective> directives, bool virtualProjectFile, string? targetFilePath)
     {
-        var originalDirectives = directives;
+        int processedDirectives = 0;
+
+        var sdkDirectives = directives.OfType<CSharpDirective.Sdk>();
+        var propertyDirectives = directives.OfType<CSharpDirective.Property>();
+        var packageDirectives = directives.OfType<CSharpDirective.Package>();
 
         string sdkValue = "Microsoft.NET.Sdk";
 
-        if (directives is [CSharpDirective.Sdk firstSdk, ..])
+        if (sdkDirectives.FirstOrDefault() is { } firstSdk)
         {
             sdkValue = firstSdk.ToSlashDelimitedString();
-            directives = directives[1..];
+            processedDirectives++;
         }
 
         if (virtualProjectFile)
@@ -202,8 +206,7 @@ internal sealed class VirtualProjectBuildingCommand
                 """);
         }
 
-        bool anySdkElements = false;
-        for (; directives is [CSharpDirective.Sdk sdk, ..]; directives = directives[1..])
+        foreach (var sdk in sdkDirectives.Skip(1))
         {
             if (virtualProjectFile)
             {
@@ -223,10 +226,11 @@ internal sealed class VirtualProjectBuildingCommand
                       <Sdk Name="{escapeValue(sdk.Name)}" Version="{escapeValue(sdk.Version)}" />
                     """);
             }
-            anySdkElements = true;
+
+            processedDirectives++;
         }
 
-        if (anySdkElements)
+        if (processedDirectives > 1)
         {
             writer.WriteLine();
         }
@@ -247,34 +251,34 @@ internal sealed class VirtualProjectBuildingCommand
                 """);
         }
 
-        if (directives.Length != 0)
+        if (propertyDirectives.Any())
         {
             writer.WriteLine("""
 
                   <PropertyGroup>
                 """);
 
-            for (; directives is [CSharpDirective.Property property, ..]; directives = directives[1..])
+            foreach (var property in propertyDirectives)
             {
                 writer.WriteLine($"""
                         <{escapeName(property.Name)}>{escapeValue(property.Value)}</{escapeName(property.Name)}>
                     """);
+
+                processedDirectives++;
             }
 
             writer.WriteLine("  </PropertyGroup>");
         }
 
-        if (directives.Length != 0)
+        if (packageDirectives.Any())
         {
             writer.WriteLine("""
 
                   <ItemGroup>
                 """);
 
-            foreach (var directive in directives)
+            foreach (var package in packageDirectives)
             {
-                var package = (CSharpDirective.Package)directive;
-
                 if (package.Version is null)
                 {
                     writer.WriteLine($"""
@@ -287,10 +291,14 @@ internal sealed class VirtualProjectBuildingCommand
                             <PackageReference Include="{escapeValue(package.Name)}" Version="{escapeValue(package.Version)}" />
                         """);
                 }
+
+                processedDirectives++;
             }
 
             writer.WriteLine("  </ItemGroup>");
         }
+
+        Debug.Assert(processedDirectives == directives.Length);
 
         if (virtualProjectFile)
         {
@@ -304,15 +312,14 @@ internal sealed class VirtualProjectBuildingCommand
 
                 """);
 
-            directives = originalDirectives;
-            for (; directives is [CSharpDirective.Sdk sdk, ..]; directives = directives[1..])
+            foreach (var sdk in sdkDirectives)
             {
                 writer.WriteLine($"""
                       <Import Project="Sdk.targets" Sdk="{escapeValue(sdk.ToSlashDelimitedString())}" />
                     """);
             }
 
-            if (directives.Length == originalDirectives.Length)
+            if (!sdkDirectives.Any())
             {
                 Debug.Assert(sdkValue == "Microsoft.NET.Sdk");
                 writer.WriteLine("""
@@ -379,7 +386,7 @@ internal sealed class VirtualProjectBuildingCommand
 
         var projectFileFullPath = Path.ChangeExtension(EntryPointFileFullPath, ".csproj");
         var projectFileWriter = new StringWriter();
-        WriteProjectFile(projectFileWriter, directives.AsSpan(), virtualProjectFile: true, targetFilePath: targetFilePath);
+        WriteProjectFile(projectFileWriter, directives, virtualProjectFile: true, targetFilePath: targetFilePath);
         var projectFileText = projectFileWriter.ToString();
 
         var projectRoot = CreateProjectRootElement(projectFileText, projectCollection);
@@ -412,8 +419,7 @@ internal sealed class VirtualProjectBuildingCommand
             }
         }
 
-        builder.Sort(static (d1, d2) => d1.Order - d2.Order);
-
+        // The result should be ordered by source location, RemoveDirectivesFromFile depends on that.
         return builder.ToImmutable();
     }
 
@@ -429,6 +435,8 @@ internal sealed class VirtualProjectBuildingCommand
         {
             return;
         }
+
+        Debug.Assert(directives.OrderBy(d => d.Span.Start).SequenceEqual(directives), "Directives should be ordered by source location.");
 
         for (int i = directives.Length - 1; i >= 0; i--)
         {
@@ -466,12 +474,6 @@ internal abstract record CSharpDirective
     private CSharpDirective() { }
 
     /// <summary>
-    /// Order in which the directives should be added to the project file.
-    /// If two directives have the same order, the one appearing first in the C# file is added first.
-    /// </summary>
-    public abstract int Order { get; }
-
-    /// <summary>
     /// Span of the full line including the trailing line break.
     /// </summary>
     public required TextSpan Span { get; init; }
@@ -505,8 +507,6 @@ internal abstract record CSharpDirective
     {
         private Sdk() { }
 
-        public override int Order => 1;
-
         public required string Name { get; init; }
         public string? Version { get; init; }
 
@@ -535,8 +535,6 @@ internal abstract record CSharpDirective
     {
         private Property() { }
 
-        public override int Order => 2;
-
         public required string Name { get; init; }
         public required string Value { get; init; }
 
@@ -564,8 +562,6 @@ internal abstract record CSharpDirective
     public sealed record Package : CSharpDirective
     {
         private Package() { }
-
-        public override int Order => 3;
 
         public required string Name { get; init; }
         public string? Version { get; init; }
