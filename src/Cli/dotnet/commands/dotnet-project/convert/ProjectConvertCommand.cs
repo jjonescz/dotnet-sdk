@@ -3,7 +3,9 @@
 
 #nullable enable
 
+using System.Collections.Immutable;
 using System.CommandLine;
+using System.IO;
 using Microsoft.DotNet.Cli;
 using Microsoft.DotNet.Cli.Utils;
 using Microsoft.TemplateEngine.Cli.Commands;
@@ -55,7 +57,9 @@ internal sealed class ProjectConvertCommand : CommandBase
         }
 
         string projectFile = Path.Join(targetDirectory, Path.GetFileNameWithoutExtension(file) + ".csproj");
-        VirtualProjectBuildingCommand.SaveProjectFile(projectFile, directives);
+        using var stream = File.Open(projectFile, FileMode.Create, FileAccess.Write);
+        using var writer = new StreamWriter(stream, Encoding.UTF8);
+        VirtualProjectBuildingCommand.WriteProjectFile(writer, directives);
 
         return 0;
     }

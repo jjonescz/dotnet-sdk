@@ -204,13 +204,6 @@ internal sealed class VirtualProjectBuildingCommand
         }
     }
 
-    public static void SaveProjectFile(string path, ImmutableArray<CSharpDirective> directives)
-    {
-        using var stream = File.Open(path, FileMode.Create, FileAccess.Write);
-        using var writer = new StreamWriter(stream, Encoding.UTF8);
-        WriteProjectFile(writer, directives);
-    }
-
     public static void WriteProjectFile(TextWriter writer, ImmutableArray<CSharpDirective> directives)
     {
         WriteProjectFile(writer, directives, virtualProjectFile: false, targetFilePath: null);
