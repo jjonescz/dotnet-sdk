@@ -38,7 +38,6 @@ internal sealed class VirtualProjectBuildingCommand
     };
 
     private ImmutableArray<CSharpDirective> _directives;
-    private string? _targetFilePath;
 
     public Dictionary<string, string> GlobalProperties { get; } = new(StringComparer.OrdinalIgnoreCase);
     public required string EntryPointFileFullPath { get; init; }
@@ -144,22 +143,10 @@ internal sealed class VirtualProjectBuildingCommand
     /// </summary>
     public VirtualProjectBuildingCommand PrepareProjectInstance()
     {
-        Debug.Assert(_directives.IsDefault && _targetFilePath is null, $"{nameof(PrepareProjectInstance)} should not be called multiple times.");
+        Debug.Assert(_directives.IsDefault, $"{nameof(PrepareProjectInstance)} should not be called multiple times.");
 
         var sourceFile = CreateSourceFile(EntryPointFileFullPath);
         _directives = FindDirectives(sourceFile);
-
-        // If there were any `#:` directives, remove them from the file.
-        // (This is temporary until Roslyn is updated to ignore them.)
-        _targetFilePath = EntryPointFileFullPath;
-        if (_directives.Length != 0)
-        {
-            var targetDirectory = Path.Join(Path.GetDirectoryName(_targetFilePath), "obj");
-            Directory.CreateDirectory(targetDirectory);
-            _targetFilePath = Path.Join(targetDirectory, Path.GetFileName(_targetFilePath));
-
-            RemoveDirectivesFromFile(_directives, sourceFile.Text, _targetFilePath);
-        }
 
         return this;
     }
@@ -189,11 +176,11 @@ internal sealed class VirtualProjectBuildingCommand
 
         ProjectRootElement CreateProjectRootElement(ProjectCollection projectCollection)
         {
-            Debug.Assert(!_directives.IsDefault && _targetFilePath is not null, $"{nameof(PrepareProjectInstance)} should have been called first.");
+            Debug.Assert(!_directives.IsDefault, $"{nameof(PrepareProjectInstance)} should have been called first.");
 
             var projectFileFullPath = Path.ChangeExtension(EntryPointFileFullPath, ".csproj");
             var projectFileWriter = new StringWriter();
-            WriteProjectFile(projectFileWriter, _directives, virtualProjectFile: true, targetFilePath: _targetFilePath);
+            WriteProjectFile(projectFileWriter, _directives, virtualProjectFile: true, targetFilePath: EntryPointFileFullPath);
             var projectFileText = projectFileWriter.ToString();
 
             using var reader = new StringReader(projectFileText);
@@ -308,6 +295,17 @@ internal sealed class VirtualProjectBuildingCommand
             }
 
             writer.WriteLine("  </PropertyGroup>");
+        }
+
+        if (virtualProjectFile)
+        {
+            // After `#:property` directives so they don't override this.
+            writer.WriteLine("""
+
+                  <PropertyGroup>
+                    <Features>$(Features);FileBasedProgram</Features>
+                  </PropertyGroup>
+                """);
         }
 
         if (packageDirectives.Any())
