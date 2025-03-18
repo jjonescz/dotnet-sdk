@@ -29,14 +29,6 @@ namespace Microsoft.DotNet.Tools;
 /// </summary>
 internal sealed class VirtualProjectBuildingCommand
 {
-    private static readonly XmlWriterSettings s_projectFileXmlWriterSettings = new XmlWriterSettings
-    {
-        Indent = true,
-        IndentChars = "  ",
-        Encoding = Encoding.UTF8,
-        OmitXmlDeclaration = true,
-    };
-
     private ImmutableArray<CSharpDirective> _directives;
     private string? _targetFilePath;
 
