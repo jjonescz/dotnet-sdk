@@ -17,6 +17,8 @@ using Microsoft.Build.Execution;
 using Microsoft.Build.Framework;
 using Microsoft.Build.Logging;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
 using Microsoft.DotNet.Cli.Utils;
 using Microsoft.DotNet.Tools.Run;
@@ -29,14 +31,6 @@ namespace Microsoft.DotNet.Tools;
 /// </summary>
 internal sealed class VirtualProjectBuildingCommand
 {
-    private static readonly XmlWriterSettings s_projectFileXmlWriterSettings = new XmlWriterSettings
-    {
-        Indent = true,
-        IndentChars = "  ",
-        Encoding = Encoding.UTF8,
-        OmitXmlDeclaration = true,
-    };
-
     private ImmutableArray<CSharpDirective> _directives;
 
     public Dictionary<string, string> GlobalProperties { get; } = new(StringComparer.OrdinalIgnoreCase);
@@ -404,28 +398,36 @@ internal sealed class VirtualProjectBuildingCommand
         static string EscapeValue(string value) => SecurityElement.Escape(value);
     }
 
+#pragma warning disable RSEXPERIMENTAL003 // 'SyntaxTokenParser' is for evaluation purposes only
     public static ImmutableArray<CSharpDirective> FindDirectives(SourceFile sourceFile)
     {
         var builder = ImmutableArray.CreateBuilder<CSharpDirective>();
+        SyntaxTokenParser tokenizer = SyntaxFactory.CreateTokenParser(sourceFile.Text);
 
-        // NOTE: When Roslyn is updated to support "ignored directives", we should use its SyntaxTokenParser instead.
-        foreach (var line in sourceFile.Text.Lines)
+        var result = tokenizer.ParseLeadingTrivia();
+        foreach (var trivia in result.Token.LeadingTrivia)
         {
-            var lineText = sourceFile.Text.ToString(line.Span);
-
-            if (Patterns.Shebang.IsMatch(lineText))
+            if (trivia.IsKind(SyntaxKind.ShebangDirectiveTrivia))
             {
-                builder.Add(new CSharpDirective.Shebang { Span = line.SpanIncludingLineBreak });
+                builder.Add(new CSharpDirective.Shebang { Span = trivia.FullSpan });
             }
-            else if (Patterns.Directive.Match(lineText) is { Success: true } match)
+            else if (trivia.IsKind(SyntaxKind.IgnoredDirectiveTrivia))
             {
-                builder.Add(CSharpDirective.Parse(sourceFile, line.SpanIncludingLineBreak, match.Groups[1].Value, match.Groups[2].Value));
+                var message = trivia.GetStructure() is IgnoredDirectiveTriviaSyntax { EndOfDirectiveToken.LeadingTrivia: [{ RawKind: (int)SyntaxKind.PreprocessingMessageTrivia } messageTrivia] }
+                    ? messageTrivia.ToString().AsSpan().Trim()
+                    : "";
+                var parts = Patterns.Whitespace.EnumerateSplits(message, 2);
+                var name = parts.MoveNext() ? message[parts.Current] : default;
+                var value = parts.MoveNext() ? message[parts.Current] : default;
+                Debug.Assert(!parts.MoveNext());
+                builder.Add(CSharpDirective.Parse(sourceFile, trivia.FullSpan, name.ToString(), value.ToString()));
             }
         }
 
         // The result should be ordered by source location, RemoveDirectivesFromFile depends on that.
         return builder.ToImmutable();
     }
+#pragma warning restore RSEXPERIMENTAL003 // 'SyntaxTokenParser' is for evaluation purposes only
 
     public static SourceFile CreateSourceFile(string filePath)
     {
@@ -478,11 +480,8 @@ internal readonly record struct SourceFile(string Path, SourceText Text)
 
 internal static partial class Patterns
 {
-    [GeneratedRegex("""^\s*#:\s*(\w*)\s*(.*?)\s*$""")]
-    public static partial Regex Directive { get; }
-
-    [GeneratedRegex("""^\s*#!.*$""")]
-    public static partial Regex Shebang { get; }
+    [GeneratedRegex("""\s+""")]
+    public static partial Regex Whitespace { get; }
 }
 
 /// <summary>

@@ -553,7 +553,8 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
                 """,
             expectedCSharp: """
                  #  !  /test
-                 # :property Name=Value
+                  #!  /program   x   
+                     # :property Name=Value
                 """);
     }
 
