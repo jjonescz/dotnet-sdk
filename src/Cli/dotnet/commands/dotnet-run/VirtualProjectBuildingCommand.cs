@@ -406,6 +406,7 @@ internal sealed class VirtualProjectBuildingCommand
             CSharpParseOptions.Default.WithFeatures([new("FileBasedProgram", "true")]));
 
         var result = tokenizer.ParseLeadingTrivia();
+        TextSpan previousWhiteSpaceSpan = default;
         foreach (var trivia in result.Token.LeadingTrivia)
         {
             // Stop when the trivia contains an error (e.g., because it's after #if).
@@ -414,12 +415,22 @@ internal sealed class VirtualProjectBuildingCommand
                 break;
             }
 
+            if (trivia.IsKind(SyntaxKind.WhitespaceTrivia))
+            {
+                previousWhiteSpaceSpan = trivia.FullSpan;
+                continue;
+            }
+
             if (trivia.IsKind(SyntaxKind.ShebangDirectiveTrivia))
             {
+                Debug.Assert(previousWhiteSpaceSpan.IsEmpty, "#! should be at the first character");
                 builder.Add(new CSharpDirective.Shebang { Span = trivia.FullSpan });
             }
             else if (trivia.IsKind(SyntaxKind.IgnoredDirectiveTrivia))
             {
+                // Include the preceding whitespace in the span, i.e., span will be the whole line.
+                var span = previousWhiteSpaceSpan.IsEmpty ? trivia.FullSpan : TextSpan.FromBounds(previousWhiteSpaceSpan.Start, trivia.FullSpan.End);
+
                 var message = trivia.GetStructure() is IgnoredDirectiveTriviaSyntax { EndOfDirectiveToken.LeadingTrivia: [{ RawKind: (int)SyntaxKind.PreprocessingMessageTrivia } messageTrivia] }
                     ? messageTrivia.ToString().AsSpan().Trim()
                     : "";
@@ -427,8 +438,10 @@ internal sealed class VirtualProjectBuildingCommand
                 var name = parts.MoveNext() ? message[parts.Current] : default;
                 var value = parts.MoveNext() ? message[parts.Current] : default;
                 Debug.Assert(!parts.MoveNext());
-                builder.Add(CSharpDirective.Parse(sourceFile, trivia.FullSpan, name.ToString(), value.ToString()));
+                builder.Add(CSharpDirective.Parse(sourceFile, span, name.ToString(), value.ToString()));
             }
+
+            previousWhiteSpaceSpan = default;
         }
 
         // The result should be ordered by source location, RemoveDirectivesFromFile depends on that.
