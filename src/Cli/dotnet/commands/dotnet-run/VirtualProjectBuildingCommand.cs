@@ -402,11 +402,18 @@ internal sealed class VirtualProjectBuildingCommand
     public static ImmutableArray<CSharpDirective> FindDirectives(SourceFile sourceFile)
     {
         var builder = ImmutableArray.CreateBuilder<CSharpDirective>();
-        SyntaxTokenParser tokenizer = SyntaxFactory.CreateTokenParser(sourceFile.Text);
+        SyntaxTokenParser tokenizer = SyntaxFactory.CreateTokenParser(sourceFile.Text,
+            CSharpParseOptions.Default.WithFeatures([new("FileBasedProgram", "true")]));
 
         var result = tokenizer.ParseLeadingTrivia();
         foreach (var trivia in result.Token.LeadingTrivia)
         {
+            // Stop when the trivia contains an error (e.g., because it's after #if).
+            if (trivia.ContainsDiagnostics)
+            {
+                break;
+            }
+
             if (trivia.IsKind(SyntaxKind.ShebangDirectiveTrivia))
             {
                 builder.Add(new CSharpDirective.Shebang { Span = trivia.FullSpan });

@@ -528,10 +528,10 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     {
         VerifyConversion(
             inputCSharp: """
+                #:property Name=   Value   
+                    #:   sdk   TestSdk
                  #  !  /test
                   #!  /program   x   
-                    #:   sdk   TestSdk
-                #:property Name=   Value   
                  # :property Name=Value
                 """,
             expectedProject: $"""
@@ -554,7 +554,7 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             expectedCSharp: """
                  #  !  /test
                   #!  /program   x   
-                     # :property Name=Value
+                 # :property Name=Value
                 """);
     }
 
