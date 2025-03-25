@@ -73,4 +73,16 @@ Copyright (c) .NET Foundation. All rights reserved.
     <_MicrosoftNetSdkCompilersToolsetPackageRootEmpty Condition="'$(NuGetPackageRoot)' == ''">true</_MicrosoftNetSdkCompilersToolsetPackageRootEmpty>
   </PropertyGroup>
 
+  <!--
+    Use Roslyn deployed with SDK for builds of SDK-style projects (regardless of whether the initiator is `dotnet` or `msbuild`).
+    See https://github.com/dotnet/sdk/blob/main/documentation/general/decouple-vs-and-net-sdk.md.
+  -->
+  <PropertyGroup>
+    <RoslynUseSdkCompiler Condition="'$(RoslynUseSdkCompiler)' == '' and
+      '$(RoslynUseMSBuildCompiler)' != 'true' and
+      '$(BuildWithNetFrameworkHostedCompiler)' != 'true' and
+      '$(DOTNET_HOST_PATH)' != ''">true</RoslynUseSdkCompiler>
+    <RoslynTargetsPath Condition="'$(RoslynUseSdkCompiler)' == 'true'">$(MSBuildThisFileDirectory)..\..\..\Roslyn</RoslynTargetsPath>
+  </PropertyGroup>
+
 </Project>
