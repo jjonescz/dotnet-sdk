@@ -21,6 +21,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Basic.CompilerLog.Util" />
     <PackageReference Include="FluentAssertions" />
     <PackageReference Include="Microsoft.Build" />
     <PackageReference Include="NuGet.ProjectModel" />
