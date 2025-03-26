@@ -12,51 +12,55 @@ public sealed class RoslynBuildTaskTests(ITestOutputHelper log) : SdkTest(log)
     private const string CoreCompilerFileName = "csc.dll";
     private const string FxCompilerFileName = "csc.exe";
 
-    [FullMSBuildOnlyFact]
-    public void FullMSBuild_SdkStyle()
+    [FullMSBuildOnlyTheory, CombinatorialData]
+    public void FullMSBuild_SdkStyle(bool useSharedCompilation)
     {
-        var testAsset = CreateProject();
+        var testAsset = CreateProject(useSharedCompilation);
         var buildCommand = BuildAndRunUsingMSBuild(testAsset);
-        VerifyCompiler(buildCommand, CoreCompilerFileName);
+        VerifyCompiler(buildCommand, CoreCompilerFileName, useSharedCompilation);
     }
 
-    [FullMSBuildOnlyFact]
-    public void FullMSBuild_SdkStyle_OptOut()
+    [FullMSBuildOnlyTheory, CombinatorialData]
+    public void FullMSBuild_SdkStyle_OptOut(bool useSharedCompilation)
     {
-        var testAsset = CreateProject().WithProjectChanges(static doc =>
+        var testAsset = CreateProject(useSharedCompilation).WithProjectChanges(static doc =>
         {
             doc.Root!.Element("PropertyGroup")!.Add(new XElement("RoslynUseSdkCompiler", "false"));
         });
         var buildCommand = BuildAndRunUsingMSBuild(testAsset);
-        VerifyCompiler(buildCommand, FxCompilerFileName);
+        VerifyCompiler(buildCommand, FxCompilerFileName, useSharedCompilation);
     }
 
-    [FullMSBuildOnlyFact]
-    public void FullMSBuild_NonSdkStyle()
+    [FullMSBuildOnlyTheory, CombinatorialData]
+    public void FullMSBuild_NonSdkStyle(bool useSharedCompilation)
     {
-        var testAsset = CreateProject(static project =>
+        var testAsset = CreateProject(useSharedCompilation, static project =>
         {
             project.IsSdkProject = false;
             project.TargetFrameworkVersion = "v4.7.2";
         });
         var buildCommand = BuildAndRunUsingMSBuild(testAsset);
-        VerifyCompiler(buildCommand, FxCompilerFileName);
+        VerifyCompiler(buildCommand, FxCompilerFileName, useSharedCompilation);
     }
 
-    [Fact]
-    public void DotNet()
+    [Theory, CombinatorialData]
+    public void DotNet(bool useSharedCompilation)
     {
-        var testAsset = CreateProject();
+        var testAsset = CreateProject(useSharedCompilation);
         var buildCommand = BuildAndRunUsingDotNet(testAsset);
-        VerifyCompiler(buildCommand, CoreCompilerFileName);
+        VerifyCompiler(buildCommand, CoreCompilerFileName, useSharedCompilation);
     }
 
-    private TestAsset CreateProject(Action<TestProject>? configure = null, [CallerMemberName] string callingMethod = "")
+    private TestAsset CreateProject(bool useSharedCompilation, Action<TestProject>? configure = null, [CallerMemberName] string callingMethod = "")
     {
         var project = new TestProject
         {
             Name = "App1",
             IsExe = true,
+            AdditionalProperties =
+            {
+                ["UseSharedCompilation"] = useSharedCompilation.ToString(),
+            },
             SourceFiles =
             {
                 ["Program.cs"] = """
@@ -102,7 +106,7 @@ public sealed class RoslynBuildTaskTests(ITestOutputHelper log) : SdkTest(log)
             .And.HaveStdOut("42");
     }
 
-    private static void VerifyCompiler(TestCommand buildCommand, string compilerFileName)
+    private static void VerifyCompiler(TestCommand buildCommand, string compilerFileName, bool usedCompilerServer)
     {
         var binaryLogPath = Path.Join(buildCommand.WorkingDirectory, "msbuild.binlog");
         using (var reader = BinaryLogReader.Create(binaryLogPath))
@@ -114,6 +118,8 @@ public sealed class RoslynBuildTaskTests(ITestOutputHelper log) : SdkTest(log)
         // Verify compiler server message.
         var compilerServerMesssages = BinaryLog.ReadBuild(binaryLogPath).FindChildrenRecursive<Message>(
             static message => message.Text.StartsWith("CompilerServer:", StringComparison.Ordinal));
-        compilerServerMesssages.Should().ContainSingle().Which.Text.Should().StartWith("CompilerServer: server - server processed compilation - ");
+        compilerServerMesssages.Should().ContainSingle().Which.Text.Should().StartWith(usedCompilerServer
+            ? "CompilerServer: server - server processed compilation - "
+            : "CompilerServer: tool - using command line tool by design");
     }
 }
