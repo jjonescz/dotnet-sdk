@@ -7,37 +7,27 @@ namespace Microsoft.NET.Build.Tests;
 
 public sealed class RoslynBuildTaskTests(ITestOutputHelper log) : SdkTest(log)
 {
+    private const string CoreCompilerFileName = "csc.dll";
+
     [FullMSBuildOnlyFact]
     public void FullMSBuild_SdkStyle()
     {
-        var testAsset = _testAssetsManager.CreateTestProject(new TestProject
-        {
-            Name = "App1",
-            IsExe = true,
-            SourceFiles =
-            {
-                ["Program.cs"] = """
-                    System.Console.WriteLine(40 + 2);
-                    """,
-            },
-        });
-        var buildCommand = new MSBuildCommand(testAsset, "Build");
-        buildCommand.WithWorkingDirectory(testAsset.Path)
-            .Execute("-bl").Should().Pass();
-
-        var runCommand = new RunExeCommand(Log, buildCommand.GetOutputFile().FullName);
-        runCommand.Execute().Should().Pass()
-            .And.HaveStdOut("42");
-
-        using var reader = BinaryLogReader.Create(Path.Join(buildCommand.WorkingDirectory, "msbuild.binlog"));
-        var call = reader.ReadAllCompilerCalls().Should().ContainSingle().Subject;
-        Path.GetFileName(call.CompilerFilePath).Should().Be("csc.exe");
+        var testAsset = CreateProject();
+        var buildCommand = BuildAndRunUsingMSBuild(testAsset);
+        VerifyCompiler(buildCommand, CoreCompilerFileName);
     }
 
     [Fact]
     public void DotNet()
     {
-        var testAsset = _testAssetsManager.CreateTestProject(new TestProject
+        var testAsset = CreateProject();
+        var buildCommand = BuildAndRunUsingDotNet(testAsset);
+        VerifyCompiler(buildCommand, CoreCompilerFileName);
+    }
+
+    private TestAsset CreateProject()
+    {
+        return _testAssetsManager.CreateTestProject(new TestProject
         {
             Name = "App1",
             IsExe = true,
@@ -48,15 +38,40 @@ public sealed class RoslynBuildTaskTests(ITestOutputHelper log) : SdkTest(log)
                     """,
             },
         });
+    }
+
+    private TestCommand BuildAndRunUsingMSBuild(TestAsset testAsset)
+    {
+        var buildCommand = new MSBuildCommand(testAsset, "Build");
+        buildCommand.WithWorkingDirectory(testAsset.Path)
+            .Execute("-bl").Should().Pass();
+
+        Run(buildCommand.GetOutputFile());
+
+        return buildCommand;
+    }
+
+    private TestCommand BuildAndRunUsingDotNet(TestAsset testAsset)
+    {
         var buildCommand = new DotnetBuildCommand(testAsset);
         buildCommand.Execute("-bl").Should().Pass();
 
-        var runCommand = new RunExeCommand(Log, buildCommand.GetOutputFile().FullName);
+        Run(buildCommand.GetOutputFile());
+
+        return buildCommand;
+    }
+
+    private void Run(FileInfo outputFile)
+    {
+        var runCommand = new RunExeCommand(Log, outputFile.FullName);
         runCommand.Execute().Should().Pass()
             .And.HaveStdOut("42");
+    }
 
+    private static void VerifyCompiler(TestCommand buildCommand, string compilerFileName)
+    {
         using var reader = BinaryLogReader.Create(Path.Join(buildCommand.WorkingDirectory, "msbuild.binlog"));
         var call = reader.ReadAllCompilerCalls().Should().ContainSingle().Subject;
-        Path.GetFileName(call.CompilerFilePath).Should().Be("csc.dll");
+        Path.GetFileName(call.CompilerFilePath).Should().Be(compilerFileName);
     }
 }
