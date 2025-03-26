@@ -1,7 +1,9 @@
 ﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Runtime.CompilerServices;
 using Basic.CompilerLog.Util;
+using Microsoft.Build.Logging.StructuredLogger;
 
 namespace Microsoft.NET.Build.Tests;
 
@@ -49,7 +51,7 @@ public sealed class RoslynBuildTaskTests(ITestOutputHelper log) : SdkTest(log)
         VerifyCompiler(buildCommand, CoreCompilerFileName);
     }
 
-    private TestAsset CreateProject(Action<TestProject>? configure = null)
+    private TestAsset CreateProject(Action<TestProject>? configure = null, [CallerMemberName] string callingMethod = "")
     {
         var project = new TestProject
         {
@@ -69,7 +71,7 @@ public sealed class RoslynBuildTaskTests(ITestOutputHelper log) : SdkTest(log)
             },
         };
         configure?.Invoke(project);
-        return _testAssetsManager.CreateTestProject(project);
+        return _testAssetsManager.CreateTestProject(project, callingMethod: callingMethod);
     }
 
     private TestCommand BuildAndRunUsingMSBuild(TestAsset testAsset)
@@ -102,8 +104,16 @@ public sealed class RoslynBuildTaskTests(ITestOutputHelper log) : SdkTest(log)
 
     private static void VerifyCompiler(TestCommand buildCommand, string compilerFileName)
     {
-        using var reader = BinaryLogReader.Create(Path.Join(buildCommand.WorkingDirectory, "msbuild.binlog"));
-        var call = reader.ReadAllCompilerCalls().Should().ContainSingle().Subject;
-        Path.GetFileName(call.CompilerFilePath).Should().Be(compilerFileName);
+        var binaryLogPath = Path.Join(buildCommand.WorkingDirectory, "msbuild.binlog");
+        using (var reader = BinaryLogReader.Create(binaryLogPath))
+        {
+            var call = reader.ReadAllCompilerCalls().Should().ContainSingle().Subject;
+            Path.GetFileName(call.CompilerFilePath).Should().Be(compilerFileName);
+        }
+
+        // Verify compiler server message.
+        var compilerServerMesssages = BinaryLog.ReadBuild(binaryLogPath).FindChildrenRecursive<Message>(
+            static message => message.Text.StartsWith("CompilerServer:", StringComparison.Ordinal));
+        compilerServerMesssages.Should().ContainSingle().Which.Text.Should().StartWith("CompilerServer: server - server processed compilation - ");
     }
 }
