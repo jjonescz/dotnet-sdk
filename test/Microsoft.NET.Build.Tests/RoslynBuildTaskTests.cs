@@ -8,6 +8,7 @@ namespace Microsoft.NET.Build.Tests;
 public sealed class RoslynBuildTaskTests(ITestOutputHelper log) : SdkTest(log)
 {
     private const string CoreCompilerFileName = "csc.dll";
+    private const string FxCompilerFileName = "csc.exe";
 
     [FullMSBuildOnlyFact]
     public void FullMSBuild_SdkStyle()
@@ -15,6 +16,17 @@ public sealed class RoslynBuildTaskTests(ITestOutputHelper log) : SdkTest(log)
         var testAsset = CreateProject();
         var buildCommand = BuildAndRunUsingMSBuild(testAsset);
         VerifyCompiler(buildCommand, CoreCompilerFileName);
+    }
+
+    [FullMSBuildOnlyFact]
+    public void FullMSBuild_SdkStyle_OptOut()
+    {
+        var testAsset = CreateProject().WithProjectChanges(static doc =>
+        {
+            doc.Root!.Element("PropertyGroup")!.Add(new XElement("RoslynUseSdkCompiler", "false"));
+        });
+        var buildCommand = BuildAndRunUsingMSBuild(testAsset);
+        VerifyCompiler(buildCommand, FxCompilerFileName);
     }
 
     [Fact]
