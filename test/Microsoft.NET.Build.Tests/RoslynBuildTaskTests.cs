@@ -29,6 +29,18 @@ public sealed class RoslynBuildTaskTests(ITestOutputHelper log) : SdkTest(log)
         VerifyCompiler(buildCommand, FxCompilerFileName);
     }
 
+    [FullMSBuildOnlyFact]
+    public void FullMSBuild_NonSdkStyle()
+    {
+        var testAsset = CreateProject(static project =>
+        {
+            project.IsSdkProject = false;
+            project.TargetFrameworkVersion = "v4.7.2";
+        });
+        var buildCommand = BuildAndRunUsingMSBuild(testAsset);
+        VerifyCompiler(buildCommand, FxCompilerFileName);
+    }
+
     [Fact]
     public void DotNet()
     {
@@ -37,19 +49,27 @@ public sealed class RoslynBuildTaskTests(ITestOutputHelper log) : SdkTest(log)
         VerifyCompiler(buildCommand, CoreCompilerFileName);
     }
 
-    private TestAsset CreateProject()
+    private TestAsset CreateProject(Action<TestProject>? configure = null)
     {
-        return _testAssetsManager.CreateTestProject(new TestProject
+        var project = new TestProject
         {
             Name = "App1",
             IsExe = true,
             SourceFiles =
             {
                 ["Program.cs"] = """
-                    System.Console.WriteLine(40 + 2);
+                    class Program
+                    {
+                        static void Main()
+                        {
+                            System.Console.WriteLine(40 + 2);
+                        }
+                    }
                     """,
             },
-        });
+        };
+        configure?.Invoke(project);
+        return _testAssetsManager.CreateTestProject(project);
     }
 
     private TestCommand BuildAndRunUsingMSBuild(TestAsset testAsset)
