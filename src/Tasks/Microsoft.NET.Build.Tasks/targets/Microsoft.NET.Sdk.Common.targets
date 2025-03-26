@@ -81,7 +81,7 @@ Copyright (c) .NET Foundation. All rights reserved.
     <RoslynUseSdkCompiler Condition="'$(RoslynUseSdkCompiler)' == '' and
       '$(RoslynUseMSBuildCompiler)' != 'true' and
       '$(BuildWithNetFrameworkHostedCompiler)' != 'true' and
-      '$(DOTNET_HOST_PATH)' != ''">true</RoslynUseSdkCompiler>
+      ('$(DOTNET_HOST_PATH)' != '' or '$(DOTNET_EXPERIMENTAL_HOST_PATH)' != '')">true</RoslynUseSdkCompiler>
     <RoslynTargetsPath Condition="'$(RoslynUseSdkCompiler)' == 'true'">$(MSBuildThisFileDirectory)..\..\..\Roslyn</RoslynTargetsPath>
   </PropertyGroup>
 
