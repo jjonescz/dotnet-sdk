@@ -57,10 +57,6 @@ public sealed class RoslynBuildTaskTests(ITestOutputHelper log) : SdkTest(log)
         {
             Name = "App1",
             IsExe = true,
-            AdditionalProperties =
-            {
-                ["UseSharedCompilation"] = useSharedCompilation.ToString(),
-            },
             SourceFiles =
             {
                 ["Program.cs"] = """
@@ -74,6 +70,13 @@ public sealed class RoslynBuildTaskTests(ITestOutputHelper log) : SdkTest(log)
                     """,
             },
         };
+
+        // UseSharedCompilation should be the default, so set it only if false.
+        if (!useSharedCompilation)
+        {
+            project.AdditionalProperties["UseSharedCompilation"] = "false";
+        }
+
         configure?.Invoke(project);
         return _testAssetsManager.CreateTestProject(project, callingMethod: callingMethod);
     }
