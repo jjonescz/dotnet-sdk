@@ -82,7 +82,10 @@ Copyright (c) .NET Foundation. All rights reserved.
       '$(RoslynUseMSBuildCompiler)' != 'true' and
       '$(BuildWithNetFrameworkHostedCompiler)' != 'true' and
       ('$(DOTNET_HOST_PATH)' != '' or '$(DOTNET_EXPERIMENTAL_HOST_PATH)' != '')">true</RoslynUseSdkCompiler>
-    <RoslynTargetsPath Condition="'$(RoslynUseSdkCompiler)' == 'true'">$(MSBuildThisFileDirectory)..\..\..\Roslyn</RoslynTargetsPath>
+    <RoslynTargetsPath Condition="'$(RoslynUseSdkCompiler)' == 'true' and '$(MSBuildRuntimeType)' == 'Core'">$(MSBuildThisFileDirectory)..\..\..\Roslyn</RoslynTargetsPath>
+    <RoslynTargetsPath Condition="'$(RoslynUseSdkCompiler)' == 'true' and '$(MSBuildRuntimeType)' != 'Core'">$(MSBuildThisFileDirectory)..\..\..\Roslyn\binfx</RoslynTargetsPath>
+    <CSharpCoreTargetsPath Condition="'$(RoslynUseSdkCompiler)' == 'true'">$(MSBuildThisFileDirectory)..\..\..\Roslyn\Microsoft.CSharp.Core.targets</CSharpCoreTargetsPath>
+    <VisualBasicCoreTargetsPath Condition="'$(RoslynUseSdkCompiler)' == 'true'">$(MSBuildThisFileDirectory)..\..\..\Roslyn\Microsoft.VisualBasic.Core.targets</VisualBasicCoreTargetsPath>
   </PropertyGroup>
 
 </Project>
