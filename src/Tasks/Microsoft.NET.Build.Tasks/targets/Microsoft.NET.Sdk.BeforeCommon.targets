@@ -310,9 +310,9 @@ Copyright (c) .NET Foundation. All rights reserved.
       ('$(DOTNET_HOST_PATH)' != '' or '$(DOTNET_EXPERIMENTAL_HOST_PATH)' != '')">true</RoslynUseSdkCompiler>
   </PropertyGroup>
   <PropertyGroup Condition="'$(RoslynUseSdkCompiler)' == 'true'">
-    <RoslynTargetsPath Condition="'$(MSBuildRuntimeType)' == 'Core'">$(MSBuildThisFileDirectory)..\..\..\Roslyn</RoslynTargetsPath>
-    <RoslynTargetsPath Condition="'$(MSBuildRuntimeType)' != 'Core'">$(MSBuildThisFileDirectory)..\..\..\Roslyn\binfx</RoslynTargetsPath>
-    <RoslynToolsDirectory Condition="'$(MSBuildRuntimeType)' != 'Core'">$(MSBuildThisFileDirectory)..\..\..\Roslyn\bincore</RoslynToolsDirectory>
+    <RoslynTargetsPath Condition="'$(MSBuildRuntimeType)' != 'Full'">$(MSBuildThisFileDirectory)..\..\..\Roslyn</RoslynTargetsPath>
+    <RoslynTargetsPath Condition="'$(MSBuildRuntimeType)' == 'Full'">$(MSBuildThisFileDirectory)..\..\..\Roslyn\binfx</RoslynTargetsPath>
+    <RoslynToolsDirectory Condition="'$(MSBuildRuntimeType)' == 'Full'">$(MSBuildThisFileDirectory)..\..\..\Roslyn\bincore</RoslynToolsDirectory>
     <CSharpCoreTargetsPath>$(MSBuildThisFileDirectory)..\..\..\Roslyn\Microsoft.CSharp.Core.targets</CSharpCoreTargetsPath>
     <VisualBasicCoreTargetsPath>$(MSBuildThisFileDirectory)..\..\..\Roslyn\Microsoft.VisualBasic.Core.targets</VisualBasicCoreTargetsPath>
   </PropertyGroup>
