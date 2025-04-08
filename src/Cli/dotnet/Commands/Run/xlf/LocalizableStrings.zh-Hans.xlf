@@ -17,6 +17,11 @@
         <target state="translated">使用指定的框架生成和运行应用。框架必须在项目文件中指定。 </target>
         <note />
       </trans-unit>
+      <trans-unit id="CommandOptionNoCacheDescription">
+        <source>Avoid up to date checks and always build the project before running.</source>
+        <target state="new">Avoid up to date checks and always build the project before running.</target>
+        <note />
+      </trans-unit>
       <trans-unit id="CommandOptionNoLaunchProfileArgumentsDescription">
         <source>Do not use arguments specified in launch profile to run the application.</source>
         <target state="translated">不要使用启动配置文件中指定的参数来运行应用程序。</target>
@@ -46,6 +51,11 @@ Make the profile names distinct.</source>
 使配置文件具有不同的名称。</target>
         <note />
       </trans-unit>
+      <trans-unit id="InvalidOptionCombination">
+        <source>Cannot combine option '{0}' and '{1}'.</source>
+        <target state="new">Cannot combine option '{0}' and '{1}'.</target>
+        <note>{0} and {1} are option names like '--no-build'.</note>
+      </trans-unit>
       <trans-unit id="LaunchProfileDoesNotExist">
         <source>A launch profile with the name '{0}' doesn't exist.</source>
         <target state="translated">名为“{0}”的启动配置文件不存在。</target>
@@ -55,6 +65,11 @@ Make the profile names distinct.</source>
         <source>Missing name of '{0}' at {1}.</source>
         <target state="new">Missing name of '{0}' at {1}.</target>
         <note>{0} is the directive name like 'package' or 'sdk', {1} is the file path and line number.</note>
+      </trans-unit>
+      <trans-unit id="NoBinaryLogBecauseUpToDate">
+        <source>Warning: Binary log option was specified but build will be skipped because output is up to date, pass option '--no-cache' to force build.</source>
+        <target state="new">Warning: Binary log option was specified but build will be skipped because output is up to date, pass option '--no-cache' to force build.</target>
+        <note>{Locked="--no-cache"}</note>
       </trans-unit>
       <trans-unit id="OnlyOneProjectAllowed">
         <source>Only one project can be specified at a time using the -p option.</source>

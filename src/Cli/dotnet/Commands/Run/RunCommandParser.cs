@@ -49,6 +49,12 @@ internal static class RunCommandParser
 
     public static readonly CliOption<bool> NoRestoreOption = CommonOptions.NoRestoreOption;
 
+    public static readonly CliOption<bool> NoCacheOption = new("--no-cache")
+    {
+        Description = LocalizableStrings.CommandOptionNoCacheDescription,
+        Arity = ArgumentArity.Zero,
+    };
+
     public static readonly CliOption<bool> InteractiveOption = CommonOptions.InteractiveMsBuildForwardOption;
 
     public static readonly CliOption SelfContainedOption = CommonOptions.SelfContainedOption;
@@ -82,6 +88,7 @@ internal static class RunCommandParser
         command.Options.Add(NoBuildOption);
         command.Options.Add(InteractiveOption);
         command.Options.Add(NoRestoreOption);
+        command.Options.Add(NoCacheOption);
         command.Options.Add(SelfContainedOption);
         command.Options.Add(NoSelfContainedOption);
         command.Options.Add(CommonOptions.VerbosityOption);

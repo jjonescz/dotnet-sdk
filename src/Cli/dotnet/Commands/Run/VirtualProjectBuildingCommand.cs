@@ -17,7 +17,9 @@ using Microsoft.Build.Logging;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Text;
 using Microsoft.DotNet.Cli;
+using Microsoft.DotNet.Cli.Commands.Run;
 using Microsoft.DotNet.Cli.Utils;
+using Microsoft.DotNet.Cli.Utils.Extensions;
 using LocalizableStrings = Microsoft.DotNet.Tools.Run.LocalizableStrings;
 
 namespace Microsoft.DotNet.Tools;
@@ -27,15 +29,43 @@ namespace Microsoft.DotNet.Tools;
 /// </summary>
 internal sealed class VirtualProjectBuildingCommand
 {
+    private const string BuildSentinelFileName = "build.sentinel";
+    private static readonly ImmutableArray<string> s_implicitBuildFileNames =
+    [
+        "global.json",
+        "Directory.Build.props",
+        "Directory.Build.targets",
+        "Directory.Packages.props",
+        "NuGet.config"
+    ];
+
     private ImmutableArray<CSharpDirective> _directives;
     private string? _targetFilePath;
 
     public Dictionary<string, string> GlobalProperties { get; } = new(StringComparer.OrdinalIgnoreCase);
     public required string EntryPointFileFullPath { get; init; }
 
-    public int Execute(string[] binaryLoggerArgs, ILogger consoleLogger)
+    public int Execute(string[] binaryLoggerArgs, ILogger consoleLogger, bool noRestore, bool noCache)
     {
         var binaryLogger = GetBinaryLogger(binaryLoggerArgs);
+
+        if (noCache)
+        {
+            if (noRestore)
+            {
+                throw new GracefulException(LocalizableStrings.InvalidOptionCombination, RunCommandParser.NoCacheOption.Name, RunCommandParser.NoRestoreOption.Name);
+            }
+        }
+        else if (!NeedsToBuild())
+        {
+            if (binaryLogger is not null)
+            {
+                Reporter.Output.WriteLine(LocalizableStrings.NoBinaryLogBecauseUpToDate.Yellow());
+            }
+
+            return 0;
+        }
+
         Dictionary<string, string?> savedEnvironmentVariables = [];
         try
         {
@@ -64,19 +94,22 @@ internal sealed class VirtualProjectBuildingCommand
             // Do a restore first (equivalent to MSBuild's "implicit restore", i.e., `/restore`).
             // See https://github.com/dotnet/msbuild/blob/a1c2e7402ef0abe36bf493e395b04dd2cb1b3540/src/MSBuild/XMake.cs#L1838
             // and https://github.com/dotnet/msbuild/issues/11519.
-            var restoreRequest = new BuildRequestData(
-                CreateProjectInstance(projectCollection, addGlobalProperties: static (globalProperties) =>
-                {
-                    globalProperties["MSBuildRestoreSessionId"] = Guid.NewGuid().ToString("D");
-                    globalProperties["MSBuildIsRestoring"] = bool.TrueString;
-                }),
-                targetsToBuild: ["Restore"],
-                hostServices: null,
-                BuildRequestDataFlags.ClearCachesAfterBuild | BuildRequestDataFlags.SkipNonexistentTargets | BuildRequestDataFlags.IgnoreMissingEmptyAndInvalidImports | BuildRequestDataFlags.FailOnUnresolvedSdk);
-            var restoreResult = BuildManager.DefaultBuildManager.BuildRequest(restoreRequest);
-            if (restoreResult.OverallResult != BuildResultCode.Success)
+            if (!noRestore)
             {
-                return 1;
+                var restoreRequest = new BuildRequestData(
+                    CreateProjectInstance(projectCollection, addGlobalProperties: static (globalProperties) =>
+                    {
+                        globalProperties["MSBuildRestoreSessionId"] = Guid.NewGuid().ToString("D");
+                        globalProperties["MSBuildIsRestoring"] = bool.TrueString;
+                    }),
+                    targetsToBuild: ["Restore"],
+                    hostServices: null,
+                    BuildRequestDataFlags.ClearCachesAfterBuild | BuildRequestDataFlags.SkipNonexistentTargets | BuildRequestDataFlags.IgnoreMissingEmptyAndInvalidImports | BuildRequestDataFlags.FailOnUnresolvedSdk);
+                var restoreResult = BuildManager.DefaultBuildManager.BuildRequest(restoreRequest);
+                if (restoreResult.OverallResult != BuildResultCode.Success)
+                {
+                    return 1;
+                }
             }
 
             // Then do a build.
@@ -90,6 +123,7 @@ internal sealed class VirtualProjectBuildingCommand
             }
 
             BuildManager.DefaultBuildManager.EndBuild();
+            MarkAsBuilt();
             return 0;
         }
         catch (Exception e)
@@ -127,6 +161,51 @@ internal sealed class VirtualProjectBuildingCommand
 
             return null;
         }
+    }
+
+    private bool NeedsToBuild()
+    {
+        string artifactsDirectory = GetArtifactsPath();
+        string buildSentinel = Path.Join(artifactsDirectory, BuildSentinelFileName);
+        var buildSentinelInfo = new FileInfo(buildSentinel);
+
+        if (!buildSentinelInfo.Exists)
+        {
+            return true;
+        }
+
+        DateTime buildTimeUtc = buildSentinelInfo.LastWriteTimeUtc;
+
+        // Check that the source file is up to date.
+        // If it does not exist, we also want to build.
+        var entryPointFileInfo = new FileInfo(EntryPointFileFullPath);
+        if (!entryPointFileInfo.Exists || entryPointFileInfo.LastWriteTimeUtc > buildTimeUtc)
+        {
+            return true;
+        }
+
+        // Check that implicit build files are up to date.
+        // Note that currently we don't recognize removal of implicit build files.
+        DirectoryInfo? directory = entryPointFileInfo.Directory;
+        while (directory != null)
+        {
+            foreach (var implicitBuildFileName in s_implicitBuildFileNames)
+            {
+                string implicitBuildFilePath = Path.Join(directory.FullName, implicitBuildFileName);
+                var implicitBuildFileInfo = new FileInfo(implicitBuildFilePath);
+                if (implicitBuildFileInfo.Exists && implicitBuildFileInfo.LastWriteTimeUtc > buildTimeUtc)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private void MarkAsBuilt()
+    {
+        File.WriteAllText(Path.Join(GetArtifactsPath(), BuildSentinelFileName), string.Empty);
     }
 
     /// <summary>
@@ -188,7 +267,7 @@ internal sealed class VirtualProjectBuildingCommand
                 _directives,
                 isVirtualProject: true,
                 targetFilePath: _targetFilePath,
-                artifactsPath: GetArtifactsPath(EntryPointFileFullPath));
+                artifactsPath: GetArtifactsPath());
             var projectFileText = projectFileWriter.ToString();
 
             using var reader = new StringReader(projectFileText);
@@ -197,15 +276,15 @@ internal sealed class VirtualProjectBuildingCommand
             projectRoot.FullPath = projectFileFullPath;
             return projectRoot;
         }
+    }
 
-        static string GetArtifactsPath(string entryPointFilePath)
-        {
-            // We want a location where permissions are expected to be restricted to the current user.
-            var directory = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
-                ? Path.GetTempPath()
-                : Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            return Path.Join(directory, "dotnet", "runfile", Sha256Hasher.HashWithNormalizedCasing(entryPointFilePath));
-        }
+    private string GetArtifactsPath()
+    {
+        // We want a location where permissions are expected to be restricted to the current user.
+        var directory = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+            ? Path.GetTempPath()
+            : Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        return Path.Join(directory, "dotnet", "runfile", Sha256Hasher.HashWithNormalizedCasing(EntryPointFileFullPath));
     }
 
     public static void WriteProjectFile(TextWriter writer, ImmutableArray<CSharpDirective> directives)

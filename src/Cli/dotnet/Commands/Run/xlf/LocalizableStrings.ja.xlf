@@ -17,6 +17,11 @@
         <target state="translated">指定されたフレームワークを使用して、アプリを構築して実行します。フレームワークはプロジェクト ファイルで指定する必要があります。 </target>
         <note />
       </trans-unit>
+      <trans-unit id="CommandOptionNoCacheDescription">
+        <source>Avoid up to date checks and always build the project before running.</source>
+        <target state="new">Avoid up to date checks and always build the project before running.</target>
+        <note />
+      </trans-unit>
       <trans-unit id="CommandOptionNoLaunchProfileArgumentsDescription">
         <source>Do not use arguments specified in launch profile to run the application.</source>
         <target state="translated">起動プロファイルで指定された引数を使用してアプリケーションを実行しないでください。</target>
@@ -46,6 +51,11 @@ Make the profile names distinct.</source>
 プロファイル名を区別できるようにします。</target>
         <note />
       </trans-unit>
+      <trans-unit id="InvalidOptionCombination">
+        <source>Cannot combine option '{0}' and '{1}'.</source>
+        <target state="new">Cannot combine option '{0}' and '{1}'.</target>
+        <note>{0} and {1} are option names like '--no-build'.</note>
+      </trans-unit>
       <trans-unit id="LaunchProfileDoesNotExist">
         <source>A launch profile with the name '{0}' doesn't exist.</source>
         <target state="translated">'{0} ' という名前の起動プロファイルは存在しません。</target>
@@ -55,6 +65,11 @@ Make the profile names distinct.</source>
         <source>Missing name of '{0}' at {1}.</source>
         <target state="new">Missing name of '{0}' at {1}.</target>
         <note>{0} is the directive name like 'package' or 'sdk', {1} is the file path and line number.</note>
+      </trans-unit>
+      <trans-unit id="NoBinaryLogBecauseUpToDate">
+        <source>Warning: Binary log option was specified but build will be skipped because output is up to date, pass option '--no-cache' to force build.</source>
+        <target state="new">Warning: Binary log option was specified but build will be skipped because output is up to date, pass option '--no-cache' to force build.</target>
+        <note>{Locked="--no-cache"}</note>
       </trans-unit>
       <trans-unit id="OnlyOneProjectAllowed">
         <source>Only one project can be specified at a time using the -p option.</source>

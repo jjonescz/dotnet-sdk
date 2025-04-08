@@ -127,6 +127,9 @@
     <value>Do not build the project before running. Implies --no-restore.</value>
     <comment>{Locked="--no-restore"}</comment>
   </data>
+  <data name="CommandOptionNoCacheDescription" xml:space="preserve">
+    <value>Avoid up to date checks and always build the project before running.</value>
+  </data>
   <data name="CommandOptionFrameworkDescription" xml:space="preserve">
     <value>Build and run the app using the specified framework. The framework has to be specified in the project file. </value>
   </data>
@@ -259,5 +262,13 @@ Make the profile names distinct.</value>
   <data name="PropertyDirectiveInvalidName" xml:space="preserve">
     <value>Invalid property name at {0}. {1}</value>
     <comment>{0} is the file path and line number. {1} is an inner exception message.</comment>
+  </data>
+  <data name="InvalidOptionCombination" xml:space="preserve">
+    <value>Cannot combine option '{0}' and '{1}'.</value>
+    <comment>{0} and {1} are option names like '--no-build'.</comment>
+  </data>
+  <data name="NoBinaryLogBecauseUpToDate" xml:space="preserve">
+    <value>Warning: Binary log option was specified but build will be skipped because output is up to date, pass option '--no-cache' to force build.</value>
+    <comment>{Locked="--no-cache"}</comment>
   </data>
 </root>
