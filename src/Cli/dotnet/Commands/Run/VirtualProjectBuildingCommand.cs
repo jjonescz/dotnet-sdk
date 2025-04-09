@@ -262,6 +262,7 @@ internal sealed class VirtualProjectBuildingCommand
     private void MarkBuildStart()
     {
         string directory = GetArtifactsPath();
+        Reporter.Verbose.WriteLine("Build started, output directory: " + directory);
         Directory.CreateDirectory(directory);
         File.WriteAllText(Path.Join(directory, BuildStartCacheFileName), EntryPointFileFullPath);
     }
