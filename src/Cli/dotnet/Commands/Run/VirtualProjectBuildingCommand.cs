@@ -6,6 +6,8 @@
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Security;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Xml;
 using Microsoft.Build.Construction;
@@ -60,6 +62,9 @@ internal sealed class VirtualProjectBuildingCommand
     {
         var binaryLogger = GetBinaryLogger(binaryLoggerArgs);
 
+        var cacheEntry = new RunFileBuildCacheEntry();
+        cacheEntry.AddGlobalProperties(GlobalProperties);
+
         if (noCache)
         {
             if (noRestore)
@@ -67,7 +72,7 @@ internal sealed class VirtualProjectBuildingCommand
                 throw new GracefulException(CliCommandStrings.InvalidOptionCombination, RunCommandParser.NoCacheOption.Name, RunCommandParser.NoRestoreOption.Name);
             }
         }
-        else if (!NeedsToBuild())
+        else if (!NeedsToBuild(cacheEntry))
         {
             if (binaryLogger is not null)
             {
@@ -138,7 +143,7 @@ internal sealed class VirtualProjectBuildingCommand
             }
 
             BuildManager.DefaultBuildManager.EndBuild();
-            MarkAsBuilt();
+            MarkAsBuilt(cacheEntry);
             return 0;
         }
         catch (Exception e)
@@ -178,32 +183,40 @@ internal sealed class VirtualProjectBuildingCommand
         }
     }
 
-    private bool NeedsToBuild()
+    private bool NeedsToBuild(RunFileBuildCacheEntry cacheEntry)
     {
-        if (GlobalProperties.Count != 0)
-        {
-            return true;
-        }
-
         string artifactsDirectory = GetArtifactsPath();
-        var successSentinelFile = new FileInfo(Path.Join(artifactsDirectory, BuildSuccessCacheFileName));
+        var successCacheFile = new FileInfo(Path.Join(artifactsDirectory, BuildSuccessCacheFileName));
 
-        if (!successSentinelFile.Exists)
+        if (!successCacheFile.Exists)
         {
+            Reporter.Verbose.WriteLine("Building because cache file was not found: " + successCacheFile.FullName);
             return true;
         }
 
-        var startSentinelFile = new FileInfo(Path.Join(artifactsDirectory, BuildStartCacheFileName));
+        var startCacheFile = new FileInfo(Path.Join(artifactsDirectory, BuildStartCacheFileName));
 
         // TODO: Detect build failures.
 
-        DateTime buildTimeUtc = successSentinelFile.LastWriteTimeUtc;
+        var previousCacheEntry = DeserializeCacheEntry(successCacheFile);
+        if (!Equals(previousCacheEntry, cacheEntry))
+        {
+            Reporter.Verbose.WriteLine($"""
+                Building because cached metadata does not match current:
+                Previous: {previousCacheEntry}
+                Current: {cacheEntry}
+                """);
+            return true;
+        }
+
+        DateTime buildTimeUtc = successCacheFile.LastWriteTimeUtc;
 
         // Check that the source file is up to date.
         // If it does not exist, we also want to build.
         var entryPointFileInfo = new FileInfo(EntryPointFileFullPath);
         if (!entryPointFileInfo.Exists || entryPointFileInfo.LastWriteTimeUtc > buildTimeUtc)
         {
+            Reporter.Verbose.WriteLine("Building because entry point file is missing or out of date: " + entryPointFileInfo.FullName);
             return true;
         }
 
@@ -218,6 +231,7 @@ internal sealed class VirtualProjectBuildingCommand
                 var implicitBuildFileInfo = new FileInfo(implicitBuildFilePath);
                 if (implicitBuildFileInfo.Exists && implicitBuildFileInfo.LastWriteTimeUtc > buildTimeUtc)
                 {
+                    Reporter.Verbose.WriteLine("Building because implicit build file is out of date: " + implicitBuildFileInfo.FullName);
                     return true;
                 }
             }
@@ -226,11 +240,19 @@ internal sealed class VirtualProjectBuildingCommand
         }
 
         return false;
+
+        static RunFileBuildCacheEntry? DeserializeCacheEntry(FileInfo cacheFile)
+        {
+            using var stream = File.Open(cacheFile.FullName, FileMode.Open, FileAccess.Read, FileShare.Read);
+            return JsonSerializer.Deserialize(stream, RunFileJsonSerializerContext.Default.RunFileBuildCacheEntry);
+        }
     }
 
-    private void MarkAsBuilt()
+    private void MarkAsBuilt(RunFileBuildCacheEntry cacheEntry)
     {
-        File.WriteAllText(Path.Join(GetArtifactsPath(), BuildSuccessCacheFileName), string.Empty);
+        string successCacheFile = Path.Join(GetArtifactsPath(), BuildSuccessCacheFileName);
+        using var stream = File.Open(successCacheFile, FileMode.Create, FileAccess.Write, FileShare.Read);
+        JsonSerializer.Serialize(stream, cacheEntry, RunFileJsonSerializerContext.Default.RunFileBuildCacheEntry);
     }
 
     /// <summary>
@@ -821,3 +843,52 @@ internal abstract class CSharpDirective
         }
     }
 }
+
+internal sealed class RunFileBuildCacheEntry : IEquatable<RunFileBuildCacheEntry>
+{
+    [JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
+    public Dictionary<string, string> GlobalProperties { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public RunFileBuildCacheEntry AddGlobalProperties(IEnumerable<KeyValuePair<string, string>> globalProperties)
+    {
+        foreach (var (key, value) in globalProperties)
+        {
+            GlobalProperties[key] = value;
+        }
+
+        return this;
+    }
+
+    public bool Equals(RunFileBuildCacheEntry? other)
+    {
+        if (other is null)
+        {
+            return false;
+        }
+
+        if (GlobalProperties.Count != other.GlobalProperties.Count)
+        {
+            return false;
+        }
+
+        foreach (var (key, value) in GlobalProperties)
+        {
+            if (!other.GlobalProperties.TryGetValue(key, out var otherValue) ||
+                value != otherValue)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    public override bool Equals(object? obj) => obj is RunFileBuildCacheEntry e && Equals(e);
+
+    public override int GetHashCode() => throw new NotSupportedException();
+
+    public override string ToString() => JsonSerializer.Serialize(this, RunFileJsonSerializerContext.Default.RunFileBuildCacheEntry);
+}
+
+[JsonSerializable(typeof(RunFileBuildCacheEntry))]
+internal partial class RunFileJsonSerializerContext : JsonSerializerContext;
