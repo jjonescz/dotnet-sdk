@@ -1618,8 +1618,8 @@ Tool '{1}' (version '{2}') was successfully installed. Entry is added to the man
         <note />
       </trans-unit>
       <trans-unit id="NoBinaryLogBecauseUpToDate">
-        <source>Warning: Binary log option was specified but build will be skipped because output is up to date, pass option '--no-cache' to force build.</source>
-        <target state="new">Warning: Binary log option was specified but build will be skipped because output is up to date, pass option '--no-cache' to force build.</target>
+        <source>Warning: Binary log option was specified but build will be skipped because output is up to date, specify '--no-cache' to force build.</source>
+        <target state="new">Warning: Binary log option was specified but build will be skipped because output is up to date, specify '--no-cache' to force build.</target>
         <note>{Locked="--no-cache"}</note>
       </trans-unit>
       <trans-unit id="NoBuildOptionDescription">

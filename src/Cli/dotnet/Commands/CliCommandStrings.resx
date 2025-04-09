@@ -1511,7 +1511,7 @@ Tool '{1}' (version '{2}') was successfully installed. Entry is added to the man
     <comment>{0} and {1} are option names like '--no-build'.</comment>
   </data>
   <data name="NoBinaryLogBecauseUpToDate" xml:space="preserve">
-    <value>Warning: Binary log option was specified but build will be skipped because output is up to date, pass option '--no-cache' to force build.</value>
+    <value>Warning: Binary log option was specified but build will be skipped because output is up to date, specify '--no-cache' to force build.</value>
     <comment>{Locked="--no-cache"}</comment>
   </data>
   <data name="PublishAppDescription" xml:space="preserve">
