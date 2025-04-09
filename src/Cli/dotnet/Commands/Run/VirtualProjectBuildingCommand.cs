@@ -45,7 +45,13 @@ internal sealed class VirtualProjectBuildingCommand
     private static readonly ImmutableArray<string> s_implicitBuildFileNames =
     [
         "global.json",
+
+        // All these casings are recognized on case-sensitive platforms:
+        // https://github.com/NuGetArchive/NuGet3/blob/3bb901a4bc93eb21b75ee5a8cec8107f380919d7/src/NuGet.Configuration/Settings/Settings.cs#L34-L36
+        "nuget.config",
         "NuGet.config",
+        "NuGet.Config",
+
         "Directory.Build.props",
         "Directory.Build.targets",
         "Directory.Packages.props",
