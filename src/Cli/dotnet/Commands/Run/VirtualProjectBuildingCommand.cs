@@ -84,7 +84,7 @@ internal sealed class VirtualProjectBuildingCommand
             return 0;
         }
 
-        File.WriteAllText(Path.Join(GetArtifactsPath(), BuildStartCacheFileName), EntryPointFileFullPath);
+        MarkBuildStart();
 
         Dictionary<string, string?> savedEnvironmentVariables = [];
         try
@@ -143,7 +143,9 @@ internal sealed class VirtualProjectBuildingCommand
             }
 
             BuildManager.DefaultBuildManager.EndBuild();
-            MarkAsBuilt(cacheEntry);
+
+            MarkBuildSuccess(cacheEntry);
+
             return 0;
         }
         catch (Exception e)
@@ -257,7 +259,14 @@ internal sealed class VirtualProjectBuildingCommand
         }
     }
 
-    private void MarkAsBuilt(RunFileBuildCacheEntry cacheEntry)
+    private void MarkBuildStart()
+    {
+        string directory = GetArtifactsPath();
+        Directory.CreateDirectory(directory);
+        File.WriteAllText(Path.Join(directory, BuildStartCacheFileName), EntryPointFileFullPath);
+    }
+
+    private void MarkBuildSuccess(RunFileBuildCacheEntry cacheEntry)
     {
         string successCacheFile = Path.Join(GetArtifactsPath(), BuildSuccessCacheFileName);
         using var stream = File.Open(successCacheFile, FileMode.Create, FileAccess.Write, FileShare.Read);
