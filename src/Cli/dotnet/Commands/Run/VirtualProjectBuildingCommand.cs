@@ -260,8 +260,16 @@ internal sealed class VirtualProjectBuildingCommand
 
         static RunFileBuildCacheEntry? DeserializeCacheEntry(FileInfo cacheFile)
         {
-            using var stream = File.Open(cacheFile.FullName, FileMode.Open, FileAccess.Read, FileShare.Read);
-            return JsonSerializer.Deserialize(stream, RunFileJsonSerializerContext.Default.RunFileBuildCacheEntry);
+            try
+            {
+                using var stream = File.Open(cacheFile.FullName, FileMode.Open, FileAccess.Read, FileShare.Read);
+                return JsonSerializer.Deserialize(stream, RunFileJsonSerializerContext.Default.RunFileBuildCacheEntry);
+            }
+            catch (Exception e)
+            {
+                Reporter.Verbose.WriteLine($"Failed to deserialize cache entry ({cacheFile.FullName}): {e.GetType().FullName}: {e.Message}");
+                return null;
+            }
         }
     }
 
