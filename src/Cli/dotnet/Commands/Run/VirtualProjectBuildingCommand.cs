@@ -32,10 +32,12 @@ internal sealed class VirtualProjectBuildingCommand
     private static readonly ImmutableArray<string> s_implicitBuildFileNames =
     [
         "global.json",
+        "NuGet.config",
         "Directory.Build.props",
         "Directory.Build.targets",
         "Directory.Packages.props",
-        "NuGet.config"
+        "Directory.Build.rsp",
+        "MSBuild.rsp",
     ];
 
     private ImmutableArray<CSharpDirective> _directives;
