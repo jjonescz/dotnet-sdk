@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using Microsoft.DotNet.Cli.Commands;
+using Microsoft.DotNet.Cli.Commands.Run;
 
 namespace Microsoft.DotNet.Cli.Run.Tests;
 
@@ -15,6 +16,9 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         Console.WriteLine("Hello from " + System.Reflection.Assembly.GetExecutingAssembly().GetName().Name);
         #if !DEBUG
         Console.WriteLine("Release config");
+        #endif
+        #if CUSTOM_DEFINE
+        Console.WriteLine("Custom define");
         #endif
         """;
 
@@ -854,6 +858,28 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
 
         Build(expectedUpToDate: true);
 
+        // Add an implicit build file.
+        string buildPropsFile = Path.Join(testInstance.Path, "Directory.Build.props");
+        File.WriteAllText(buildPropsFile, """
+            <Project>
+                <PropertyGroup>
+                    <DefineConstants>$(DefineConstants);CUSTOM_DEFINE</DefineConstants>
+                </PropertyGroup>
+            </Project>
+            """);
+
+        Build(expectedUpToDate: false, expectedOutput: """
+            Hello from Program
+            Custom define
+            """);
+
+        // Remove an implicit build file (currently this is not recognized).
+        File.Delete(buildPropsFile);
+        Build(expectedUpToDate: true, expectedOutput: """
+            Hello from Program
+            Custom define
+            """);
+
         // Force rebuild.
         Build(expectedUpToDate: false, args: ["--no-cache"]);
 
@@ -917,5 +943,24 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
                 binlog.Delete();
             }
         }
+    }
+
+    [Fact]
+    public void UpToDate_InvalidOptions()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
+
+        new DotnetCommand(Log, "run", "Program.cs", "--no-cache", "--no-build")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining(string.Format(CliCommandStrings.InvalidOptionCombination, RunCommandParser.NoCacheOption.Name, RunCommandParser.NoBuildOption.Name));
+
+        new DotnetCommand(Log, "run", "Program.cs", "--no-cache", "--no-restore")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining(string.Format(CliCommandStrings.InvalidOptionCombination, RunCommandParser.NoCacheOption.Name, RunCommandParser.NoRestoreOption.Name));
     }
 }
