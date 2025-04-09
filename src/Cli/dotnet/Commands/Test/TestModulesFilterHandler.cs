@@ -6,7 +6,6 @@ using Microsoft.DotNet.Cli.Commands.Run;
 using Microsoft.DotNet.Cli.Commands.Test.Terminal;
 using Microsoft.DotNet.Cli.Extensions;
 using Microsoft.Extensions.FileSystemGlobbing;
-using Microsoft.Testing.Platform.OutputDevice.Terminal;
 
 namespace Microsoft.DotNet.Cli.Commands.Test;
 
@@ -30,7 +29,7 @@ internal sealed class TestModulesFilterHandler(TestApplicationActionQueue action
             // If the root directory is not valid, we simply return
             if (string.IsNullOrEmpty(rootDirectory) || !Directory.Exists(rootDirectory))
             {
-                _output.WriteMessage(string.Format(Tools.Test.LocalizableStrings.CmdNonExistentRootDirectoryErrorDescription, rootDirectory),
+                _output.WriteMessage(string.Format(CliCommandStrings.CmdNonExistentRootDirectoryErrorDescription, rootDirectory),
                     new SystemConsoleColor() { ConsoleColor = ConsoleColor.Yellow });
                 return false;
             }
@@ -41,14 +40,14 @@ internal sealed class TestModulesFilterHandler(TestApplicationActionQueue action
         // If no matches were found, we simply return
         if (!testModulePaths.Any())
         {
-            _output.WriteMessage(string.Format(Tools.Test.LocalizableStrings.CmdNoTestModulesErrorDescription, testModules, rootDirectory),
+            _output.WriteMessage(string.Format(CliCommandStrings.CmdNoTestModulesErrorDescription, testModules, rootDirectory),
                 new SystemConsoleColor() { ConsoleColor = ConsoleColor.Yellow });
             return false;
         }
 
         foreach (string testModule in testModulePaths)
         {
-            var testApp = new TestApplication(new TestModule(new RunProperties(testModule, null, null), null, null, true, true), buildOptions);
+            var testApp = new TestApplication(new TestModule(new RunProperties(testModule, null, null), null, null, true, true, null), buildOptions);
             // Write the test application to the channel
             _actionQueue.Enqueue(testApp);
         }
