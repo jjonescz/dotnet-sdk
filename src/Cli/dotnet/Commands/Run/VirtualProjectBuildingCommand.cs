@@ -61,6 +61,8 @@ internal sealed class VirtualProjectBuildingCommand
                 Reporter.Output.WriteLine(CliCommandStrings.NoBinaryLogBecauseUpToDate.Yellow());
             }
 
+            PrepareProjectInstance();
+
             return 0;
         }
 
@@ -196,6 +198,8 @@ internal sealed class VirtualProjectBuildingCommand
                     return true;
                 }
             }
+
+            directory = directory.Parent;
         }
 
         return false;
