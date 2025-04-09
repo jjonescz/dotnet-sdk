@@ -28,7 +28,17 @@ namespace Microsoft.DotNet.Cli.Commands.Run;
 /// </summary>
 internal sealed class VirtualProjectBuildingCommand
 {
-    private const string BuildSentinelFileName = "build.sentinel";
+    /// <summary>
+    /// A file put into the artifacts directory when it is first created with full path to the original source file
+    /// which can be used to track down the input corresponding to the output.
+    /// </summary>
+    private const string RunInfoFileName = "run.info";
+
+    /// <summary>
+    /// A file written in the artifacts directory on successful builds used to determine whether a re-build is needed.
+    /// </summary>
+    private const string BuildCacheFileName = "build.cache";
+
     private static readonly ImmutableArray<string> s_implicitBuildFileNames =
     [
         "global.json",
@@ -167,16 +177,20 @@ internal sealed class VirtualProjectBuildingCommand
 
     private bool NeedsToBuild()
     {
-        string artifactsDirectory = GetArtifactsPath();
-        string buildSentinel = Path.Join(artifactsDirectory, BuildSentinelFileName);
-        var buildSentinelInfo = new FileInfo(buildSentinel);
-
-        if (!buildSentinelInfo.Exists)
+        if (GlobalProperties.Count != 0)
         {
             return true;
         }
 
-        DateTime buildTimeUtc = buildSentinelInfo.LastWriteTimeUtc;
+        string artifactsDirectory = GetArtifactsPath();
+        var cacheFile = new FileInfo(Path.Join(artifactsDirectory, BuildCacheFileName));
+
+        if (!cacheFile.Exists)
+        {
+            return true;
+        }
+
+        DateTime buildTimeUtc = cacheFile.LastWriteTimeUtc;
 
         // Check that the source file is up to date.
         // If it does not exist, we also want to build.
@@ -209,7 +223,7 @@ internal sealed class VirtualProjectBuildingCommand
 
     private void MarkAsBuilt()
     {
-        File.WriteAllText(Path.Join(GetArtifactsPath(), BuildSentinelFileName), string.Empty);
+        File.WriteAllText(Path.Join(GetArtifactsPath(), BuildCacheFileName), string.Empty);
     }
 
     /// <summary>
@@ -282,7 +296,15 @@ internal sealed class VirtualProjectBuildingCommand
         string hash = Sha256Hasher.HashWithNormalizedCasing(EntryPointFileFullPath);
         string directoryName = $"{fileName}-{hash}";
 
-        return Path.Join(directory, "dotnet", "runfile", directoryName);
+        string path = Path.Join(directory, "dotnet", "runfile", directoryName);
+
+        if (!Directory.Exists(path))
+        {
+            Directory.CreateDirectory(path);
+            File.WriteAllText(Path.Join(path, RunInfoFileName), EntryPointFileFullPath);
+        }
+
+        return path;
     }
 
     public static void WriteProjectFile(TextWriter writer, ImmutableArray<CSharpDirective> directives)

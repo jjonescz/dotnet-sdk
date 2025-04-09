@@ -861,7 +861,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
 
         // Pass argument (no rebuild necessary).
         Build(expectedUpToDate: true, args: ["--", "test-arg"], expectedOutput: """
-            args: test-arg
+            echo args:test-arg
             Hello from Program
             """);
 
