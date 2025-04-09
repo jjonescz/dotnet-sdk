@@ -880,6 +880,16 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         // Change config back (a rebuild is necessary).
         Build(expectedUpToDate: false);
 
+        // Build with a failure.
+        new DotnetCommand(Log, ["run", "Program.cs", "-p:LangVersion=Invalid"])
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdOutContaining("error CS1617"); // Invalid option 'Invalid' for /langversion.
+
+        // A rebuild is necessary since the last build failed.
+        Build(expectedUpToDate: false);
+
         void Build(bool expectedUpToDate, ReadOnlySpan<string> args = default, string expectedOutput = "Hello from Program")
         {
             new DotnetCommand(Log, ["run", "Program.cs", "-bl", .. args])

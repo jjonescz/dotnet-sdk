@@ -190,13 +190,22 @@ internal sealed class VirtualProjectBuildingCommand
 
         if (!successCacheFile.Exists)
         {
-            Reporter.Verbose.WriteLine("Building because cache file was not found: " + successCacheFile.FullName);
+            Reporter.Verbose.WriteLine("Building because cache file does not exist: " + successCacheFile.FullName);
             return true;
         }
 
         var startCacheFile = new FileInfo(Path.Join(artifactsDirectory, BuildStartCacheFileName));
+        if (!startCacheFile.Exists)
+        {
+            Reporter.Verbose.WriteLine("Building because start cache file does not exist: " + startCacheFile.FullName);
+            return true;
+        }
 
-        // TODO: Detect build failures.
+        if (startCacheFile.LastWriteTimeUtc > successCacheFile.LastWriteTimeUtc)
+        {
+            Reporter.Verbose.WriteLine("Building because start cache file is newer than success cache file (previous build likely failed): " + startCacheFile.FullName);
+            return true;
+        }
 
         var previousCacheEntry = DeserializeCacheEntry(successCacheFile);
         if (!Equals(previousCacheEntry, cacheEntry))
