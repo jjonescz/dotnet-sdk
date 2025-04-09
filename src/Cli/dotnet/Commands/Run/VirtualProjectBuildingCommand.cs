@@ -29,15 +29,16 @@ namespace Microsoft.DotNet.Cli.Commands.Run;
 internal sealed class VirtualProjectBuildingCommand
 {
     /// <summary>
-    /// A file put into the artifacts directory when it is first created with full path to the original source file
-    /// which can be used to track down the input corresponding to the output.
+    /// A file put into the artifacts directory when build starts.
+    /// It contains full path to the original source file to allow tracking down the input corresponding to the output.
+    /// It is also used to check whether the previous build has failed.
     /// </summary>
-    private const string RunInfoFileName = "run.info";
+    private const string BuildStartCacheFileName = "build-start.cache";
 
     /// <summary>
     /// A file written in the artifacts directory on successful builds used to determine whether a re-build is needed.
     /// </summary>
-    private const string BuildCacheFileName = "build.cache";
+    private const string BuildSuccessCacheFileName = "build-success.cache";
 
     private static readonly ImmutableArray<string> s_implicitBuildFileNames =
     [
@@ -77,6 +78,8 @@ internal sealed class VirtualProjectBuildingCommand
 
             return 0;
         }
+
+        File.WriteAllText(Path.Join(GetArtifactsPath(), BuildStartCacheFileName), EntryPointFileFullPath);
 
         Dictionary<string, string?> savedEnvironmentVariables = [];
         try
@@ -183,14 +186,18 @@ internal sealed class VirtualProjectBuildingCommand
         }
 
         string artifactsDirectory = GetArtifactsPath();
-        var cacheFile = new FileInfo(Path.Join(artifactsDirectory, BuildCacheFileName));
+        var successSentinelFile = new FileInfo(Path.Join(artifactsDirectory, BuildSuccessCacheFileName));
 
-        if (!cacheFile.Exists)
+        if (!successSentinelFile.Exists)
         {
             return true;
         }
 
-        DateTime buildTimeUtc = cacheFile.LastWriteTimeUtc;
+        var startSentinelFile = new FileInfo(Path.Join(artifactsDirectory, BuildStartCacheFileName));
+
+        // TODO: Detect build failures.
+
+        DateTime buildTimeUtc = successSentinelFile.LastWriteTimeUtc;
 
         // Check that the source file is up to date.
         // If it does not exist, we also want to build.
@@ -223,7 +230,7 @@ internal sealed class VirtualProjectBuildingCommand
 
     private void MarkAsBuilt()
     {
-        File.WriteAllText(Path.Join(GetArtifactsPath(), BuildCacheFileName), string.Empty);
+        File.WriteAllText(Path.Join(GetArtifactsPath(), BuildSuccessCacheFileName), string.Empty);
     }
 
     /// <summary>
@@ -296,15 +303,7 @@ internal sealed class VirtualProjectBuildingCommand
         string hash = Sha256Hasher.HashWithNormalizedCasing(EntryPointFileFullPath);
         string directoryName = $"{fileName}-{hash}";
 
-        string path = Path.Join(directory, "dotnet", "runfile", directoryName);
-
-        if (!Directory.Exists(path))
-        {
-            Directory.CreateDirectory(path);
-            File.WriteAllText(Path.Join(path, RunInfoFileName), EntryPointFileFullPath);
-        }
-
-        return path;
+        return Path.Join(directory, "dotnet", "runfile", directoryName);
     }
 
     public static void WriteProjectFile(TextWriter writer, ImmutableArray<CSharpDirective> directives)

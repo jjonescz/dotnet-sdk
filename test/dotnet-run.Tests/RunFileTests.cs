@@ -871,6 +871,15 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             Release config
             """);
 
+        // Keep changed config (currently a rebuild always happens if there are custom MSBuild properties).
+        Build(expectedUpToDate: false, args: ["-c", "Release"], expectedOutput: """
+            Hello from Program
+            Release config
+            """);
+
+        // Change config back.
+        Build(expectedUpToDate: false);
+
         void Build(bool expectedUpToDate, ReadOnlySpan<string> args = default, string expectedOutput = "Hello from Program")
         {
             new DotnetCommand(Log, ["run", "Program.cs", "-bl", .. args])
