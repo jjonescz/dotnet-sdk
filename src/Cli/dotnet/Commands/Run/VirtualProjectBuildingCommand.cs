@@ -47,7 +47,7 @@ internal sealed class VirtualProjectBuildingCommand
         "global.json",
 
         // All these casings are recognized on case-sensitive platforms:
-        // https://github.com/NuGetArchive/NuGet3/blob/3bb901a4bc93eb21b75ee5a8cec8107f380919d7/src/NuGet.Configuration/Settings/Settings.cs#L34-L36
+        // https://github.com/NuGet/NuGet.Client/blob/ab6b96fd9ba07ed3bf629ee389799ca4fb9a20fb/src/NuGet.Core/NuGet.Configuration/Settings/Settings.cs#L32-L37
         "nuget.config",
         "NuGet.config",
         "NuGet.Config",
