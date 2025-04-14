@@ -4,6 +4,8 @@
 #nullable enable
 
 using System.CommandLine;
+using Microsoft.CodeAnalysis.CSharp.FileBasedPrograms;
+using Microsoft.CodeAnalysis.Text;
 using Microsoft.DotNet.Cli.Commands.Run;
 using Microsoft.DotNet.Cli.Utils;
 using Microsoft.TemplateEngine.Cli.Commands;
@@ -31,20 +33,30 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
         }
 
         // Generate project file.
-        var convertedEntryPointFileText = VirtualProjectBuildingCommand.WriteConvertedProjectFile(
-            entryPointFileFullPath: file,
-            entryPointFileText: VirtualProjectBuildingCommand.LoadSourceText(file),
-            arg: (targetDirectory, file),
-            writerFactory: static (arg) =>
-            {
-                var (targetDirectory, file) = arg;
-                Directory.CreateDirectory(targetDirectory);
-                string projectFile = Path.Join(targetDirectory, Path.GetFileNameWithoutExtension(file) + ".csproj");
-                var stream = File.Open(projectFile, FileMode.Create, FileAccess.Write);
-                var writer = new StreamWriter(stream, Encoding.UTF8, leaveOpen: false);
-                return writer;
-            },
-            force: _force);
+#pragma warning disable RSEXPERIMENTAL006 // 'VirtualProjectGenerator' is experimental
+        SourceText? convertedEntryPointFileText;
+        try
+        {
+            convertedEntryPointFileText = VirtualProjectGenerator.WriteConvertedProjectFile(
+                entryPointFileFullPath: file,
+                entryPointFileText: VirtualProjectBuildingCommand.LoadSourceText(file),
+                arg: (targetDirectory, file),
+                writerFactory: static (arg) =>
+                {
+                    var (targetDirectory, file) = arg;
+                    Directory.CreateDirectory(targetDirectory);
+                    string projectFile = Path.Join(targetDirectory, Path.GetFileNameWithoutExtension(file) + ".csproj");
+                    var stream = File.Open(projectFile, FileMode.Create, FileAccess.Write);
+                    var writer = new StreamWriter(stream, Encoding.UTF8, leaveOpen: false);
+                    return writer;
+                },
+                force: _force);
+        }
+        catch (DiagnosticException e)
+        {
+            throw new GracefulException(e.Message, e);
+        }
+#pragma warning restore RSEXPERIMENTAL006 // 'VirtualProjectGenerator' is experimental
 
         var targetFile = Path.Join(targetDirectory, Path.GetFileName(file));
 

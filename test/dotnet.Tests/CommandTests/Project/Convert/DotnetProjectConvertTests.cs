@@ -1,9 +1,10 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using Microsoft.CodeAnalysis.CSharp.FileBasedPrograms;
 using Microsoft.CodeAnalysis.Text;
 using Microsoft.DotNet.Cli.Commands;
-using Microsoft.DotNet.Cli.Commands.Run;
+using Microsoft.DotNet.Cli.Commands.Project.Convert;
 using Microsoft.DotNet.Cli.Utils;
 
 namespace Microsoft.DotNet.Cli.Project.Convert.Tests;
@@ -271,7 +272,7 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Fail()
-            .And.HaveStdErrContaining(string.Format(CliCommandStrings.UnrecognizedDirective, "invalid", $"{filePath}:1"));
+            .And.HaveStdErrContaining("invalid").And.HaveStdErrContaining($"{filePath}:1"); // Missing name of 'invalid' at {filePath}:1.
 
         new DirectoryInfo(Path.Join(testInstance.Path))
             .EnumerateDirectories().Should().BeEmpty();
@@ -447,7 +448,7 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
                 #:sdk Test
                 #:{directive} Test
                 """,
-            expectedWildcardPattern: string.Format(CliCommandStrings.UnrecognizedDirective, directive, "/app/Program.cs:2"));
+            expectedWildcardPattern: $"*{directive}*/app/Program.cs:2*"); // Unrecognized directive '{directive}' at /app/Program.cs:2.
     }
 
     [Fact]
@@ -458,7 +459,7 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
                 #:
                 #:sdk Test
                 """,
-            expectedWildcardPattern: string.Format(CliCommandStrings.UnrecognizedDirective, "", "/app/Program.cs:1"));
+            expectedWildcardPattern: "*/app/Program.cs:1*"); // Unrecognized directive '' at /app/Program.cs:1.
     }
 
     [Theory, CombinatorialData]
@@ -470,7 +471,7 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             inputCSharp: $"""
                 #:{directive}{value}
                 """,
-            expectedWildcardPattern: string.Format(CliCommandStrings.MissingDirectiveName, directive, "/app/Program.cs:1"));
+            expectedWildcardPattern: $"*{directive}*/app/Program.cs:1*"); // Missing name of '{directive}' at /app/Program.cs:1.
     }
 
     [Fact]
@@ -480,7 +481,7 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             inputCSharp: """
                 #:property Test
                 """,
-            expectedWildcardPattern: string.Format(CliCommandStrings.PropertyDirectiveMissingParts, "/app/Program.cs:1"));
+            expectedWildcardPattern: "*/app/Program.cs:1*"); // The property directive needs to have two parts separated by a space like 'PropertyName PropertyValue': /app/Program.cs:1
     }
 
     [Fact]
@@ -490,9 +491,9 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             inputCSharp: """
                 #:property Name" Value
                 """,
-            expectedWildcardPattern: string.Format(CliCommandStrings.PropertyDirectiveInvalidName, "/app/Program.cs:1", """
-                The '"' character, hexadecimal value 0x22, cannot be included in a name.
-                """));
+            expectedWildcardPattern: """
+                */app/Program.cs:1*The '"' character, hexadecimal value 0x22, cannot be included in a name.*
+                """); // Invalid property name at /app/Program.cs:1.
     }
 
     [Fact]
@@ -572,8 +573,8 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             inputCSharp: $"""
                 #:   property   Name{'\t'}     Value
                 """,
-            expectedWildcardPattern: string.Format(CliCommandStrings.PropertyDirectiveInvalidName, "/app/Program.cs:1",
-                "The '\t' character, hexadecimal value 0x09, cannot be included in a name."));
+            expectedWildcardPattern:
+                "*/app/Program.cs:1*The '\t' character, hexadecimal value 0x09, cannot be included in a name.*");  // Invalid property name at /app/Program.cs:1.
     }
 
     /// <summary>
@@ -592,7 +593,7 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
 
         VerifyConversionThrows(
             inputCSharp: source,
-            expectedWildcardPattern: string.Format(CliCommandStrings.CannotConvertDirective, "/app/Program.cs:5"));
+            expectedWildcardPattern: "*/app/Program.cs:5*--force*"); // Some directives cannot be converted: the first error is at /app/Program.cs:5. Run the file to see all compilation errors. Specify '--force' to convert anyway.
 
         VerifyConversion(
             inputCSharp: source,
@@ -640,7 +641,7 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
 
         VerifyConversionThrows(
             inputCSharp: source,
-            expectedWildcardPattern: string.Format(CliCommandStrings.CannotConvertDirective, "/app/Program.cs:5"));
+            expectedWildcardPattern: "*/app/Program.cs:5*--force*"); // Some directives cannot be converted: the first error is at /app/Program.cs:5. Run the file to see all compilation errors. Specify '--force' to convert anyway.
 
         VerifyConversion(
             inputCSharp: source,
@@ -725,12 +726,14 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     {
         var projectWriter = new StringWriter();
         string entryPointFileFullPath = "/app/Program.cs";
-        SourceText? convertedCSharp = VirtualProjectBuildingCommand.WriteConvertedProjectFile(
+#pragma warning disable RSEXPERIMENTAL006 // 'VirtualProjectGenerator' is experimental
+        SourceText? convertedCSharp = VirtualProjectGenerator.WriteConvertedProjectFile(
             entryPointFileFullPath: entryPointFileFullPath,
             entryPointFileText: SourceText.From(inputCSharp, Encoding.UTF8),
             arg: projectWriter,
             writerFactory: static (writer) => writer,
             force: force);
+#pragma warning restore RSEXPERIMENTAL006 // 'VirtualProjectGenerator' is experimental
         actualProject = projectWriter.ToString();
         actualCSharp = convertedCSharp?.ToString();
     }
@@ -748,6 +751,8 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     private static void VerifyConversionThrows(string inputCSharp, string expectedWildcardPattern)
     {
         var convert = () => Convert(inputCSharp, out _, out _, force: false);
-        convert.Should().Throw<GracefulException>().WithMessage(expectedWildcardPattern);
+#pragma warning disable RSEXPERIMENTAL006 // 'DiagnosticException' is experimental
+        convert.Should().Throw<DiagnosticException>().WithMessage(expectedWildcardPattern);
+#pragma warning restore RSEXPERIMENTAL006 // 'DiagnosticException' is experimental
     }
 }
