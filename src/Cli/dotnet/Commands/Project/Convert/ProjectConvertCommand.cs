@@ -30,29 +30,36 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
             throw new GracefulException(CliCommandStrings.DirectoryAlreadyExists, targetDirectory);
         }
 
-        // Find directives (this can fail, so do this before creating the target directory).
-        var sourceFile = VirtualProjectBuildingCommand.LoadSourceFile(file);
-        var directives = VirtualProjectBuildingCommand.FindDirectivesForConversion(sourceFile, force: _force);
-
-        Directory.CreateDirectory(targetDirectory);
+        // Generate project file.
+        var convertedEntryPointFileText = VirtualProjectBuildingCommand.WriteConvertedProjectFile(
+            entryPointFileFullPath: file,
+            entryPointFileText: VirtualProjectBuildingCommand.LoadSourceText(file),
+            arg: (targetDirectory, file),
+            writerFactory: static (arg) =>
+            {
+                var (targetDirectory, file) = arg;
+                Directory.CreateDirectory(targetDirectory);
+                string projectFile = Path.Join(targetDirectory, Path.GetFileNameWithoutExtension(file) + ".csproj");
+                var stream = File.Open(projectFile, FileMode.Create, FileAccess.Write);
+                var writer = new StreamWriter(stream, Encoding.UTF8, leaveOpen: false);
+                return writer;
+            },
+            force: _force);
 
         var targetFile = Path.Join(targetDirectory, Path.GetFileName(file));
 
-        // If there were any directives, remove them from the file.
-        if (directives.Length != 0)
+        // Write the converted entry point file or move it if no conversion is needed.
+        if (convertedEntryPointFileText != null)
         {
-            VirtualProjectBuildingCommand.RemoveDirectivesFromFile(directives, sourceFile.Text, targetFile);
+            using var stream = File.Open(targetFile, FileMode.Create, FileAccess.Write);
+            using var writer = new StreamWriter(stream, Encoding.UTF8);
+            convertedEntryPointFileText.Write(writer);
             File.Delete(file);
         }
         else
         {
             File.Move(file, targetFile);
         }
-
-        string projectFile = Path.Join(targetDirectory, Path.GetFileNameWithoutExtension(file) + ".csproj");
-        using var stream = File.Open(projectFile, FileMode.Create, FileAccess.Write);
-        using var writer = new StreamWriter(stream, Encoding.UTF8);
-        VirtualProjectBuildingCommand.WriteProjectFile(writer, directives);
 
         return 0;
     }
