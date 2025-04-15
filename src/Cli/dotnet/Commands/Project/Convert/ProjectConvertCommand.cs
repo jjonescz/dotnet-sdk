@@ -34,29 +34,27 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
 
         // Generate project file.
 #pragma warning disable RSEXPERIMENTAL006 // 'VirtualProjectGenerator' is experimental
-        SourceText? convertedEntryPointFileText;
-        try
-        {
-            convertedEntryPointFileText = VirtualProjectGenerator.WriteConvertedProjectFile(
-                entryPointFileFullPath: file,
-                entryPointFileText: VirtualProjectBuildingCommand.LoadSourceText(file),
-                arg: (targetDirectory, file),
-                writerFactory: static (arg) =>
-                {
-                    var (targetDirectory, file) = arg;
-                    Directory.CreateDirectory(targetDirectory);
-                    string projectFile = Path.Join(targetDirectory, Path.GetFileNameWithoutExtension(file) + ".csproj");
-                    var stream = File.Open(projectFile, FileMode.Create, FileAccess.Write);
-                    var writer = new StreamWriter(stream, Encoding.UTF8, leaveOpen: false);
-                    return writer;
-                },
-                force: _force);
-        }
-        catch (DiagnosticException e)
-        {
-            throw new GracefulException(e.Message, e);
-        }
+        SourceText? convertedEntryPointFileText = VirtualProjectGenerator.WriteConvertedProjectFile(
+            entryPointFileFullPath: file,
+            entryPointFileText: VirtualProjectBuildingCommand.LoadSourceText(file),
+            arg: (targetDirectory, file),
+            writerFactory: static (arg) =>
+            {
+                var (targetDirectory, file) = arg;
+                Directory.CreateDirectory(targetDirectory);
+                string projectFile = Path.Join(targetDirectory, Path.GetFileNameWithoutExtension(file) + ".csproj");
+                var stream = File.Open(projectFile, FileMode.Create, FileAccess.Write);
+                var writer = new StreamWriter(stream, Encoding.UTF8, leaveOpen: false);
+                return writer;
+            },
+            out var diagnostics,
+            force: _force);
 #pragma warning restore RSEXPERIMENTAL006 // 'VirtualProjectGenerator' is experimental
+
+        if (diagnostics.Length != 0 && !_force)
+        {
+            throw new GracefulException(CliCommandStrings.ProjectConversionFailed, string.Join(Environment.NewLine, diagnostics));
+        }
 
         var targetFile = Path.Join(targetDirectory, Path.GetFileName(file));
 

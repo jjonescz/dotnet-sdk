@@ -136,7 +136,8 @@ internal sealed class VirtualProjectBuildingCommand
             entryPointFileFullPath: EntryPointFileFullPath,
             entryPointFileText: LoadSourceText(EntryPointFileFullPath),
             writer,
-            artifactsPath: VirtualProjectGenerator.GetArtifactsPath(EntryPointFileFullPath));
+            artifactsPath: VirtualProjectGenerator.GetArtifactsPath(EntryPointFileFullPath),
+            diagnostics: out _);
 #pragma warning restore RSEXPERIMENTAL006 // 'VirtualProjectGenerator' is experimental
         _projectFileText = writer.ToString();
 
