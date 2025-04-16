@@ -653,6 +653,9 @@ dotnet.config is a name don't translate.</comment>
     <value>Do not build the project before running. Implies --no-restore.</value>
     <comment>{Locked="--no-restore"}</comment>
   </data>
+  <data name="CommandOptionNoCacheDescription" xml:space="preserve">
+    <value>Skip up to date checks and always build the program before running.</value>
+  </data>
   <data name="CommandOptionNoLaunchProfileArgumentsDescription" xml:space="preserve">
     <value>Do not use arguments specified in launch profile to run the application.</value>
   </data>
@@ -1498,6 +1501,14 @@ Tool '{1}' (version '{2}') was successfully installed. Entry is added to the man
   </data>
   <data name="ProjectsHeader" xml:space="preserve">
     <value>Project(s)</value>
+  </data>
+  <data name="InvalidOptionCombination" xml:space="preserve">
+    <value>Cannot combine option '{0}' and '{1}'.</value>
+    <comment>{0} and {1} are option names like '--no-build'.</comment>
+  </data>
+  <data name="NoBinaryLogBecauseUpToDate" xml:space="preserve">
+    <value>Warning: Binary log option was specified but build will be skipped because output is up to date, specify '--no-cache' to force build.</value>
+    <comment>{Locked="--no-cache"}</comment>
   </data>
   <data name="PublishAppDescription" xml:space="preserve">
     <value>Publisher for the .NET Platform</value>
