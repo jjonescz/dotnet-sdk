@@ -46,7 +46,7 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
         using (var csprojStream = File.Open(projectFile, FileMode.Create, FileAccess.Write))
         using (var csprojWriter = new StreamWriter(csprojStream, Encoding.UTF8))
         {
-            project.Emit(csprojWriter, artifactsPath: VirtualProject.GetArtifactsPath(file));
+            project.EmitConverted(csprojWriter);
         }
 
         var targetFile = Path.Join(targetDirectory, Path.GetFileName(file));

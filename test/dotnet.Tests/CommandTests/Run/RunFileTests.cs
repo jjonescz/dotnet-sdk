@@ -863,6 +863,23 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     }
 
     [Fact]
+    public void InvalidDirective()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), """
+            #:invalid
+            Console.WriteLine("Hello");
+            """);
+
+        new DotnetCommand(Log, "run", "Program.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining(string.Format(CliCommandStrings.RunFileInvalidDirectives, ""))
+            .And.HaveStdErrContaining("error CS9308"); // error CS9308: Unrecognized directive 'invalid'.
+    }
+
+    [Fact]
     public void UpToDate()
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
