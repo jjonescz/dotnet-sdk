@@ -3,6 +3,7 @@
 
 #nullable enable
 
+using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -345,16 +346,20 @@ internal sealed class VirtualProjectBuildingCommand
     {
         Debug.Assert(_projectFileText == null, $"{nameof(PrepareProjectInstance)} should not be called multiple times.");
 
-        var writer = new StringWriter();
 #pragma warning disable RSEXPERIMENTAL006 // 'VirtualProjectGenerator' is experimental
-        VirtualProjectGenerator.WriteVirtualProjectFile(
-            entryPointFileFullPath: EntryPointFileFullPath,
-            entryPointFileText: LoadSourceText(EntryPointFileFullPath),
-            writer,
-            artifactsPath: VirtualProjectGenerator.GetArtifactsPath(EntryPointFileFullPath),
-            diagnostics: out _);
+
+        var project = new VirtualProject(EntryPointFileFullPath);
+        var diagnostics = project.ParseDirectives(EntryPointFileFullPath, LoadSourceText(EntryPointFileFullPath), reportAllErrors: false);
+        if (diagnostics.Length != 0)
+        {
+            throw new GracefulException(CliCommandStrings.RunFileInvalidDirectives, string.Join(Environment.NewLine, diagnostics));
+        }
+
+        var csprojWriter = new StringWriter();
+        project.Emit(csprojWriter, GetArtifactsPath());
+        _projectFileText = csprojWriter.ToString();
+
 #pragma warning restore RSEXPERIMENTAL006 // 'VirtualProjectGenerator' is experimental
-        _projectFileText = writer.ToString();
 
         return this;
     }
@@ -392,6 +397,18 @@ internal sealed class VirtualProjectBuildingCommand
             projectRoot.FullPath = Path.ChangeExtension(EntryPointFileFullPath, ".csproj");
             return projectRoot;
         }
+    }
+
+    public static string GetArtifactsPath(string entryPointFileFullPath)
+    {
+#pragma warning disable RSEXPERIMENTAL006 // 'VirtualProject' is experimental
+        return VirtualProject.GetArtifactsPath(entryPointFileFullPath);
+#pragma warning restore RSEXPERIMENTAL006 // 'VirtualProject' is experimental
+    }
+
+    private string GetArtifactsPath()
+    {
+        return GetArtifactsPath(EntryPointFileFullPath);
     }
 
     public static SourceText LoadSourceText(string filePath)

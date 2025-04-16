@@ -1493,6 +1493,11 @@ Tool '{1}' (version '{2}') was successfully installed. Entry is added to the man
 {0}</value>
     <comment>{0} are compiler diagnostics</comment>
   </data>
+  <data name="RunFileInvalidDirectives" xml:space="preserve">
+    <value>Cannot run a file-based program due to the following errors in '#:' directives.
+{0}</value>
+    <comment>{Locked="#:"}. {0} are compiler diagnostics</comment>
+  </data>
   <data name="ProjectManifest" xml:space="preserve">
     <value>PROJECT_MANIFEST</value>
   </data>

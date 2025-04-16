@@ -268,6 +268,7 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Fail()
+            .And.HaveStdErrContaining(string.Format(CliCommandStrings.ProjectConversionFailed, ""))
             .And.HaveStdErrContaining("error CS9308"); // error CS9308: Unrecognized directive 'invalid'.
 
         new DirectoryInfo(Path.Join(testInstance.Path))
