@@ -2,7 +2,9 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.CommandLine;
+using Microsoft.Build.Logging;
 using Microsoft.DotNet.Cli.Commands.Restore;
+using Microsoft.DotNet.Cli.Commands.Run;
 using Microsoft.DotNet.Cli.Extensions;
 
 namespace Microsoft.DotNet.Cli.Commands.Build;
@@ -12,6 +14,8 @@ public class BuildCommand(
     bool noRestore,
     string msbuildPath = null) : RestoringCommand(msbuildArgs, noRestore, msbuildPath)
 {
+    public string? FileBasedProgramPath { get; init; }
+
     public static BuildCommand FromArgs(string[] args, string msbuildPath = null)
     {
         var parser = Parser.Instance;
@@ -37,18 +41,32 @@ public class BuildCommand(
         {
             msbuildArgs.Add("-target:Rebuild");
         }
-        var arguments = parseResult.GetValue(BuildCommandParser.SlnOrProjectArgument) ?? [];
 
         msbuildArgs.AddRange(parseResult.OptionValuesToBeForwarded(BuildCommandParser.GetCommand()));
 
-        msbuildArgs.AddRange(arguments);
+        var fileArgument = parseResult.GetValue(BuildCommandParser.SlnOrProjectOrFileArgument);
+
+        string? fileBasedProgramPath;
+
+        if (fileArgument is [{ } arg] && VirtualProjectBuildingCommand.IsValidEntryPointPath(arg))
+        {
+            fileBasedProgramPath = Path.GetFullPath(arg);
+        }
+        else
+        {
+            fileBasedProgramPath = null;
+            msbuildArgs.AddRange(fileArgument ?? []);
+        }
 
         bool noRestore = parseResult.GetResult(BuildCommandParser.NoRestoreOption) is not null;
 
         BuildCommand command = new(
             msbuildArgs,
             noRestore,
-            msbuildPath);
+            msbuildPath)
+        {
+            FileBasedProgramPath = fileBasedProgramPath,
+        };
 
         PerformanceLogEventSource.Log.CreateBuildCommandStop();
 
@@ -60,5 +78,24 @@ public class BuildCommand(
         parseResult.HandleDebugSwitch();
 
         return FromParseResult(parseResult).Execute();
+    }
+
+    public override int Execute()
+    {
+        if (FileBasedProgramPath is null)
+        {
+            return base.Execute();
+        }
+
+        var command = new VirtualProjectBuildingCommand
+        {
+            EntryPointFileFullPath = FileBasedProgramPath,
+        };
+        return command.Execute(
+            binaryLoggerArgs: [], // TODO
+            new ConsoleLogger(), // TODO
+            noRestore: false, // TODO
+            noCache: true,
+            noBuild: false);
     }
 }
