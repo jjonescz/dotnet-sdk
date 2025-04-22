@@ -2,7 +2,9 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.CommandLine;
+using Microsoft.Build.Logging;
 using Microsoft.DotNet.Cli.Commands.MSBuild;
+using Microsoft.DotNet.Cli.Commands.Run;
 using Microsoft.DotNet.Cli.Extensions;
 using Microsoft.DotNet.Cli.Utils;
 
@@ -15,6 +17,8 @@ public class RestoreCommand : MSBuildForwardingApp
     {
         NuGetSignatureVerificationEnabler.ConditionallyEnable(this);
     }
+
+    public string? FileBasedProgramPath { get; init; }
 
     public static RestoreCommand FromArgs(string[] args, string msbuildPath = null)
     {
@@ -33,9 +37,24 @@ public class RestoreCommand : MSBuildForwardingApp
 
         msbuildArgs.AddRange(result.OptionValuesToBeForwarded(RestoreCommandParser.GetCommand()));
 
-        msbuildArgs.AddRange(result.GetValue(RestoreCommandParser.SlnOrProjectArgument) ?? []);
+        var fileArgument = result.GetValue(RestoreCommandParser.SlnOrProjectOrFileArgument);
 
-        return new RestoreCommand(msbuildArgs, msbuildPath);
+        string? fileBasedProgramPath;
+
+        if (fileArgument is [{ } arg] && VirtualProjectBuildingCommand.IsValidEntryPointPath(arg))
+        {
+            fileBasedProgramPath = Path.GetFullPath(arg);
+        }
+        else
+        {
+            fileBasedProgramPath = null;
+            msbuildArgs.AddRange(fileArgument ?? []);
+        }
+
+        return new RestoreCommand(msbuildArgs, msbuildPath)
+        {
+            FileBasedProgramPath = fileBasedProgramPath,
+        };
     }
 
     public static int Run(string[] args)
@@ -50,5 +69,24 @@ public class RestoreCommand : MSBuildForwardingApp
         parseResult.HandleDebugSwitch();
 
         return FromParseResult(parseResult).Execute();
+    }
+
+    public override int Execute()
+    {
+        if (FileBasedProgramPath is null)
+        {
+            return base.Execute();
+        }
+
+        var command = new VirtualProjectBuildingCommand
+        {
+            EntryPointFileFullPath = FileBasedProgramPath,
+        };
+        return command.Execute(
+            binaryLoggerArgs: [], // TODO
+            new ConsoleLogger(), // TODO
+            noRestore: false,
+            noCache: true,
+            noBuild: true);
     }
 }

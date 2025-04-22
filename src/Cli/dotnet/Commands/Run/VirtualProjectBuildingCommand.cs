@@ -65,34 +65,39 @@ internal sealed class VirtualProjectBuildingCommand
     public Dictionary<string, string> GlobalProperties { get; } = new(StringComparer.OrdinalIgnoreCase);
     public required string EntryPointFileFullPath { get; init; }
 
-    public int Execute(string[] binaryLoggerArgs, ILogger consoleLogger, bool noRestore, bool noCache)
+    public int Execute(string[] binaryLoggerArgs, ILogger consoleLogger, bool noRestore, bool noCache, bool noBuild)
     {
+        Debug.Assert(!(noRestore && noBuild));
+
         var binaryLogger = GetBinaryLogger(binaryLoggerArgs);
 
-        RunFileBuildCacheEntry cacheEntry;
+        RunFileBuildCacheEntry? cacheEntry = null;
 
-        if (noCache)
+        if (!noBuild)
         {
-            if (noRestore)
+            if (noCache)
             {
-                throw new GracefulException(CliCommandStrings.InvalidOptionCombination, RunCommandParser.NoCacheOption.Name, RunCommandParser.NoRestoreOption.Name);
+                if (noRestore)
+                {
+                    throw new GracefulException(CliCommandStrings.InvalidOptionCombination, RunCommandParser.NoCacheOption.Name, RunCommandParser.NoRestoreOption.Name);
+                }
+
+                cacheEntry = ComputeCacheEntry(out _);
+            }
+            else if (!NeedsToBuild(out cacheEntry))
+            {
+                if (binaryLogger is not null)
+                {
+                    Reporter.Output.WriteLine(CliCommandStrings.NoBinaryLogBecauseUpToDate.Yellow());
+                }
+
+                PrepareProjectInstance();
+
+                return 0;
             }
 
-            cacheEntry = ComputeCacheEntry(out _);
+            MarkBuildStart();
         }
-        else if (!NeedsToBuild(out cacheEntry))
-        {
-            if (binaryLogger is not null)
-            {
-                Reporter.Output.WriteLine(CliCommandStrings.NoBinaryLogBecauseUpToDate.Yellow());
-            }
-
-            PrepareProjectInstance();
-
-            return 0;
-        }
-
-        MarkBuildStart();
 
         Dictionary<string, string?> savedEnvironmentVariables = [];
         try
@@ -141,18 +146,22 @@ internal sealed class VirtualProjectBuildingCommand
             }
 
             // Then do a build.
-            var buildRequest = new BuildRequestData(
-                CreateProjectInstance(projectCollection),
-                targetsToBuild: ["Build"]);
-            var buildResult = BuildManager.DefaultBuildManager.BuildRequest(buildRequest);
-            if (buildResult.OverallResult != BuildResultCode.Success)
+            if (!noBuild)
             {
-                return 1;
+                var buildRequest = new BuildRequestData(
+                    CreateProjectInstance(projectCollection),
+                    targetsToBuild: ["Build"]);
+                var buildResult = BuildManager.DefaultBuildManager.BuildRequest(buildRequest);
+                if (buildResult.OverallResult != BuildResultCode.Success)
+                {
+                    return 1;
+                }
+
+                Debug.Assert(cacheEntry != null);
+                MarkBuildSuccess(cacheEntry);
             }
 
             BuildManager.DefaultBuildManager.EndBuild();
-
-            MarkBuildSuccess(cacheEntry);
 
             return 0;
         }

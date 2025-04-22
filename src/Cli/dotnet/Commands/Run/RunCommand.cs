@@ -268,7 +268,8 @@ public class RunCommand
                 binaryLoggerArgs: RestoreArgs,
                 consoleLogger: MakeTerminalLogger(Verbosity ?? GetDefaultVerbosity()),
                 noRestore: NoRestore,
-                noCache: NoCache);
+                noCache: NoCache,
+                noBuild: false);
         }
         else
         {
