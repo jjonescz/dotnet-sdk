@@ -266,7 +266,7 @@ public class RunCommand
             projectFactory = command.CreateProjectInstance;
             buildResult = command.Execute(
                 binaryLoggerArgs: RestoreArgs,
-                consoleLogger: MakeTerminalLogger(Verbosity ?? GetDefaultVerbosity()),
+                consoleLogger: MakeTerminalLogger(RestoreArgs),
                 noRestore: NoRestore,
                 noCache: NoCache);
         }
@@ -315,7 +315,7 @@ public class RunCommand
         FacadeLogger? logger = LoggerUtility.DetermineBinlogger(RestoreArgs, "dotnet-run");
         var project = EvaluateProject(ProjectFileFullPath, projectFactory, RestoreArgs, logger);
         ValidatePreconditions(project);
-        InvokeRunArgumentsTarget(project, RestoreArgs, Verbosity, logger);
+        InvokeRunArgumentsTarget(project, RestoreArgs, logger);
         logger?.ReallyShutdown();
         var runProperties = ReadRunPropertiesFromProject(project, Args);
         var command = CreateCommandFromRunProperties(project, runProperties);
@@ -376,11 +376,11 @@ public class RunCommand
             return command;
         }
 
-        static void InvokeRunArgumentsTarget(ProjectInstance project, string[] restoreArgs, VerbosityOptions? verbosity, FacadeLogger? binaryLogger)
+        static void InvokeRunArgumentsTarget(ProjectInstance project, string[] restoreArgs, FacadeLogger? binaryLogger)
         {
             // if the restoreArgs contain a `-bl` then let's probe it
             List<ILogger> loggersForBuild = [
-                MakeTerminalLogger(verbosity)
+                MakeTerminalLogger(restoreArgs)
             ];
             if (binaryLogger is not null)
             {
@@ -394,14 +394,9 @@ public class RunCommand
         }
     }
 
-
-    static ILogger MakeTerminalLogger(VerbosityOptions? verbosity)
+    static ILogger MakeTerminalLogger(string[] args)
     {
-        var msbuildVerbosity = ToLoggerVerbosity(verbosity);
-
-        // Temporary fix for 9.0.1xx. 9.0.2xx will use the TerminalLogger in the safe way.
-        var thing = new ConsoleLogger(msbuildVerbosity);
-        return thing!;
+        return TerminalLogger.CreateTerminalOrConsoleLogger(args);
     }
 
     static readonly string ComputeRunArgumentsTarget = "ComputeRunArguments";
