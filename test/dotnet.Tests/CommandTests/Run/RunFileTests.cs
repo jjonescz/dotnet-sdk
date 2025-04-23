@@ -316,7 +316,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Fail()
-            .And.HaveStdOutContaining("error CS5001:"); // Program does not contain a static 'Main' method suitable for an entry point
+            .And.HaveStdErrContaining(string.Format(CliCommandStrings.NoTopLevelStatements, Path.Join(testInstance.Path, "Util.cs")));
     }
 
     /// <summary>
@@ -339,20 +339,27 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     }
 
     /// <summary>
-    /// Other files in the folder are not part of the compilation.
+    /// Other non-entry-point files in the folder are part of the compilation.
     /// </summary>
     [Fact]
     public void MultipleFiles_RunEntryPoint()
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
         File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_programDependingOnUtil);
+        File.WriteAllText(Path.Join(testInstance.Path, "Program2.cs"), s_program);
         File.WriteAllText(Path.Join(testInstance.Path, "Util.cs"), s_util);
 
         new DotnetCommand(Log, "run", "Program.cs")
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
-            .Should().Fail()
-            .And.HaveStdOutContaining("error CS0103"); // The name 'Util' does not exist in the current context
+            .Should().Pass()
+            .And.HaveStdOut("Hello, String from Util");
+
+        new DotnetCommand(Log, "run", "Program2.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut("Hello from Program2");
     }
 
     /// <summary>
@@ -369,7 +376,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Fail()
-            .And.HaveStdOutContaining("error CS5001:"); // Program does not contain a static 'Main' method suitable for an entry point
+            .And.HaveStdErrContaining(string.Format(CliCommandStrings.NoTopLevelStatements, Path.Join(testInstance.Path, "Util.cs")));
     }
 
     /// <summary>
@@ -425,7 +432,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     }
 
     /// <summary>
-    /// Main method is supported just like top-level statements.
+    /// Main method is currently not supported as an entry point.
     /// </summary>
     [Fact]
     public void MainMethod()
@@ -436,8 +443,8 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         new DotnetCommand(Log, "run", "Program.cs")
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
-            .Should().Pass()
-            .And.HaveStdOut("Hello World!");
+            .Should().Fail()
+            .And.HaveStdErrContaining(string.Format(CliCommandStrings.NoTopLevelStatements, Path.Join(testInstance.Path, "Program.cs")));
     }
 
     /// <summary>
@@ -453,7 +460,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Fail()
-            .And.HaveStdOutContaining("error CS5001:"); // Program does not contain a static 'Main' method suitable for an entry point
+            .And.HaveStdErrContaining(string.Format(CliCommandStrings.NoTopLevelStatements, Path.Join(testInstance.Path, "Program.cs")));
     }
 
     /// <summary>
@@ -659,7 +666,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     }
 
     /// <summary>
-    /// Default projects do not include anything apart from the entry-point file.
+    /// Default items are included.
     /// </summary>
     [Fact]
     public void EmbeddedResource()
@@ -690,7 +697,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .Execute()
             .Should().Pass()
             .And.HaveStdOut("""
-                Resource not found
+                [MyString, TestValue]
                 """);
     }
 
@@ -787,8 +794,8 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         new DotnetCommand(Log, "run", "Program.cs", "-p:DefineConstants=MY_DEFINE")
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
-            .Should().Pass()
-            .And.HaveStdOut("Test output");
+            .Should().Fail()
+            .And.HaveStdErrContaining(string.Format(CliCommandStrings.NoTopLevelStatements, Path.Join(testInstance.Path, "Program.cs")));
     }
 
     [Fact]
