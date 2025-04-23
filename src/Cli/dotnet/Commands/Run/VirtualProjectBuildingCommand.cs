@@ -373,7 +373,7 @@ internal sealed class VirtualProjectBuildingCommand
         var excluded = ImmutableArray.CreateBuilder<string>();
         foreach (var file in entryDirectory.EnumerateFiles("*.cs", s_csEnumerationOptions))
         {
-            bool isTopLevel = file.Directory == entryDirectory;
+            bool isTopLevel = entryDirectory.FullName.Equals(file.Directory!.FullName, StringComparison.OrdinalIgnoreCase);
 
             // Skip the current entry point.
             if (isTopLevel && entryFile.Name.Equals(file.Name, StringComparison.OrdinalIgnoreCase))

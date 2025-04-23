@@ -343,16 +343,6 @@ public sealed class FileBasedProgramProject
               </PropertyGroup>
             """);
 
-        if (!convert)
-        {
-            csprojWriter.WriteLine("""
-
-                  <PropertyGroup>
-                    <EnableDefaultItems>false</EnableDefaultItems>
-                  </PropertyGroup>
-                """);
-        }
-
         if (propertyDirectives.Any())
         {
             csprojWriter.WriteLine("""
