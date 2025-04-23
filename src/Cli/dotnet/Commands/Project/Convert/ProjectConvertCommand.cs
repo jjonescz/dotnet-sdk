@@ -34,7 +34,8 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
 #pragma warning disable RSEXPERIMENTAL006 // 'FileBasedProgramProject' is experimental
 
         // Generate project file.
-        var projectBuilder = new FileBasedProgramProjectBuilder(file);
+        // TODO: Load directives from other files.
+        var projectBuilder = new FileBasedProgramProjectBuilder();
         var diagnostics = projectBuilder.ParseDirectives(file, VirtualProjectBuildingCommand.LoadSourceText(file), reportAllErrors: true);
         if (diagnostics.Length != 0 && !_force)
         {
@@ -47,7 +48,10 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
         using (var csprojStream = File.Open(projectFile, FileMode.Create, FileAccess.Write))
         using (var csprojWriter = new StreamWriter(csprojStream, Encoding.UTF8))
         {
-            project.EmitConverted(csprojWriter);
+            project.EmitConverted(csprojWriter, new FileBasedProgramProjectOptions
+            {
+                TargetFramework = VirtualProjectBuildingCommand.TargetFramework,
+            });
         }
 
         var targetFile = Path.Join(targetDirectory, Path.GetFileName(file));

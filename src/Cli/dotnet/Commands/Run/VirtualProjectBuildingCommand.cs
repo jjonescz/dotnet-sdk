@@ -14,7 +14,9 @@ using Microsoft.Build.Evaluation;
 using Microsoft.Build.Execution;
 using Microsoft.Build.Framework;
 using Microsoft.Build.Logging;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.FileBasedPrograms;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
 using Microsoft.DotNet.Cli.Utils;
 using Microsoft.DotNet.Cli.Utils.Extensions;
@@ -26,6 +28,8 @@ namespace Microsoft.DotNet.Cli.Commands.Run;
 /// </summary>
 internal sealed class VirtualProjectBuildingCommand
 {
+    internal const string TargetFramework = "net10.0";
+
     /// <summary>
     /// A file put into the artifacts directory when build starts.
     /// It contains full path to the original source file to allow tracking down the input corresponding to the output.
@@ -37,6 +41,12 @@ internal sealed class VirtualProjectBuildingCommand
     /// A file written in the artifacts directory on successful builds used to determine whether a re-build is needed.
     /// </summary>
     private const string BuildSuccessCacheFileName = "build-success.cache";
+
+    private static readonly EnumerationOptions s_csEnumerationOptions = new()
+    {
+        MatchCasing = MatchCasing.CaseInsensitive,
+        RecurseSubdirectories = true,
+    };
 
     private static readonly ImmutableArray<string> s_implicitBuildFileNames =
     [
@@ -344,25 +354,85 @@ internal sealed class VirtualProjectBuildingCommand
     /// </summary>
     public VirtualProjectBuildingCommand PrepareProjectInstance()
     {
-        Debug.Assert(_projectFileText == null, $"{nameof(PrepareProjectInstance)} should not be called multiple times.");
-
 #pragma warning disable RSEXPERIMENTAL006 // 'FileBasedProgramProject' is experimental
 
-        var projectBuilder = new FileBasedProgramProjectBuilder(EntryPointFileFullPath);
-        var diagnostics = projectBuilder.ParseDirectives(EntryPointFileFullPath, LoadSourceText(EntryPointFileFullPath), reportAllErrors: false);
-        if (diagnostics.Length != 0)
+        Debug.Assert(_projectFileText == null, $"{nameof(PrepareProjectInstance)} should not be called multiple times.");
+
+        if (!HasTopLevelStatements(EntryPointFileFullPath))
         {
-            throw new GracefulException(CliCommandStrings.RunFileInvalidDirectives, string.Join(Environment.NewLine, diagnostics));
+            throw new GracefulException(CliCommandStrings.NoTopLevelStatements, EntryPointFileFullPath);
         }
 
+        // Parse directives in the entry-point file.
+        var projectBuilder = new FileBasedProgramProjectBuilder();
+        ParseDirectives(projectBuilder, EntryPointFileFullPath);
+
+        // Discover other C# files.
+        var entryFile = new FileInfo(EntryPointFileFullPath);
+        var entryDirectory = entryFile.Directory!;
+        var excluded = ImmutableArray.CreateBuilder<string>();
+        foreach (var file in entryDirectory.EnumerateFiles("*.cs", s_csEnumerationOptions))
+        {
+            bool isTopLevel = file.Directory == entryDirectory;
+
+            // Skip the current entry point.
+            if (isTopLevel && entryFile.Name.Equals(file.Name, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (HasTopLevelStatements(file.FullName))
+            {
+                if (!isTopLevel)
+                {
+                    throw new GracefulException(CliCommandStrings.EntryPointInNestedFolder, file.FullName);
+                }
+
+                // Exclude other entry points.
+                excluded.Add(file.FullName);
+            }
+            else
+            {
+                // Parse directives from other non-entry-point files.
+                ParseDirectives(projectBuilder, file.FullName);
+            }
+        }
+
+        // Generate project file XML text.
         var project = projectBuilder.Build();
         var csprojWriter = new StringWriter();
-        project.Emit(csprojWriter, GetArtifactsPath());
+        project.Emit(csprojWriter, new FileBasedProgramProjectOptions
+        {
+            TargetFramework = TargetFramework,
+            ArtifactsPath = GetArtifactsPath(),
+            ExcludeCompileItems = excluded.DrainToImmutable(),
+        });
         _projectFileText = csprojWriter.ToString();
 
-#pragma warning restore RSEXPERIMENTAL006 // 'FileBasedProgramProject' is experimental
-
         return this;
+
+        static bool HasTopLevelStatements(string fileFullPath)
+        {
+            var tree = ParseCSharp(fileFullPath);
+            return tree.GetRoot().ChildNodes().OfType<GlobalStatementSyntax>().Any();
+        }
+
+        static CSharpSyntaxTree ParseCSharp(string fileFullPath)
+        {
+            using var stream = File.OpenRead(fileFullPath);
+            return (CSharpSyntaxTree)CSharpSyntaxTree.ParseText(SourceText.From(stream, Encoding.UTF8), path: fileFullPath);
+        }
+
+        static void ParseDirectives(FileBasedProgramProjectBuilder projectBuilder, string fileFullPath)
+        {
+            var diagnostics = projectBuilder.ParseDirectives(fileFullPath, LoadSourceText(fileFullPath), reportAllErrors: false);
+            if (diagnostics.Length != 0)
+            {
+                throw new GracefulException(CliCommandStrings.RunFileInvalidDirectives, string.Join(Environment.NewLine, diagnostics));
+            }
+        }
+
+#pragma warning restore RSEXPERIMENTAL006 // 'FileBasedProgramProject' is experimental
     }
 
     public ProjectInstance CreateProjectInstance(ProjectCollection projectCollection)
