@@ -346,20 +346,21 @@ internal sealed class VirtualProjectBuildingCommand
     {
         Debug.Assert(_projectFileText == null, $"{nameof(PrepareProjectInstance)} should not be called multiple times.");
 
-#pragma warning disable RSEXPERIMENTAL006 // 'VirtualProjectGenerator' is experimental
+#pragma warning disable RSEXPERIMENTAL006 // 'FileBasedProgramProject' is experimental
 
-        var project = new VirtualProject(EntryPointFileFullPath);
-        var diagnostics = project.ParseDirectives(EntryPointFileFullPath, LoadSourceText(EntryPointFileFullPath), reportAllErrors: false);
+        var projectBuilder = new FileBasedProgramProjectBuilder(EntryPointFileFullPath);
+        var diagnostics = projectBuilder.ParseDirectives(EntryPointFileFullPath, LoadSourceText(EntryPointFileFullPath), reportAllErrors: false);
         if (diagnostics.Length != 0)
         {
             throw new GracefulException(CliCommandStrings.RunFileInvalidDirectives, string.Join(Environment.NewLine, diagnostics));
         }
 
+        var project = projectBuilder.Build();
         var csprojWriter = new StringWriter();
         project.Emit(csprojWriter, GetArtifactsPath());
         _projectFileText = csprojWriter.ToString();
 
-#pragma warning restore RSEXPERIMENTAL006 // 'VirtualProjectGenerator' is experimental
+#pragma warning restore RSEXPERIMENTAL006 // 'FileBasedProgramProject' is experimental
 
         return this;
     }
@@ -401,9 +402,9 @@ internal sealed class VirtualProjectBuildingCommand
 
     public static string GetArtifactsPath(string entryPointFileFullPath)
     {
-#pragma warning disable RSEXPERIMENTAL006 // 'VirtualProject' is experimental
-        return VirtualProject.GetArtifactsPath(entryPointFileFullPath);
-#pragma warning restore RSEXPERIMENTAL006 // 'VirtualProject' is experimental
+#pragma warning disable RSEXPERIMENTAL006 // 'FileBasedProgramProject' is experimental
+        return FileBasedProgramProject.GetArtifactsPath(entryPointFileFullPath);
+#pragma warning restore RSEXPERIMENTAL006 // 'FileBasedProgramProject' is experimental
     }
 
     private string GetArtifactsPath()

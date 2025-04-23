@@ -31,16 +31,17 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
             throw new GracefulException(CliCommandStrings.DirectoryAlreadyExists, targetDirectory);
         }
         
-#pragma warning disable RSEXPERIMENTAL006 // 'VirtualProjectGenerator' is experimental
+#pragma warning disable RSEXPERIMENTAL006 // 'FileBasedProgramProject' is experimental
 
         // Generate project file.
-        var project = new VirtualProject(file);
-        var diagnostics = project.ParseDirectives(file, VirtualProjectBuildingCommand.LoadSourceText(file), reportAllErrors: true);
+        var projectBuilder = new FileBasedProgramProjectBuilder(file);
+        var diagnostics = projectBuilder.ParseDirectives(file, VirtualProjectBuildingCommand.LoadSourceText(file), reportAllErrors: true);
         if (diagnostics.Length != 0 && !_force)
         {
             throw new GracefulException(CliCommandStrings.ProjectConversionFailed, string.Join(Environment.NewLine, diagnostics));
         }
 
+        var project = projectBuilder.Build();
         Directory.CreateDirectory(targetDirectory);
         string projectFile = Path.Join(targetDirectory, Path.GetFileNameWithoutExtension(file) + ".csproj");
         using (var csprojStream = File.Open(projectFile, FileMode.Create, FileAccess.Write))
@@ -64,7 +65,7 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
             File.Move(file, targetFile);
         }
 
-#pragma warning restore RSEXPERIMENTAL006 // 'VirtualProjectGenerator' is experimental
+#pragma warning restore RSEXPERIMENTAL006 // 'FileBasedProgramProject' is experimental
 
         return 0;
     }
