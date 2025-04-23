@@ -2,20 +2,15 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.CommandLine;
-using Microsoft.Build.Logging;
+using Microsoft.Build.Framework;
 using Microsoft.DotNet.Cli.Commands.Restore;
 using Microsoft.DotNet.Cli.Commands.Run;
 using Microsoft.DotNet.Cli.Extensions;
 
 namespace Microsoft.DotNet.Cli.Commands.Build;
 
-public class BuildCommand(
-    IEnumerable<string> msbuildArgs,
-    bool noRestore,
-    string msbuildPath = null) : RestoringCommand(msbuildArgs, noRestore, msbuildPath)
+public abstract class BuildCommand
 {
-    public string? FileBasedProgramPath { get; init; }
-
     public static BuildCommand FromArgs(string[] args, string msbuildPath = null)
     {
         var parser = Parser.Instance;
@@ -27,46 +22,59 @@ public class BuildCommand(
     {
         PerformanceLogEventSource.Log.CreateBuildCommandStart();
 
-        var msbuildArgs = new List<string>();
-
         parseResult.ShowHelpOrErrorIfAppropriate();
 
         CommonOptions.ValidateSelfContainedOptions(
             parseResult.GetResult(BuildCommandParser.SelfContainedOption) is not null,
             parseResult.GetResult(BuildCommandParser.NoSelfContainedOption) is not null);
 
-        msbuildArgs.Add($"-consoleloggerparameters:Summary");
+        string[] fileArgument = parseResult.GetValue(BuildCommandParser.SlnOrProjectOrFileArgument) ?? [];
 
-        if (parseResult.GetResult(BuildCommandParser.NoIncrementalOption) is not null)
-        {
-            msbuildArgs.Add("-target:Rebuild");
-        }
-
-        msbuildArgs.AddRange(parseResult.OptionValuesToBeForwarded(BuildCommandParser.GetCommand()));
-
-        var fileArgument = parseResult.GetValue(BuildCommandParser.SlnOrProjectOrFileArgument);
-
-        string? fileBasedProgramPath;
-
-        if (fileArgument is [{ } arg] && VirtualProjectBuildingCommand.IsValidEntryPointPath(arg))
-        {
-            fileBasedProgramPath = Path.GetFullPath(arg);
-        }
-        else
-        {
-            fileBasedProgramPath = null;
-            msbuildArgs.AddRange(fileArgument ?? []);
-        }
+        string[] forwardedOptions = parseResult.OptionValuesToBeForwarded(BuildCommandParser.GetCommand()).ToArray();
 
         bool noRestore = parseResult.GetResult(BuildCommandParser.NoRestoreOption) is not null;
 
-        BuildCommand command = new(
-            msbuildArgs,
-            noRestore,
-            msbuildPath)
+        bool noIncremental = parseResult.GetResult(BuildCommandParser.NoIncrementalOption) is not null;
+
+        BuildCommand command;
+
+        if (fileArgument is [{ } arg] && VirtualProjectBuildingCommand.IsValidEntryPointPath(arg))
         {
-            FileBasedProgramPath = fileBasedProgramPath,
-        };
+            string fileBasedProgramPath = Path.GetFullPath(arg);
+
+            VerbosityOptions? verbosity = parseResult.GetValue(CommonOptions.VerbosityOption);
+
+            var virtualCommand = new VirtualBuildCommand(
+                entryPointFileFullPath: fileBasedProgramPath,
+                binaryLoggerArgs: forwardedOptions,
+                consoleLogger: RunCommand.MakeTerminalLogger(verbosity),
+                noRestore: noRestore,
+                noIncremental: noIncremental);
+
+            CommonRunHelpers.AddUserPassedProperties(virtualCommand.VirtualBuildingCommand.GlobalProperties, forwardedOptions);
+
+            command = virtualCommand;
+        }
+        else
+        {
+            var msbuildArgs = new List<string>();
+
+            msbuildArgs.Add($"-consoleloggerparameters:Summary");
+
+            if (noIncremental)
+            {
+                msbuildArgs.Add("-target:Rebuild");
+            }
+
+            msbuildArgs.AddRange(forwardedOptions);
+
+            msbuildArgs.AddRange(fileArgument);
+
+            command = new ForwardingBuildCommand(
+                msbuildArgs: msbuildArgs,
+                noRestore: noRestore,
+                msbuildPath: msbuildPath);
+        }
 
         PerformanceLogEventSource.Log.CreateBuildCommandStop();
 
@@ -80,22 +88,50 @@ public class BuildCommand(
         return FromParseResult(parseResult).Execute();
     }
 
+    public abstract int Execute();
+}
+
+public sealed class ForwardingBuildCommand(
+    IEnumerable<string> msbuildArgs, bool noRestore, string msbuildPath = null) : BuildCommand
+{
+    public RestoringCommand RestoringCommand { get; } = new RestoringCommand(msbuildArgs, noRestore, msbuildPath);
+
+    public override int Execute() => RestoringCommand.Execute();
+}
+
+internal sealed class VirtualBuildCommand : BuildCommand
+{
+    private readonly string[] _binaryLoggerArgs;
+    private readonly ILogger _consoleLogger;
+    private readonly bool _noRestore, _noIncremental;
+
+    public VirtualBuildCommand(
+        string entryPointFileFullPath,
+        string[] binaryLoggerArgs,
+        ILogger consoleLogger,
+        bool noRestore,
+        bool noIncremental)
+    {
+        VirtualBuildingCommand = new VirtualProjectBuildingCommand
+        {
+            EntryPointFileFullPath = entryPointFileFullPath,
+        };
+        _binaryLoggerArgs = binaryLoggerArgs;
+        _consoleLogger = consoleLogger;
+        _noRestore = noRestore;
+        _noIncremental = noIncremental;
+    }
+
+    public VirtualProjectBuildingCommand VirtualBuildingCommand { get; }
+
     public override int Execute()
     {
-        if (FileBasedProgramPath is null)
-        {
-            return base.Execute();
-        }
-
-        var command = new VirtualProjectBuildingCommand
-        {
-            EntryPointFileFullPath = FileBasedProgramPath,
-        };
-        return command.Execute(
-            binaryLoggerArgs: [], // TODO
-            new ConsoleLogger(), // TODO
-            noRestore: false, // TODO
+        return VirtualBuildingCommand.Execute(
+            binaryLoggerArgs: _binaryLoggerArgs,
+            consoleLogger: _consoleLogger,
+            noRestore: _noRestore,
             noCache: true,
-            noBuild: false);
+            noBuild: false,
+            noIncremental: _noIncremental);
     }
 }

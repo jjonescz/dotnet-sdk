@@ -65,7 +65,7 @@ internal sealed class VirtualProjectBuildingCommand
     public Dictionary<string, string> GlobalProperties { get; } = new(StringComparer.OrdinalIgnoreCase);
     public required string EntryPointFileFullPath { get; init; }
 
-    public int Execute(string[] binaryLoggerArgs, ILogger consoleLogger, bool noRestore, bool noCache, bool noBuild)
+    public int Execute(string[] binaryLoggerArgs, ILogger consoleLogger, bool noRestore, bool noCache, bool noBuild, bool noIncremental)
     {
         Debug.Assert(!(noRestore && noBuild));
 
@@ -150,7 +150,7 @@ internal sealed class VirtualProjectBuildingCommand
             {
                 var buildRequest = new BuildRequestData(
                     CreateProjectInstance(projectCollection),
-                    targetsToBuild: ["Build"]);
+                    targetsToBuild: [noIncremental ? "Rebuild" : "Build"]);
                 var buildResult = BuildManager.DefaultBuildManager.BuildRequest(buildRequest);
                 if (buildResult.OverallResult != BuildResultCode.Success)
                 {

@@ -269,7 +269,8 @@ public class RunCommand
                 consoleLogger: MakeTerminalLogger(Verbosity ?? GetDefaultVerbosity()),
                 noRestore: NoRestore,
                 noCache: NoCache,
-                noBuild: false);
+                noBuild: false,
+                noIncremental: false);
         }
         else
         {
