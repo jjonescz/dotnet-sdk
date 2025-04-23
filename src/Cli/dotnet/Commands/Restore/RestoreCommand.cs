@@ -31,18 +31,18 @@ public abstract class RestoreCommand
 
         if (fileArgument is [{ } arg] && VirtualProjectBuildingCommand.IsValidEntryPointPath(arg))
         {
-            string fileBasedProgramPath = Path.GetFullPath(arg);
-
-            VerbosityOptions? verbosity = result.GetValue(CommonOptions.VerbosityOption);
-
-            var command = new VirtualRestoreCommand(
-                entryPointFileFullPath: fileBasedProgramPath,
-                binaryLoggerArgs: forwardedOptions,
-                consoleLogger: RunCommand.MakeTerminalLogger(verbosity));
-
-            CommonRunHelpers.AddUserPassedProperties(command.VirtualBuildingCommand.GlobalProperties, forwardedOptions);
-
-            return command;
+            return new VirtualRestoreCommand
+            {
+                VirtualBuildingCommand = new(
+                    entryPointFileFullPath: Path.GetFullPath(arg),
+                    msbuildArgs: forwardedOptions,
+                    verbosity: result.GetValue(CommonOptions.VerbosityOption),
+                    interactive: result.GetValue(CommonOptions.InteractiveMsBuildForwardOption))
+                {
+                    NoCache = true,
+                    NoBuild = true,
+                },
+            };
         }
 
         return new ForwardingRestoreCommand(
@@ -82,23 +82,7 @@ public sealed class ForwardingRestoreCommand : RestoreCommand
 
 internal sealed class VirtualRestoreCommand : RestoreCommand
 {
-    public VirtualRestoreCommand(string entryPointFileFullPath, string[] binaryLoggerArgs, ILogger consoleLogger)
-    {
-        VirtualBuildingCommand = new VirtualProjectBuildingCommand
-        {
-            EntryPointFileFullPath = entryPointFileFullPath,
-        };
-        ExecuteArgs = new VirtualProjectBuildingCommand.ExecuteArgs
-        {
-            BinaryLoggerArgs = binaryLoggerArgs,
-            ConsoleLogger = consoleLogger,
-            NoCache = true,
-            NoBuild = true,
-        };
-    }
+    public required VirtualProjectBuildingCommand VirtualBuildingCommand { get; init; }
 
-    public VirtualProjectBuildingCommand VirtualBuildingCommand { get; }
-    public VirtualProjectBuildingCommand.ExecuteArgs ExecuteArgs { get; }
-
-    public override int Execute() => VirtualBuildingCommand.Execute(ExecuteArgs);
+    public override int Execute() => VirtualBuildingCommand.Execute();
 }

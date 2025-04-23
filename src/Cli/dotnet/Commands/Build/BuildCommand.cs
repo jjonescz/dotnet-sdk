@@ -40,20 +40,19 @@ public abstract class BuildCommand
 
         if (fileArgument is [{ } arg] && VirtualProjectBuildingCommand.IsValidEntryPointPath(arg))
         {
-            string fileBasedProgramPath = Path.GetFullPath(arg);
-
-            VerbosityOptions? verbosity = parseResult.GetValue(CommonOptions.VerbosityOption);
-
-            var virtualCommand = new VirtualBuildCommand(
-                entryPointFileFullPath: fileBasedProgramPath,
-                binaryLoggerArgs: forwardedOptions,
-                consoleLogger: RunCommand.MakeTerminalLogger(verbosity),
-                noRestore: noRestore,
-                noIncremental: noIncremental);
-
-            CommonRunHelpers.AddUserPassedProperties(virtualCommand.VirtualBuildingCommand.GlobalProperties, forwardedOptions);
-
-            command = virtualCommand;
+            command = new VirtualBuildCommand
+            {
+                VirtualBuildingCommand = new(
+                    entryPointFileFullPath: Path.GetFullPath(arg),
+                    msbuildArgs: forwardedOptions,
+                    verbosity: parseResult.GetValue(CommonOptions.VerbosityOption),
+                    interactive: parseResult.GetValue(CommonOptions.InteractiveMsBuildForwardOption))
+                {
+                    NoRestore = noRestore,
+                    NoCache = true,
+                    NoIncremental = noIncremental,
+                },
+            };
         }
         else
         {
@@ -101,29 +100,7 @@ public sealed class ForwardingBuildCommand(
 
 internal sealed class VirtualBuildCommand : BuildCommand
 {
-    public VirtualBuildCommand(
-        string entryPointFileFullPath,
-        string[] binaryLoggerArgs,
-        ILogger consoleLogger,
-        bool noRestore,
-        bool noIncremental)
-    {
-        VirtualBuildingCommand = new VirtualProjectBuildingCommand
-        {
-            EntryPointFileFullPath = entryPointFileFullPath,
-        };
-        ExecuteArgs = new VirtualProjectBuildingCommand.ExecuteArgs
-        {
-            BinaryLoggerArgs = binaryLoggerArgs,
-            ConsoleLogger = consoleLogger,
-            NoRestore = noRestore,
-            NoCache = true,
-            NoIncremental = noIncremental,
-        };
-    }
+    public required VirtualProjectBuildingCommand VirtualBuildingCommand { get; init; }
 
-    public VirtualProjectBuildingCommand VirtualBuildingCommand { get; }
-    public VirtualProjectBuildingCommand.ExecuteArgs ExecuteArgs { get; }
-
-    public override int Execute() => VirtualBuildingCommand.Execute(ExecuteArgs);
+    public override int Execute() => VirtualBuildingCommand.Execute();
 }
