@@ -82,29 +82,23 @@ public sealed class ForwardingRestoreCommand : RestoreCommand
 
 internal sealed class VirtualRestoreCommand : RestoreCommand
 {
-    private readonly string[] _binaryLoggerArgs;
-    private readonly ILogger _consoleLogger;
-
     public VirtualRestoreCommand(string entryPointFileFullPath, string[] binaryLoggerArgs, ILogger consoleLogger)
     {
         VirtualBuildingCommand = new VirtualProjectBuildingCommand
         {
             EntryPointFileFullPath = entryPointFileFullPath,
         };
-        _binaryLoggerArgs = binaryLoggerArgs;
-        _consoleLogger = consoleLogger;
+        ExecuteArgs = new VirtualProjectBuildingCommand.ExecuteArgs
+        {
+            BinaryLoggerArgs = binaryLoggerArgs,
+            ConsoleLogger = consoleLogger,
+            NoCache = true,
+            NoBuild = true,
+        };
     }
 
     public VirtualProjectBuildingCommand VirtualBuildingCommand { get; }
+    public VirtualProjectBuildingCommand.ExecuteArgs ExecuteArgs { get; }
 
-    public override int Execute()
-    {
-        return VirtualBuildingCommand.Execute(
-            binaryLoggerArgs: _binaryLoggerArgs,
-            consoleLogger: _consoleLogger,
-            noRestore: false,
-            noCache: true,
-            noBuild: true,
-            noIncremental: false);
-    }
+    public override int Execute() => VirtualBuildingCommand.Execute(ExecuteArgs);
 }

@@ -101,10 +101,6 @@ public sealed class ForwardingBuildCommand(
 
 internal sealed class VirtualBuildCommand : BuildCommand
 {
-    private readonly string[] _binaryLoggerArgs;
-    private readonly ILogger _consoleLogger;
-    private readonly bool _noRestore, _noIncremental;
-
     public VirtualBuildCommand(
         string entryPointFileFullPath,
         string[] binaryLoggerArgs,
@@ -116,22 +112,18 @@ internal sealed class VirtualBuildCommand : BuildCommand
         {
             EntryPointFileFullPath = entryPointFileFullPath,
         };
-        _binaryLoggerArgs = binaryLoggerArgs;
-        _consoleLogger = consoleLogger;
-        _noRestore = noRestore;
-        _noIncremental = noIncremental;
+        ExecuteArgs = new VirtualProjectBuildingCommand.ExecuteArgs
+        {
+            BinaryLoggerArgs = binaryLoggerArgs,
+            ConsoleLogger = consoleLogger,
+            NoRestore = noRestore,
+            NoCache = true,
+            NoIncremental = noIncremental,
+        };
     }
 
     public VirtualProjectBuildingCommand VirtualBuildingCommand { get; }
+    public VirtualProjectBuildingCommand.ExecuteArgs ExecuteArgs { get; }
 
-    public override int Execute()
-    {
-        return VirtualBuildingCommand.Execute(
-            binaryLoggerArgs: _binaryLoggerArgs,
-            consoleLogger: _consoleLogger,
-            noRestore: _noRestore,
-            noCache: true,
-            noBuild: false,
-            noIncremental: _noIncremental);
-    }
+    public override int Execute() => VirtualBuildingCommand.Execute(ExecuteArgs);
 }

@@ -65,19 +65,19 @@ internal sealed class VirtualProjectBuildingCommand
     public Dictionary<string, string> GlobalProperties { get; } = new(StringComparer.OrdinalIgnoreCase);
     public required string EntryPointFileFullPath { get; init; }
 
-    public int Execute(string[] binaryLoggerArgs, ILogger consoleLogger, bool noRestore, bool noCache, bool noBuild, bool noIncremental)
+    public int Execute(ExecuteArgs args)
     {
-        Debug.Assert(!(noRestore && noBuild));
+        Debug.Assert(!(args.NoRestore && args.NoBuild));
 
-        var binaryLogger = GetBinaryLogger(binaryLoggerArgs);
+        var binaryLogger = GetBinaryLogger(args.BinaryLoggerArgs);
 
         RunFileBuildCacheEntry? cacheEntry = null;
 
-        if (!noBuild)
+        if (!args.NoBuild)
         {
-            if (noCache)
+            if (args.NoCache)
             {
-                if (noRestore)
+                if (args.NoRestore)
                 {
                     throw new GracefulException(CliCommandStrings.InvalidOptionCombination, RunCommandParser.NoCacheOption.Name, RunCommandParser.NoRestoreOption.Name);
                 }
@@ -113,7 +113,7 @@ internal sealed class VirtualProjectBuildingCommand
             ReadOnlySpan<ILogger> binaryLoggers = binaryLogger is null ? [] : [binaryLogger];
             var projectCollection = new ProjectCollection(
                 GlobalProperties,
-                [.. binaryLoggers, consoleLogger],
+                [.. binaryLoggers, args.ConsoleLogger],
                 ToolsetDefinitionLocations.Default);
             var parameters = new BuildParameters(projectCollection)
             {
@@ -127,7 +127,7 @@ internal sealed class VirtualProjectBuildingCommand
             // Do a restore first (equivalent to MSBuild's "implicit restore", i.e., `/restore`).
             // See https://github.com/dotnet/msbuild/blob/a1c2e7402ef0abe36bf493e395b04dd2cb1b3540/src/MSBuild/XMake.cs#L1838
             // and https://github.com/dotnet/msbuild/issues/11519.
-            if (!noRestore)
+            if (!args.NoRestore)
             {
                 var restoreRequest = new BuildRequestData(
                     CreateProjectInstance(projectCollection, addGlobalProperties: static (globalProperties) =>
@@ -146,11 +146,11 @@ internal sealed class VirtualProjectBuildingCommand
             }
 
             // Then do a build.
-            if (!noBuild)
+            if (!args.NoBuild)
             {
                 var buildRequest = new BuildRequestData(
                     CreateProjectInstance(projectCollection),
-                    targetsToBuild: [noIncremental ? "Rebuild" : "Build"]);
+                    targetsToBuild: [args.NoIncremental ? "Rebuild" : "Build"]);
                 var buildResult = BuildManager.DefaultBuildManager.BuildRequest(buildRequest);
                 if (buildResult.OverallResult != BuildResultCode.Success)
                 {
@@ -178,7 +178,7 @@ internal sealed class VirtualProjectBuildingCommand
             }
 
             binaryLogger?.Shutdown();
-            consoleLogger.Shutdown();
+            args.ConsoleLogger.Shutdown();
         }
 
         static ILogger? GetBinaryLogger(string[] args)
@@ -783,6 +783,16 @@ internal sealed class VirtualProjectBuildingCommand
     public static bool IsValidEntryPointPath(string entryPointFilePath)
     {
         return entryPointFilePath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) && File.Exists(entryPointFilePath);
+    }
+
+    internal sealed class ExecuteArgs
+    {
+        public required string[] BinaryLoggerArgs { get; init; }
+        public required ILogger ConsoleLogger { get; init; }
+        public bool NoRestore { get; init; }
+        public bool NoCache { get; init; }
+        public bool NoBuild { get; init; }
+        public bool NoIncremental { get; init; }
     }
 }
 

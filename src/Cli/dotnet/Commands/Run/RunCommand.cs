@@ -264,13 +264,13 @@ public class RunCommand
             CommonRunHelpers.AddUserPassedProperties(command.GlobalProperties, RestoreArgs);
 
             projectFactory = command.CreateProjectInstance;
-            buildResult = command.Execute(
-                binaryLoggerArgs: RestoreArgs,
-                consoleLogger: MakeTerminalLogger(Verbosity ?? GetDefaultVerbosity()),
-                noRestore: NoRestore,
-                noCache: NoCache,
-                noBuild: false,
-                noIncremental: false);
+            buildResult = command.Execute(new VirtualProjectBuildingCommand.ExecuteArgs
+            {
+                BinaryLoggerArgs = RestoreArgs,
+                ConsoleLogger = MakeTerminalLogger(Verbosity ?? GetDefaultVerbosity()),
+                NoRestore = NoRestore,
+                NoCache = NoCache,
+            });
         }
         else
         {
