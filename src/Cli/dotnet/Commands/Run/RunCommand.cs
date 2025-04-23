@@ -395,8 +395,7 @@ public class RunCommand
         }
     }
 
-
-    static ILogger MakeTerminalLogger(VerbosityOptions? verbosity)
+    internal static ILogger MakeTerminalLogger(VerbosityOptions? verbosity)
     {
         var msbuildVerbosity = ToLoggerVerbosity(verbosity);
 

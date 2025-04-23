@@ -2,7 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.CommandLine;
-using Microsoft.Build.Logging;
+using Microsoft.Build.Framework;
 using Microsoft.DotNet.Cli.Commands.MSBuild;
 using Microsoft.DotNet.Cli.Commands.Run;
 using Microsoft.DotNet.Cli.Extensions;
@@ -10,16 +10,8 @@ using Microsoft.DotNet.Cli.Utils;
 
 namespace Microsoft.DotNet.Cli.Commands.Restore;
 
-public class RestoreCommand : MSBuildForwardingApp
+public abstract class RestoreCommand
 {
-    public RestoreCommand(IEnumerable<string> msbuildArgs, string msbuildPath = null)
-        : base(msbuildArgs, msbuildPath)
-    {
-        NuGetSignatureVerificationEnabler.ConditionallyEnable(this);
-    }
-
-    public string? FileBasedProgramPath { get; init; }
-
     public static RestoreCommand FromArgs(string[] args, string msbuildPath = null)
     {
         var parser = Parser.Instance;
@@ -33,28 +25,29 @@ public class RestoreCommand : MSBuildForwardingApp
 
         result.ShowHelpOrErrorIfAppropriate();
 
-        List<string> msbuildArgs = ["-target:Restore"];
+        string[] fileArgument = result.GetValue(RestoreCommandParser.SlnOrProjectOrFileArgument) ?? [];
 
-        msbuildArgs.AddRange(result.OptionValuesToBeForwarded(RestoreCommandParser.GetCommand()));
-
-        var fileArgument = result.GetValue(RestoreCommandParser.SlnOrProjectOrFileArgument);
-
-        string? fileBasedProgramPath;
+        string[] forwardedOptions = result.OptionValuesToBeForwarded(RestoreCommandParser.GetCommand()).ToArray();
 
         if (fileArgument is [{ } arg] && VirtualProjectBuildingCommand.IsValidEntryPointPath(arg))
         {
-            fileBasedProgramPath = Path.GetFullPath(arg);
-        }
-        else
-        {
-            fileBasedProgramPath = null;
-            msbuildArgs.AddRange(fileArgument ?? []);
+            string fileBasedProgramPath = Path.GetFullPath(arg);
+
+            VerbosityOptions? verbosity = result.GetValue(CommonOptions.VerbosityOption);
+
+            var command = new VirtualRestoreCommand(
+                entryPointFileFullPath: fileBasedProgramPath,
+                binaryLoggerArgs: forwardedOptions,
+                consoleLogger: RunCommand.MakeTerminalLogger(verbosity));
+
+            CommonRunHelpers.AddUserPassedProperties(command.VirtualBuildingCommand.GlobalProperties, forwardedOptions);
+
+            return command;
         }
 
-        return new RestoreCommand(msbuildArgs, msbuildPath)
-        {
-            FileBasedProgramPath = fileBasedProgramPath,
-        };
+        return new ForwardingRestoreCommand(
+            msbuildArgs: ["-target:Restore", .. forwardedOptions, .. fileArgument],
+            msbuildPath: msbuildPath);
     }
 
     public static int Run(string[] args)
@@ -71,22 +64,47 @@ public class RestoreCommand : MSBuildForwardingApp
         return FromParseResult(parseResult).Execute();
     }
 
+    public abstract int Execute();
+}
+
+public sealed class ForwardingRestoreCommand : RestoreCommand
+{
+    public ForwardingRestoreCommand(IEnumerable<string> msbuildArgs, string msbuildPath = null)
+    {
+        ForwardingApp = new MSBuildForwardingApp(msbuildArgs, msbuildPath);
+        NuGetSignatureVerificationEnabler.ConditionallyEnable(ForwardingApp);
+    }
+
+    public MSBuildForwardingApp ForwardingApp { get; }
+
+    public override int Execute() => ForwardingApp.Execute();
+}
+
+internal sealed class VirtualRestoreCommand : RestoreCommand
+{
+    private readonly string[] _binaryLoggerArgs;
+    private readonly ILogger _consoleLogger;
+
+    public VirtualRestoreCommand(string entryPointFileFullPath, string[] binaryLoggerArgs, ILogger consoleLogger)
+    {
+        VirtualBuildingCommand = new VirtualProjectBuildingCommand
+        {
+            EntryPointFileFullPath = entryPointFileFullPath,
+        };
+        _binaryLoggerArgs = binaryLoggerArgs;
+        _consoleLogger = consoleLogger;
+    }
+
+    public VirtualProjectBuildingCommand VirtualBuildingCommand { get; }
+
     public override int Execute()
     {
-        if (FileBasedProgramPath is null)
-        {
-            return base.Execute();
-        }
-
-        var command = new VirtualProjectBuildingCommand
-        {
-            EntryPointFileFullPath = FileBasedProgramPath,
-        };
-        return command.Execute(
-            binaryLoggerArgs: [], // TODO
-            new ConsoleLogger(), // TODO
+        return VirtualBuildingCommand.Execute(
+            binaryLoggerArgs: _binaryLoggerArgs,
+            consoleLogger: _consoleLogger,
             noRestore: false,
             noCache: true,
-            noBuild: true);
+            noBuild: true,
+            noIncremental: false);
     }
 }

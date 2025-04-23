@@ -95,7 +95,7 @@ namespace Microsoft.DotNet.Cli.MSBuild.Tests
                 var msbuildPath = "<msbuildpath>";
                 var command = BuildCommand.FromArgs(args, msbuildPath);
 
-                command.SeparateRestoreCommand.GetArgumentTokensToMSBuild()
+                command.SeparateRestoreCommand.ForwardingApp.GetArgumentTokensToMSBuild()
                     .Should()
                     .BeEquivalentTo([.. ExpectedPrefix, .. expectedAdditionalArgsForRestore, NugetInteractiveProperty]);
 
