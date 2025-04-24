@@ -363,16 +363,19 @@ internal sealed class VirtualProjectBuildingCommand
             throw new GracefulException(CliCommandStrings.NoTopLevelStatements, EntryPointFileFullPath);
         }
 
-        var allDirectives = ImmutableArray.CreateBuilder<CSharpDirective>();
+        // Sorted by file path to get deterministic results.
+        var allDirectives = new SortedDictionary<string, ImmutableArray<CSharpDirective>>();
 
         // Parse directives in the entry-point file.
-        allDirectives.AddRange(FindDirectivesForVirtualProject(entryPointFile));
+        allDirectives.Add(entryPointFile.Path, FindDirectivesForVirtualProject(entryPointFile));
 
         // Discover other C# files.
         var entryFile = new FileInfo(EntryPointFileFullPath);
         var entryDirectory = entryFile.Directory!;
         var excluded = ImmutableArray.CreateBuilder<string>();
-        foreach (var file in entryDirectory.EnumerateFiles("*.cs", s_csEnumerationOptions))
+        var files = entryDirectory.EnumerateFiles("*.cs", s_csEnumerationOptions)
+            .OrderBy(f => f.FullName, StringComparer.OrdinalIgnoreCase);
+        foreach (var file in files)
         {
             bool isTopLevel = entryDirectory.FullName.Equals(file.Directory!.FullName, StringComparison.OrdinalIgnoreCase);
 
@@ -397,7 +400,7 @@ internal sealed class VirtualProjectBuildingCommand
             else
             {
                 // Parse directives from other non-entry-point files.
-                allDirectives.AddRange(FindDirectivesForVirtualProject(sourceFile));
+                allDirectives.Add(sourceFile.Path, FindDirectivesForVirtualProject(sourceFile));
             }
         }
 
@@ -405,7 +408,7 @@ internal sealed class VirtualProjectBuildingCommand
         var csprojWriter = new StringWriter();
         WriteVirtualProjectFile(
             writer: csprojWriter,
-            directives: allDirectives.DrainToImmutable(),
+            directives: allDirectives.Values.SelectMany(d => d).ToImmutableArray(),
             artifactsPath: GetArtifactsPath(),
             excludeCompileItems: excluded.DrainToImmutable());
         _projectFileText = csprojWriter.ToString();
