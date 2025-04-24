@@ -406,6 +406,21 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .And.HaveStdOut("Hello from Program");
     }
 
+    [Fact]
+    public void NestedEntryPoint()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
+        Directory.CreateDirectory(Path.Join(testInstance.Path, "nested"));
+        File.WriteAllText(Path.Join(testInstance.Path, "nested", "Program.cs"), s_program);
+
+        new DotnetCommand(Log, "run", "Program.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining(string.Format(CliCommandStrings.EntryPointInNestedFolder, Path.Join(testInstance.Path, "nested", "Program.cs")));
+    }
+
     /// <summary>
     /// <c>dotnet run folder/app.csproj</c> -> the argument is not recognized as an entry-point file
     /// (it does not have <c>.cs</c> file extension), so this fallbacks to normal <c>dotnet run</c> behavior.
@@ -883,6 +898,39 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .Execute()
             .Should().Fail()
             .And.HaveStdErrContaining(string.Format(CliCommandStrings.UnrecognizedDirective, "invalid", $"{Path.Join(testInstance.Path, "Program.cs")}:1"));
+    }
+
+    [Fact]
+    public void Directives_MultipleFiles()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program1.cs"), """
+            #:property DefineConstants $(DefineConstants);TEST1
+            Console.Write("Hello ");
+            #if TEST1
+            Console.Write("TEST1 ");
+            #endif
+            #if TEST2
+            Console.Write("TEST2 ");
+            #endif
+            #if TEST3
+            Console.Write("TEST3 ");
+            #endif
+            """);
+        File.WriteAllText(Path.Join(testInstance.Path, "Util.cs"), """
+            #:property DefineConstants $(DefineConstants);TEST2
+            class C { }
+            """);
+        File.WriteAllText(Path.Join(testInstance.Path, "Program2.cs"), """
+            #:property DefineConstants $(DefineConstants);TEST3
+            Console.Write("Hello2");
+            """);
+
+        new DotnetCommand(Log, "run", "Program1.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut("Hello TEST1 TEST2 ");
     }
 
     [Fact]
