@@ -1492,16 +1492,6 @@ Tool '{1}' (version '{2}') was successfully installed. Entry is added to the man
   <data name="ProjectConvertAppFullName" xml:space="preserve">
     <value>Convert a file-based program to a project-based program.</value>
   </data>
-  <data name="ProjectConversionFailed" xml:space="preserve">
-    <value>Cannot convert to a project-based program due to the following errors. Specify '--force' to convert anyway.
-{0}</value>
-    <comment>{0} are compiler diagnostics</comment>
-  </data>
-  <data name="RunFileInvalidDirectives" xml:space="preserve">
-    <value>Cannot run a file-based program due to the following errors in '#:' directives.
-{0}</value>
-    <comment>{Locked="#:"}. {0} are compiler diagnostics</comment>
-  </data>
   <data name="NoTopLevelStatements" xml:space="preserve">
     <value>Cannot run a file without top-level statements and without a project: '{0}'</value>
     <comment>{0} is file path</comment>

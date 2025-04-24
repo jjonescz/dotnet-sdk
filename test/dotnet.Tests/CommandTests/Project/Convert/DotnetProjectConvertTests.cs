@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Collections.Immutable;
 using Microsoft.CodeAnalysis.Text;
 using Microsoft.DotNet.Cli.Commands;
 using Microsoft.DotNet.Cli.Commands.Run;
@@ -354,6 +355,96 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
                   <ItemGroup>
                     <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
                   </ItemGroup>
+
+                </Project>
+
+                """,
+            expectedCSharp: """
+                Console.WriteLine();
+                """);
+    }
+
+    [Fact]
+    public void Directives_Virtual()
+    {
+        VerifyConversion(
+            inputCSharp: """
+                #!/program
+                #:sdk Microsoft.NET.Sdk
+                #:sdk Aspire.Hosting.Sdk 9.1.0
+                #:property TargetFramework net11.0
+                #:package System.CommandLine 2.0.0-beta4.22272.1
+                #:property LangVersion preview
+                Console.WriteLine();
+                """,
+            inMemory: true,
+            excludeCompileItems: ["/test1", "/test2"],
+            expectedProject: $"""
+                <Project>
+
+                  <PropertyGroup>
+                    <IncludeProjectNameInArtifactsPaths>false</IncludeProjectNameInArtifactsPaths>
+                    <ArtifactsPath>/artifacts</ArtifactsPath>
+                  </PropertyGroup>
+
+                  <!-- We need to explicitly import Sdk props/targets so we can override the targets below. -->
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <Import Project="Sdk.props" Sdk="Aspire.Hosting.Sdk/9.1.0" />
+
+                  <PropertyGroup>
+                    <OutputType>Exe</OutputType>
+                    <TargetFramework>{ToolsetInfo.CurrentTargetFramework}</TargetFramework>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <Nullable>enable</Nullable>
+                  </PropertyGroup>
+
+                  <PropertyGroup>
+                    <TargetFramework>net11.0</TargetFramework>
+                    <LangVersion>preview</LangVersion>
+                  </PropertyGroup>
+
+                  <PropertyGroup>
+                    <Features>$(Features);FileBasedProgram</Features>
+                  </PropertyGroup>
+
+                  <ItemGroup>
+                    <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
+                  </ItemGroup>
+
+                  <ItemGroup>
+                    <Compile Remove="/test1" />
+                    <Compile Remove="/test2" />
+                  </ItemGroup>
+
+                  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
+                  <Import Project="Sdk.targets" Sdk="Aspire.Hosting.Sdk/9.1.0" />
+
+                  <!--
+                    Override targets which don't work with project files that are not present on disk.
+                    See https://github.com/NuGet/Home/issues/14148.
+                  -->
+
+                  <Target Name="_FilterRestoreGraphProjectInputItems"
+                          DependsOnTargets="_LoadRestoreGraphEntryPoints"
+                          Returns="@(FilteredRestoreGraphProjectInputItems)">
+                    <ItemGroup>
+                      <FilteredRestoreGraphProjectInputItems Include="@(RestoreGraphProjectInputItems)" />
+                    </ItemGroup>
+                  </Target>
+
+                  <Target Name="_GetAllRestoreProjectPathItems"
+                          DependsOnTargets="_FilterRestoreGraphProjectInputItems"
+                          Returns="@(_RestoreProjectPathItems)">
+                    <ItemGroup>
+                      <_RestoreProjectPathItems Include="@(FilteredRestoreGraphProjectInputItems)" />
+                    </ItemGroup>
+                  </Target>
+
+                  <Target Name="_GenerateRestoreGraph"
+                          DependsOnTargets="_FilterRestoreGraphProjectInputItems;_GetAllRestoreProjectPathItems;_GenerateRestoreGraphProjectEntry;_GenerateProjectRestoreGraph"
+                          Returns="@(_RestoreGraphEntry)">
+                    <!-- Output from dependency _GenerateRestoreGraphProjectEntry and _GenerateProjectRestoreGraph -->
+                  </Target>
 
                 </Project>
 
@@ -721,12 +812,31 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
                 """);
     }
 
-    private static void Convert(string inputCSharp, out string actualProject, out string? actualCSharp, bool force)
+    private static void Convert(
+        string inputCSharp,
+        out string actualProject,
+        out string? actualCSharp,
+        bool force,
+        bool inMemory,
+        ImmutableArray<string> excludeCompileItems)
     {
         var sourceFile = new SourceFile("/app/Program.cs", SourceText.From(inputCSharp, Encoding.UTF8));
-        var directives = VirtualProjectBuildingCommand.FindDirectivesForConversion(sourceFile, force: force);
+
+        var directives = inMemory
+            ? VirtualProjectBuildingCommand.FindDirectivesForVirtualProject(sourceFile)
+            : VirtualProjectBuildingCommand.FindDirectivesForConversion(sourceFile, force: force);
+
         var projectWriter = new StringWriter();
-        VirtualProjectBuildingCommand.WriteProjectFile(projectWriter, directives);
+
+        if (inMemory)
+        {
+            VirtualProjectBuildingCommand.WriteVirtualProjectFile(projectWriter, directives, "/artifacts", excludeCompileItems);
+        }
+        else
+        {
+            VirtualProjectBuildingCommand.WriteConvertedProjectFile(projectWriter, directives);
+        }
+
         actualProject = projectWriter.ToString();
         actualCSharp = VirtualProjectBuildingCommand.RemoveDirectivesFromFile(directives, sourceFile.Text)?.ToString();
     }
@@ -734,16 +844,34 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     /// <param name="expectedCSharp">
     /// <see langword="null"/> means the conversion should not touch the C# content.
     /// </param>
-    private static void VerifyConversion(string inputCSharp, string expectedProject, string? expectedCSharp, bool force = false)
+    private static void VerifyConversion(
+        string inputCSharp,
+        string expectedProject,
+        string? expectedCSharp,
+        bool force = false,
+        bool inMemory = false,
+        ImmutableArray<string> excludeCompileItems = default)
     {
-        Convert(inputCSharp, out var actualProject, out var actualCSharp, force: force);
+        Convert(
+            inputCSharp,
+            out var actualProject,
+            out var actualCSharp,
+            force: force,
+            inMemory: inMemory,
+            excludeCompileItems: excludeCompileItems);
         actualProject.Should().Be(expectedProject);
         actualCSharp.Should().Be(expectedCSharp);
     }
 
     private static void VerifyConversionThrows(string inputCSharp, string expectedWildcardPattern)
     {
-        var convert = () => Convert(inputCSharp, out _, out _, force: false);
+        var convert = () => Convert(
+            inputCSharp,
+            out _,
+            out _,
+            force: false,
+            inMemory: false,
+            excludeCompileItems: default);
         convert.Should().Throw<GracefulException>().WithMessage(expectedWildcardPattern);
     }
 }

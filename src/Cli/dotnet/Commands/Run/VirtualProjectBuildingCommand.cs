@@ -30,8 +30,6 @@ namespace Microsoft.DotNet.Cli.Commands.Run;
 /// </summary>
 internal sealed class VirtualProjectBuildingCommand
 {
-    internal const string TargetFramework = "net10.0";
-
     /// <summary>
     /// A file put into the artifacts directory when build starts.
     /// It contains full path to the original source file to allow tracking down the input corresponding to the output.
@@ -356,18 +354,19 @@ internal sealed class VirtualProjectBuildingCommand
     /// </summary>
     public VirtualProjectBuildingCommand PrepareProjectInstance()
     {
-#pragma warning disable RSEXPERIMENTAL006 // 'FileBasedProgramProject' is experimental
-
         Debug.Assert(_projectFileText == null, $"{nameof(PrepareProjectInstance)} should not be called multiple times.");
 
-        if (!HasTopLevelStatements(EntryPointFileFullPath))
+        SourceFile entryPointFile = LoadSourceFile(EntryPointFileFullPath);
+
+        if (!HasTopLevelStatements(entryPointFile))
         {
             throw new GracefulException(CliCommandStrings.NoTopLevelStatements, EntryPointFileFullPath);
         }
 
+        var allDirectives = ImmutableArray.CreateBuilder<CSharpDirective>();
+
         // Parse directives in the entry-point file.
-        var projectBuilder = new FileBasedProgramProjectBuilder();
-        ParseDirectives(projectBuilder, EntryPointFileFullPath);
+        allDirectives.AddRange(FindDirectivesForVirtualProject(entryPointFile));
 
         // Discover other C# files.
         var entryFile = new FileInfo(EntryPointFileFullPath);
@@ -383,7 +382,9 @@ internal sealed class VirtualProjectBuildingCommand
                 continue;
             }
 
-            if (HasTopLevelStatements(file.FullName))
+            SourceFile sourceFile = LoadSourceFile(file.FullName);
+
+            if (HasTopLevelStatements(sourceFile))
             {
                 if (!isTopLevel)
                 {
@@ -396,45 +397,26 @@ internal sealed class VirtualProjectBuildingCommand
             else
             {
                 // Parse directives from other non-entry-point files.
-                ParseDirectives(projectBuilder, file.FullName);
+                allDirectives.AddRange(FindDirectivesForVirtualProject(sourceFile));
             }
         }
 
         // Generate project file XML text.
-        var project = projectBuilder.Build();
         var csprojWriter = new StringWriter();
-        project.Emit(csprojWriter, new FileBasedProgramProjectOptions
-        {
-            TargetFramework = TargetFramework,
-            ArtifactsPath = GetArtifactsPath(),
-            ExcludeCompileItems = excluded.DrainToImmutable(),
-        });
+        WriteVirtualProjectFile(
+            writer: csprojWriter,
+            directives: allDirectives.DrainToImmutable(),
+            artifactsPath: GetArtifactsPath(),
+            excludeCompileItems: excluded.DrainToImmutable());
         _projectFileText = csprojWriter.ToString();
 
         return this;
 
-        static bool HasTopLevelStatements(string fileFullPath)
+        static bool HasTopLevelStatements(SourceFile file)
         {
-            var tree = ParseCSharp(fileFullPath);
+            var tree = (CSharpSyntaxTree)CSharpSyntaxTree.ParseText(file.Text, path: file.Path);
             return tree.GetRoot().ChildNodes().OfType<GlobalStatementSyntax>().Any();
         }
-
-        static CSharpSyntaxTree ParseCSharp(string fileFullPath)
-        {
-            using var stream = File.OpenRead(fileFullPath);
-            return (CSharpSyntaxTree)CSharpSyntaxTree.ParseText(SourceText.From(stream, Encoding.UTF8), path: fileFullPath);
-        }
-
-        static void ParseDirectives(FileBasedProgramProjectBuilder projectBuilder, string fileFullPath)
-        {
-            var diagnostics = projectBuilder.ParseDirectives(fileFullPath, LoadSourceText(fileFullPath), reportAllErrors: false);
-            if (diagnostics.Length != 0)
-            {
-                throw new GracefulException(CliCommandStrings.RunFileInvalidDirectives, string.Join(Environment.NewLine, diagnostics));
-            }
-        }
-
-#pragma warning restore RSEXPERIMENTAL006 // 'FileBasedProgramProject' is experimental
     }
 
     public ProjectInstance CreateProjectInstance(ProjectCollection projectCollection)
@@ -474,7 +456,8 @@ internal sealed class VirtualProjectBuildingCommand
 
     private string GetArtifactsPath() => GetArtifactsPath(EntryPointFileFullPath);
 
-    public static string GetArtifactsPath(string entryPointFileFullPath)
+    // internal for testing
+    internal static string GetArtifactsPath(string entryPointFileFullPath)
     {
         // We want a location where permissions are expected to be restricted to the current user.
         string directory = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
@@ -489,17 +472,27 @@ internal sealed class VirtualProjectBuildingCommand
         return Path.Join(directory, "dotnet", "runfile", directoryName);
     }
 
-    public static void WriteProjectFile(TextWriter writer, ImmutableArray<CSharpDirective> directives)
+    public static void WriteConvertedProjectFile(TextWriter writer, ImmutableArray<CSharpDirective> directives)
     {
-        WriteProjectFile(writer, directives, isVirtualProject: false, targetFilePath: null, artifactsPath: null);
+        WriteProjectFileImpl(writer, directives, isVirtualProject: false, artifactsPath: null, excludeCompileItems: default);
     }
 
-    private static void WriteProjectFile(
+    // internal for testing
+    internal static void WriteVirtualProjectFile(
+        TextWriter writer,
+        ImmutableArray<CSharpDirective> directives,
+        string artifactsPath,
+        ImmutableArray<string> excludeCompileItems)
+    {
+        WriteProjectFileImpl(writer, directives, isVirtualProject: true, artifactsPath: artifactsPath, excludeCompileItems);
+    }
+
+    private static void WriteProjectFileImpl(
         TextWriter writer,
         ImmutableArray<CSharpDirective> directives,
         bool isVirtualProject,
-        string? targetFilePath,
-        string? artifactsPath)
+        string? artifactsPath,
+        ImmutableArray<string> excludeCompileItems)
     {
         int processedDirectives = 0;
 
@@ -578,16 +571,6 @@ internal sealed class VirtualProjectBuildingCommand
               </PropertyGroup>
             """);
 
-        if (isVirtualProject)
-        {
-            writer.WriteLine("""
-
-                  <PropertyGroup>
-                    <EnableDefaultItems>false</EnableDefaultItems>
-                  </PropertyGroup>
-                """);
-        }
-
         if (propertyDirectives.Any())
         {
             writer.WriteLine("""
@@ -650,15 +633,25 @@ internal sealed class VirtualProjectBuildingCommand
 
         if (isVirtualProject)
         {
-            Debug.Assert(targetFilePath is not null);
+            if (!excludeCompileItems.IsEmpty)
+            {
+                writer.WriteLine("""
 
-            writer.WriteLine($"""
+                      <ItemGroup>
+                    """);
 
-                  <ItemGroup>
-                    <Compile Include="{EscapeValue(targetFilePath)}" />
-                  </ItemGroup>
+                foreach (var excludeCompileItem in excludeCompileItems)
+                {
+                    writer.WriteLine($"""
+                            <Compile Remove="{EscapeValue(excludeCompileItem)}" />
+                        """);
+                }
 
-                """);
+                writer.WriteLine($"""
+                      </ItemGroup>
+
+                    """);
+            }
 
             foreach (var sdk in sdkDirectives)
             {
@@ -716,11 +709,17 @@ internal sealed class VirtualProjectBuildingCommand
 
     public static ImmutableArray<CSharpDirective> FindDirectivesForConversion(SourceFile sourceFile, bool force)
     {
-        return FindDirectives(sourceFile, reportErrors: !force);
+        return FindDirectivesImpl(sourceFile, reportErrors: !force);
+    }
+
+    // internal for testing
+    internal static ImmutableArray<CSharpDirective> FindDirectivesForVirtualProject(SourceFile sourceFile)
+    {
+        return FindDirectivesImpl(sourceFile, reportErrors: false);
     }
 
 #pragma warning disable RSEXPERIMENTAL003 // 'SyntaxTokenParser' is experimental
-    private static ImmutableArray<CSharpDirective> FindDirectives(SourceFile sourceFile, bool reportErrors)
+    private static ImmutableArray<CSharpDirective> FindDirectivesImpl(SourceFile sourceFile, bool reportErrors)
     {
         var builder = ImmutableArray.CreateBuilder<CSharpDirective>();
         SyntaxTokenParser tokenizer = SyntaxFactory.CreateTokenParser(sourceFile.Text,
@@ -830,16 +829,6 @@ internal sealed class VirtualProjectBuildingCommand
         }
 
         return text;
-    }
-
-    public static void RemoveDirectivesFromFile(ImmutableArray<CSharpDirective> directives, SourceText text, string filePath)
-    {
-        if (RemoveDirectivesFromFile(directives, text) is { } modifiedText)
-        {
-            using var stream = File.Open(filePath, FileMode.Create, FileAccess.Write);
-            using var writer = new StreamWriter(stream, Encoding.UTF8);
-            modifiedText.Write(writer);
-        }
     }
 
     public static bool IsValidEntryPointPath(string entryPointFilePath)

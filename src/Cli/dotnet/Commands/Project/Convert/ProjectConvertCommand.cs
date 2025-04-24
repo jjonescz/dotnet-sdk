@@ -4,7 +4,6 @@
 #nullable enable
 
 using System.CommandLine;
-using Microsoft.CodeAnalysis.CSharp.FileBasedPrograms;
 using Microsoft.DotNet.Cli.Commands.Run;
 using Microsoft.DotNet.Cli.Utils;
 using Microsoft.TemplateEngine.Cli.Commands;
@@ -30,34 +29,24 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
         {
             throw new GracefulException(CliCommandStrings.DirectoryAlreadyExists, targetDirectory);
         }
-        
-#pragma warning disable RSEXPERIMENTAL006 // 'FileBasedProgramProject' is experimental
 
         // Generate project file.
         // TODO: Load directives from other files.
-        var projectBuilder = new FileBasedProgramProjectBuilder();
-        var diagnostics = projectBuilder.ParseDirectives(file, VirtualProjectBuildingCommand.LoadSourceText(file), reportAllErrors: true);
-        if (diagnostics.Length != 0 && !_force)
-        {
-            throw new GracefulException(CliCommandStrings.ProjectConversionFailed, string.Join(Environment.NewLine, diagnostics));
-        }
+        SourceFile sourceFile = VirtualProjectBuildingCommand.LoadSourceFile(file);
+        var directives = VirtualProjectBuildingCommand.FindDirectivesForConversion(sourceFile, force: _force);
 
-        var project = projectBuilder.Build();
         Directory.CreateDirectory(targetDirectory);
         string projectFile = Path.Join(targetDirectory, Path.GetFileNameWithoutExtension(file) + ".csproj");
         using (var csprojStream = File.Open(projectFile, FileMode.Create, FileAccess.Write))
         using (var csprojWriter = new StreamWriter(csprojStream, Encoding.UTF8))
         {
-            project.EmitConverted(csprojWriter, new FileBasedProgramProjectOptions
-            {
-                TargetFramework = VirtualProjectBuildingCommand.TargetFramework,
-            });
+            VirtualProjectBuildingCommand.WriteConvertedProjectFile(csprojWriter, directives);
         }
 
         var targetFile = Path.Join(targetDirectory, Path.GetFileName(file));
 
         // Write the converted entry point file or move it if no conversion is needed.
-        if (project.ConvertSourceText(file) is { } convertedEntryPointFileText)
+        if (VirtualProjectBuildingCommand.RemoveDirectivesFromFile(directives, sourceFile.Text) is { } convertedEntryPointFileText)
         {
             using var stream = File.Open(targetFile, FileMode.Create, FileAccess.Write);
             using var writer = new StreamWriter(stream, Encoding.UTF8);
@@ -68,8 +57,6 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
         {
             File.Move(file, targetFile);
         }
-
-#pragma warning restore RSEXPERIMENTAL006 // 'FileBasedProgramProject' is experimental
 
         return 0;
     }

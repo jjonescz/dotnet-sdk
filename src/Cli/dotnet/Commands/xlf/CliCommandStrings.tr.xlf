@@ -2247,13 +2247,6 @@ Tool '{1}' (version '{2}') was successfully installed. Entry is added to the man
         <target state="new">Project context</target>
         <note />
       </trans-unit>
-      <trans-unit id="ProjectConversionFailed">
-        <source>Cannot convert to a project-based program due to the following errors. Specify '--force' to convert anyway.
-{0}</source>
-        <target state="new">Cannot convert to a project-based program due to the following errors. Specify '--force' to convert anyway.
-{0}</target>
-        <note>{0} are compiler diagnostics</note>
-      </trans-unit>
       <trans-unit id="ProjectConvertAppFullName">
         <source>Convert a file-based program to a project-based program.</source>
         <target state="new">Convert a file-based program to a project-based program.</target>
@@ -2555,13 +2548,6 @@ Your project targets multiple frameworks. Specify which framework to run using '
         <source>Run 'dotnet [command] --help' for more information on a command.</source>
         <target state="new">Run 'dotnet [command] --help' for more information on a command.</target>
         <note />
-      </trans-unit>
-      <trans-unit id="RunFileInvalidDirectives">
-        <source>Cannot run a file-based program due to the following errors in '#:' directives.
-{0}</source>
-        <target state="new">Cannot run a file-based program due to the following errors in '#:' directives.
-{0}</target>
-        <note>{Locked="#:"}. {0} are compiler diagnostics</note>
       </trans-unit>
       <trans-unit id="RunFrameworkOptionDescription">
         <source>The target framework to run for. The target framework must also be specified in the project file.</source>
