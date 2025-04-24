@@ -882,8 +882,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Fail()
-            .And.HaveStdErrContaining(string.Format(CliCommandStrings.RunFileInvalidDirectives, ""))
-            .And.HaveStdErrContaining("error CS9308"); // error CS9308: Unrecognized directive 'invalid'.
+            .And.HaveStdErrContaining(string.Format(CliCommandStrings.UnrecognizedDirective, "invalid", $"{Path.Join(testInstance.Path, "Program.cs")}:1"));
     }
 
     [Fact]

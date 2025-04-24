@@ -1,7 +1,10 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using Microsoft.CodeAnalysis.Text;
 using Microsoft.DotNet.Cli.Commands;
+using Microsoft.DotNet.Cli.Commands.Run;
+using Microsoft.DotNet.Cli.Utils;
 
 namespace Microsoft.DotNet.Cli.Project.Convert.Tests;
 
@@ -268,8 +271,7 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Fail()
-            .And.HaveStdErrContaining(string.Format(CliCommandStrings.ProjectConversionFailed, ""))
-            .And.HaveStdErrContaining("error CS9308"); // error CS9308: Unrecognized directive 'invalid'.
+            .And.HaveStdErrContaining(string.Format(CliCommandStrings.UnrecognizedDirective, "invalid", $"{filePath}:1"));
 
         new DirectoryInfo(Path.Join(testInstance.Path))
             .EnumerateDirectories().Should().BeEmpty();
@@ -317,5 +319,431 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
                 </Project>
 
                 """);
+    }
+
+    [Fact]
+    public void Directives()
+    {
+        VerifyConversion(
+            inputCSharp: """
+                #!/program
+                #:sdk Microsoft.NET.Sdk
+                #:sdk Aspire.Hosting.Sdk 9.1.0
+                #:property TargetFramework net11.0
+                #:package System.CommandLine 2.0.0-beta4.22272.1
+                #:property LangVersion preview
+                Console.WriteLine();
+                """,
+            expectedProject: $"""
+                <Project Sdk="Microsoft.NET.Sdk">
+
+                  <Sdk Name="Aspire.Hosting.Sdk" Version="9.1.0" />
+
+                  <PropertyGroup>
+                    <OutputType>Exe</OutputType>
+                    <TargetFramework>{ToolsetInfo.CurrentTargetFramework}</TargetFramework>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <Nullable>enable</Nullable>
+                  </PropertyGroup>
+
+                  <PropertyGroup>
+                    <TargetFramework>net11.0</TargetFramework>
+                    <LangVersion>preview</LangVersion>
+                  </PropertyGroup>
+
+                  <ItemGroup>
+                    <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
+                  </ItemGroup>
+
+                </Project>
+
+                """,
+            expectedCSharp: """
+                Console.WriteLine();
+                """);
+    }
+
+    [Fact]
+    public void Directives_Variable()
+    {
+        VerifyConversion(
+            inputCSharp: """
+                #:package MyPackage $(MyProp)
+                #:property MyProp MyValue
+                """,
+            expectedProject: $"""
+                <Project Sdk="Microsoft.NET.Sdk">
+
+                  <PropertyGroup>
+                    <OutputType>Exe</OutputType>
+                    <TargetFramework>{ToolsetInfo.CurrentTargetFramework}</TargetFramework>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <Nullable>enable</Nullable>
+                  </PropertyGroup>
+
+                  <PropertyGroup>
+                    <MyProp>MyValue</MyProp>
+                  </PropertyGroup>
+
+                  <ItemGroup>
+                    <PackageReference Include="MyPackage" Version="$(MyProp)" />
+                  </ItemGroup>
+
+                </Project>
+
+                """,
+            expectedCSharp: "");
+    }
+
+    [Fact]
+    public void Directives_Separators()
+    {
+        VerifyConversion(
+            inputCSharp: """
+                #:property Prop1   One=a/b
+                #:property Prop2   Two/a=b
+                #:sdk First 1.0=a/b
+                #:sdk Second 2.0/a=b
+                #:sdk Third 3.0=a/b
+                #:package P1 1.0/a=b
+                #:package P2 2.0/a=b
+                """,
+            expectedProject: $"""
+                <Project Sdk="First/1.0=a/b">
+
+                  <Sdk Name="Second" Version="2.0/a=b" />
+                  <Sdk Name="Third" Version="3.0=a/b" />
+
+                  <PropertyGroup>
+                    <OutputType>Exe</OutputType>
+                    <TargetFramework>{ToolsetInfo.CurrentTargetFramework}</TargetFramework>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <Nullable>enable</Nullable>
+                  </PropertyGroup>
+
+                  <PropertyGroup>
+                    <Prop1>One=a/b</Prop1>
+                    <Prop2>Two/a=b</Prop2>
+                  </PropertyGroup>
+
+                  <ItemGroup>
+                    <PackageReference Include="P1" Version="1.0/a=b" />
+                    <PackageReference Include="P2" Version="2.0/a=b" />
+                  </ItemGroup>
+
+                </Project>
+
+                """,
+            expectedCSharp: "");
+    }
+
+    [Theory]
+    [InlineData("invalid")]
+    [InlineData("SDK")]
+    public void Directives_Unknown(string directive)
+    {
+        VerifyConversionThrows(
+            inputCSharp: $"""
+                #:sdk Test
+                #:{directive} Test
+                """,
+            expectedWildcardPattern: string.Format(CliCommandStrings.UnrecognizedDirective, directive, "/app/Program.cs:2"));
+    }
+
+    [Fact]
+    public void Directives_Empty()
+    {
+        VerifyConversionThrows(
+            inputCSharp: """
+                #:
+                #:sdk Test
+                """,
+            expectedWildcardPattern: string.Format(CliCommandStrings.UnrecognizedDirective, "", "/app/Program.cs:1"));
+    }
+
+    [Theory, CombinatorialData]
+    public void Directives_EmptyName(
+        [CombinatorialValues("sdk", "property", "package")] string directive,
+        [CombinatorialValues(" ", "")] string value)
+    {
+        VerifyConversionThrows(
+            inputCSharp: $"""
+                #:{directive}{value}
+                """,
+            expectedWildcardPattern: string.Format(CliCommandStrings.MissingDirectiveName, directive, "/app/Program.cs:1"));
+    }
+
+    [Fact]
+    public void Directives_MissingPropertyValue()
+    {
+        VerifyConversionThrows(
+            inputCSharp: """
+                #:property Test
+                """,
+            expectedWildcardPattern: string.Format(CliCommandStrings.PropertyDirectiveMissingParts, "/app/Program.cs:1"));
+    }
+
+    [Fact]
+    public void Directives_InvalidPropertyName()
+    {
+        VerifyConversionThrows(
+            inputCSharp: """
+                #:property Name" Value
+                """,
+            expectedWildcardPattern: string.Format(CliCommandStrings.PropertyDirectiveInvalidName, "/app/Program.cs:1", """
+                The '"' character, hexadecimal value 0x22, cannot be included in a name.
+                """));
+    }
+
+    [Fact]
+    public void Directives_Escaping()
+    {
+        VerifyConversion(
+            inputCSharp: """
+                #:property Prop <test">
+                #:sdk <test"> ="<>test
+                #:package <test"> ="<>test
+                """,
+            expectedProject: $"""
+                <Project Sdk="&lt;test&quot;&gt;/=&quot;&lt;&gt;test">
+
+                  <PropertyGroup>
+                    <OutputType>Exe</OutputType>
+                    <TargetFramework>{ToolsetInfo.CurrentTargetFramework}</TargetFramework>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <Nullable>enable</Nullable>
+                  </PropertyGroup>
+
+                  <PropertyGroup>
+                    <Prop>&lt;test&quot;&gt;</Prop>
+                  </PropertyGroup>
+
+                  <ItemGroup>
+                    <PackageReference Include="&lt;test&quot;&gt;" Version="=&quot;&lt;&gt;test" />
+                  </ItemGroup>
+
+                </Project>
+
+                """,
+            expectedCSharp: "");
+    }
+
+    [Fact]
+    public void Directives_Whitespace()
+    {
+        VerifyConversion(
+            inputCSharp: """
+                    #:   sdk   TestSdk
+                #:property Name   Value   
+                #:property NugetPackageDescription "My package with spaces"
+                 #  !  /test
+                  #!  /program   x   
+                 # :property Name Value
+                """,
+            expectedProject: $"""
+                <Project Sdk="TestSdk">
+
+                  <PropertyGroup>
+                    <OutputType>Exe</OutputType>
+                    <TargetFramework>{ToolsetInfo.CurrentTargetFramework}</TargetFramework>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <Nullable>enable</Nullable>
+                  </PropertyGroup>
+
+                  <PropertyGroup>
+                    <Name>Value</Name>
+                    <NugetPackageDescription>&quot;My package with spaces&quot;</NugetPackageDescription>
+                  </PropertyGroup>
+
+                </Project>
+
+                """,
+            expectedCSharp: """
+                 #  !  /test
+                  #!  /program   x   
+                 # :property Name Value
+                """);
+    }
+
+    [Fact]
+    public void Directives_Whitespace_Invalid()
+    {
+        VerifyConversionThrows(
+            inputCSharp: $"""
+                #:   property   Name{'\t'}     Value
+                """,
+            expectedWildcardPattern: string.Format(CliCommandStrings.PropertyDirectiveInvalidName, "/app/Program.cs:1",
+                "The '\t' character, hexadecimal value 0x09, cannot be included in a name."));
+    }
+
+    /// <summary>
+    /// <c>#:</c> directives after C# code are ignored.
+    /// </summary>
+    [Fact]
+    public void Directives_AfterToken()
+    {
+        string source = """
+            #:property Prop 1
+            #define X
+            #:property Prop 2
+            Console.WriteLine();
+            #:property Prop 3
+            """;
+
+        VerifyConversionThrows(
+            inputCSharp: source,
+            expectedWildcardPattern: string.Format(CliCommandStrings.CannotConvertDirective, "/app/Program.cs:5"));
+
+        VerifyConversion(
+            inputCSharp: source,
+            force: true,
+            expectedProject: $"""
+                <Project Sdk="Microsoft.NET.Sdk">
+
+                  <PropertyGroup>
+                    <OutputType>Exe</OutputType>
+                    <TargetFramework>{ToolsetInfo.CurrentTargetFramework}</TargetFramework>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <Nullable>enable</Nullable>
+                  </PropertyGroup>
+
+                  <PropertyGroup>
+                    <Prop>1</Prop>
+                    <Prop>2</Prop>
+                  </PropertyGroup>
+
+                </Project>
+
+                """,
+            expectedCSharp: """
+                #define X
+                Console.WriteLine();
+                #:property Prop 3
+                """);
+    }
+
+    /// <summary>
+    /// <c>#:</c> directives after <c>#if</c> are ignored.
+    /// </summary>
+    [Fact]
+    public void Directives_AfterIf()
+    {
+        string source = """
+            #:property Prop 1
+            #define X
+            #:property Prop 2
+            #if X
+            #:property Prop 3
+            #endif
+            #:property Prop 4
+            """;
+
+        VerifyConversionThrows(
+            inputCSharp: source,
+            expectedWildcardPattern: string.Format(CliCommandStrings.CannotConvertDirective, "/app/Program.cs:5"));
+
+        VerifyConversion(
+            inputCSharp: source,
+            force: true,
+            expectedProject: $"""
+                <Project Sdk="Microsoft.NET.Sdk">
+
+                  <PropertyGroup>
+                    <OutputType>Exe</OutputType>
+                    <TargetFramework>{ToolsetInfo.CurrentTargetFramework}</TargetFramework>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <Nullable>enable</Nullable>
+                  </PropertyGroup>
+
+                  <PropertyGroup>
+                    <Prop>1</Prop>
+                    <Prop>2</Prop>
+                  </PropertyGroup>
+
+                </Project>
+
+                """,
+            expectedCSharp: """
+                #define X
+                #if X
+                #:property Prop 3
+                #endif
+                #:property Prop 4
+                """);
+    }
+
+    /// <summary>
+    /// Comments are not currently converted.
+    /// </summary>
+    [Fact]
+    public void Directives_Comments()
+    {
+        VerifyConversion(
+            inputCSharp: """
+                // License for this file
+                #:sdk MySdk
+                // This package is needed for Json
+                #:package MyJson
+                // #:package Unused
+                /* Custom props: */
+                #:property Prop 1
+                #:property Prop 2
+                Console.Write();
+                """,
+            expectedProject: $"""
+                <Project Sdk="MySdk">
+
+                  <PropertyGroup>
+                    <OutputType>Exe</OutputType>
+                    <TargetFramework>{ToolsetInfo.CurrentTargetFramework}</TargetFramework>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <Nullable>enable</Nullable>
+                  </PropertyGroup>
+
+                  <PropertyGroup>
+                    <Prop>1</Prop>
+                    <Prop>2</Prop>
+                  </PropertyGroup>
+
+                  <ItemGroup>
+                    <PackageReference Include="MyJson" />
+                  </ItemGroup>
+
+                </Project>
+
+                """,
+            expectedCSharp: """
+                // License for this file
+                // This package is needed for Json
+                // #:package Unused
+                /* Custom props: */
+                Console.Write();
+                """);
+    }
+
+    private static void Convert(string inputCSharp, out string actualProject, out string? actualCSharp, bool force)
+    {
+        var sourceFile = new SourceFile("/app/Program.cs", SourceText.From(inputCSharp, Encoding.UTF8));
+        var directives = VirtualProjectBuildingCommand.FindDirectivesForConversion(sourceFile, force: force);
+        var projectWriter = new StringWriter();
+        VirtualProjectBuildingCommand.WriteProjectFile(projectWriter, directives);
+        actualProject = projectWriter.ToString();
+        actualCSharp = VirtualProjectBuildingCommand.RemoveDirectivesFromFile(directives, sourceFile.Text)?.ToString();
+    }
+
+    /// <param name="expectedCSharp">
+    /// <see langword="null"/> means the conversion should not touch the C# content.
+    /// </param>
+    private static void VerifyConversion(string inputCSharp, string expectedProject, string? expectedCSharp, bool force = false)
+    {
+        Convert(inputCSharp, out var actualProject, out var actualCSharp, force: force);
+        actualProject.Should().Be(expectedProject);
+        actualCSharp.Should().Be(expectedCSharp);
+    }
+
+    private static void VerifyConversionThrows(string inputCSharp, string expectedWildcardPattern)
+    {
+        var convert = () => Convert(inputCSharp, out _, out _, force: false);
+        convert.Should().Throw<GracefulException>().WithMessage(expectedWildcardPattern);
     }
 }
