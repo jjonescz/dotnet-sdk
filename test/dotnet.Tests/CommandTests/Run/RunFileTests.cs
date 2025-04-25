@@ -1107,7 +1107,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
 
         Build(testInstance, expectedUpToDate: true, expectedOutput: "Hello, String from Util");
 
-        // Change Util.cs (a rebuild is necessary).
+        // Change Util.cs.
         File.WriteAllText(Path.Join(testInstance.Path, "Util.cs"), """
             static class Util
             {
@@ -1119,5 +1119,21 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             """);
 
         Build(testInstance, expectedUpToDate: false, expectedOutput: "Hello, String from Util v2");
+
+        Build(testInstance, expectedUpToDate: true, expectedOutput: "Hello, String from Util v2");
+
+        // Create new file.
+        File.WriteAllText(Path.Join(testInstance.Path, "Util2.cs"), "class Util2;");
+
+        Build(testInstance, expectedUpToDate: false, expectedOutput: "Hello, String from Util v2");
+
+        Build(testInstance, expectedUpToDate: true, expectedOutput: "Hello, String from Util v2");
+
+        // Remove a file.
+        File.Delete(Path.Join(testInstance.Path, "Util2.cs"));
+
+        Build(testInstance, expectedUpToDate: false, expectedOutput: "Hello, String from Util v2");
+
+        Build(testInstance, expectedUpToDate: true, expectedOutput: "Hello, String from Util v2");
     }
 }
