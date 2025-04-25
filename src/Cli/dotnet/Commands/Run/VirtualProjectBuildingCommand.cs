@@ -213,8 +213,7 @@ internal sealed class VirtualProjectBuildingCommand
         // Collect current other source files.
         foreach (var other in FindOtherFiles())
         {
-            var otherFileInfo = new FileInfo(other.File.Path);
-            cacheEntry.OtherSources.Add(other.File.Path, otherFileInfo.LastWriteTimeUtc);
+            cacheEntry.OtherSources.Add(other.File.Path);
         }
 
         // Collect current implicit build files.
@@ -223,10 +222,9 @@ internal sealed class VirtualProjectBuildingCommand
             foreach (var implicitBuildFileName in s_implicitBuildFileNames)
             {
                 string implicitBuildFilePath = Path.Join(directory.FullName, implicitBuildFileName);
-                var implicitBuildFileInfo = new FileInfo(implicitBuildFilePath);
-                if (implicitBuildFileInfo.Exists)
+                if (File.Exists(implicitBuildFilePath))
                 {
-                    cacheEntry.ImplicitBuildFiles.Add(implicitBuildFilePath, implicitBuildFileInfo.LastWriteTimeUtc);
+                    cacheEntry.ImplicitBuildFiles.Add(implicitBuildFilePath);
                 }
             }
         }
@@ -302,7 +300,7 @@ internal sealed class VirtualProjectBuildingCommand
         }
 
         // Check that other source files are up to date.
-        foreach (var otherSourceFilePath in previousCacheEntry.OtherSources.Keys)
+        foreach (var otherSourceFilePath in previousCacheEntry.OtherSources)
         {
             var otherSourceFileInfo = new FileInfo(otherSourceFilePath);
             if (!otherSourceFileInfo.Exists || otherSourceFileInfo.LastWriteTimeUtc > buildTimeUtc)
@@ -312,8 +310,18 @@ internal sealed class VirtualProjectBuildingCommand
             }
         }
 
+        // Check that no new other source files are present.
+        foreach (var otherSourceFilePath in cacheEntry.OtherSources)
+        {
+            if (!previousCacheEntry.OtherSources.Contains(otherSourceFilePath))
+            {
+                Reporter.Verbose.WriteLine("Building because new other source file is present: " + otherSourceFilePath);
+                return true;
+            }
+        }
+
         // Check that implicit build files are up to date.
-        foreach (var implicitBuildFilePath in previousCacheEntry.ImplicitBuildFiles.Keys)
+        foreach (var implicitBuildFilePath in previousCacheEntry.ImplicitBuildFiles)
         {
             var implicitBuildFileInfo = new FileInfo(implicitBuildFilePath);
             if (!implicitBuildFileInfo.Exists || implicitBuildFileInfo.LastWriteTimeUtc > buildTimeUtc)
@@ -324,9 +332,9 @@ internal sealed class VirtualProjectBuildingCommand
         }
 
         // Check that no new implicit build files are present.
-        foreach (var implicitBuildFilePath in cacheEntry.ImplicitBuildFiles.Keys)
+        foreach (var implicitBuildFilePath in cacheEntry.ImplicitBuildFiles)
         {
-            if (!previousCacheEntry.ImplicitBuildFiles.ContainsKey(implicitBuildFilePath))
+            if (!previousCacheEntry.ImplicitBuildFiles.Contains(implicitBuildFilePath))
             {
                 Reporter.Verbose.WriteLine("Building because new implicit build file is present: " + implicitBuildFilePath);
                 return true;
@@ -1037,16 +1045,16 @@ internal sealed class RunFileBuildCacheEntry
     public Dictionary<string, string> GlobalProperties { get; }
 
     /// <summary>
-    /// Maps full path to <see cref="FileSystemInfo.LastWriteTimeUtc"/>.
+    /// Full paths.
     /// </summary>
     [JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
-    public Dictionary<string, DateTime> ImplicitBuildFiles { get; }
+    public HashSet<string> ImplicitBuildFiles { get; }
 
     /// <summary>
-    /// Maps full path to <see cref="FileSystemInfo.LastWriteTimeUtc"/>.
+    /// Full paths.
     /// </summary>
     [JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
-    public Dictionary<string, DateTime> OtherSources { get; }
+    public HashSet<string> OtherSources { get; }
 
     [JsonConstructor]
     public RunFileBuildCacheEntry()
