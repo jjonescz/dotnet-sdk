@@ -112,17 +112,17 @@ public class RunCommand
         }
         else
         {
+            if (NoCache)
+            {
+                throw new GracefulException(CliCommandStrings.InvalidOptionCombination, RunCommandParser.NoCacheOption.Name, RunCommandParser.NoBuildOption.Name);
+            }
+
             if (EntryPointFileFullPath is not null)
             {
                 projectFactory = new VirtualProjectBuildingCommand
                 {
                     EntryPointFileFullPath = EntryPointFileFullPath,
                 }.PrepareProjectInstance().CreateProjectInstance;
-            }
-
-            if (NoCache)
-            {
-                throw new GracefulException(CliCommandStrings.InvalidOptionCombination, RunCommandParser.NoCacheOption.Name, RunCommandParser.NoBuildOption.Name);
             }
         }
 
