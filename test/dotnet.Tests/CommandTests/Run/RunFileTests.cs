@@ -939,23 +939,23 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         var testInstance = _testAssetsManager.CreateTestDirectory();
         File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
 
-        Build(expectedUpToDate: false);
+        Build(testInstance, expectedUpToDate: false);
 
-        Build(expectedUpToDate: true);
+        Build(testInstance, expectedUpToDate: true);
 
-        Build(expectedUpToDate: true);
+        Build(testInstance, expectedUpToDate: true);
 
         // Change the source file (a rebuild is necessary).
         File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program + " ");
 
-        Build(expectedUpToDate: false);
+        Build(testInstance, expectedUpToDate: false);
 
-        Build(expectedUpToDate: true);
+        Build(testInstance, expectedUpToDate: true);
 
         // Change an unrelated source file (no rebuild necessary).
         File.WriteAllText(Path.Join(testInstance.Path, "Program2.cs"), "test");
 
-        Build(expectedUpToDate: true);
+        Build(testInstance, expectedUpToDate: true);
 
         // Add an implicit build file (a rebuild is necessary).
         string buildPropsFile = Path.Join(testInstance.Path, "Directory.Build.props");
@@ -967,12 +967,12 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             </Project>
             """);
 
-        Build(expectedUpToDate: false, expectedOutput: """
+        Build(testInstance, expectedUpToDate: false, expectedOutput: """
             Hello from Program
             Custom define
             """);
 
-        Build(expectedUpToDate: true, expectedOutput: """
+        Build(testInstance, expectedUpToDate: true, expectedOutput: """
             Hello from Program
             Custom define
             """);
@@ -989,7 +989,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             </Project>
             """);
 
-        Build(expectedUpToDate: false);
+        Build(testInstance, expectedUpToDate: false);
 
         // Change the imported build file (this is not recognized).
         File.WriteAllText(importedFile, """
@@ -1000,43 +1000,43 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             </Project>
             """);
 
-        Build(expectedUpToDate: true);
+        Build(testInstance, expectedUpToDate: true);
 
         // Force rebuild.
-        Build(expectedUpToDate: false, args: ["--no-cache"], expectedOutput: """
+        Build(testInstance, expectedUpToDate: false, args: ["--no-cache"], expectedOutput: """
             Hello from Program
             Custom define
             """);
 
         // Remove an implicit build file (a rebuild is necessary).
         File.Delete(buildPropsFile);
-        Build(expectedUpToDate: false);
+        Build(testInstance, expectedUpToDate: false);
 
         // Force rebuild.
-        Build(expectedUpToDate: false, args: ["--no-cache"]);
+        Build(testInstance, expectedUpToDate: false, args: ["--no-cache"]);
 
-        Build(expectedUpToDate: true);
+        Build(testInstance, expectedUpToDate: true);
 
         // Pass argument (no rebuild necessary).
-        Build(expectedUpToDate: true, args: ["--", "test-arg"], expectedOutput: """
+        Build(testInstance, expectedUpToDate: true, args: ["--", "test-arg"], expectedOutput: """
             echo args:test-arg
             Hello from Program
             """);
 
         // Change config (a rebuild is necessary).
-        Build(expectedUpToDate: false, args: ["-c", "Release"], expectedOutput: """
+        Build(testInstance, expectedUpToDate: false, args: ["-c", "Release"], expectedOutput: """
             Hello from Program
             Release config
             """);
 
         // Keep changed config (no rebuild necessary).
-        Build(expectedUpToDate: true, args: ["-c", "Release"], expectedOutput: """
+        Build(testInstance, expectedUpToDate: true, args: ["-c", "Release"], expectedOutput: """
             Hello from Program
             Release config
             """);
 
         // Change config back (a rebuild is necessary).
-        Build(expectedUpToDate: false);
+        Build(testInstance, expectedUpToDate: false);
 
         // Build with a failure.
         new DotnetCommand(Log, ["run", "Program.cs", "-p:LangVersion=Invalid"])
@@ -1046,34 +1046,34 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .And.HaveStdOutContaining("error CS1617"); // Invalid option 'Invalid' for /langversion.
 
         // A rebuild is necessary since the last build failed.
-        Build(expectedUpToDate: false);
+        Build(testInstance, expectedUpToDate: false);
+    }
 
-        void Build(bool expectedUpToDate, ReadOnlySpan<string> args = default, string expectedOutput = "Hello from Program")
-        {
-            new DotnetCommand(Log, ["run", "Program.cs", "-bl", .. args])
-                .WithWorkingDirectory(testInstance.Path)
-                .Execute()
-                .Should().Pass()
-                .And.HaveStdOut(expectedUpToDate
-                    ? $"""
+    private void Build(TestDirectory testInstance, bool expectedUpToDate, ReadOnlySpan<string> args = default, string expectedOutput = "Hello from Program")
+    {
+        new DotnetCommand(Log, ["run", "Program.cs", "-bl", .. args])
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut(expectedUpToDate
+                ? $"""
                         {CliCommandStrings.NoBinaryLogBecauseUpToDate}
                         {expectedOutput}
                         """
-                    : expectedOutput);
+                : expectedOutput);
 
-            var binlogs = new DirectoryInfo(testInstance.Path)
-                .EnumerateFiles("*.binlog", SearchOption.TopDirectoryOnly);
+        var binlogs = new DirectoryInfo(testInstance.Path)
+            .EnumerateFiles("*.binlog", SearchOption.TopDirectoryOnly);
 
-            binlogs.Select(f => f.Name)
-                .Should().BeEquivalentTo(
-                    expectedUpToDate
-                        ? ["msbuild-dotnet-run.binlog"]
-                        : ["msbuild.binlog", "msbuild-dotnet-run.binlog"]);
+        binlogs.Select(f => f.Name)
+            .Should().BeEquivalentTo(
+                expectedUpToDate
+                    ? ["msbuild-dotnet-run.binlog"]
+                    : ["msbuild.binlog", "msbuild-dotnet-run.binlog"]);
 
-            foreach (var binlog in binlogs)
-            {
-                binlog.Delete();
-            }
+        foreach (var binlog in binlogs)
+        {
+            binlog.Delete();
         }
     }
 
@@ -1094,5 +1094,30 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .Execute()
             .Should().Fail()
             .And.HaveStdErrContaining(string.Format(CliCommandStrings.InvalidOptionCombination, RunCommandParser.NoCacheOption.Name, RunCommandParser.NoRestoreOption.Name));
+    }
+
+    [Fact]
+    public void UpToDate_MultipleFiles()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_programDependingOnUtil);
+        File.WriteAllText(Path.Join(testInstance.Path, "Util.cs"), s_util);
+
+        Build(testInstance, expectedUpToDate: false, expectedOutput: "Hello, String from Util");
+
+        Build(testInstance, expectedUpToDate: true, expectedOutput: "Hello, String from Util");
+
+        // Change Util.cs (a rebuild is necessary).
+        File.WriteAllText(Path.Join(testInstance.Path, "Util.cs"), """
+            static class Util
+            {
+                public static string GetMessage()
+                {
+                    return "String from Util v2";
+                }
+            }
+            """);
+
+        Build(testInstance, expectedUpToDate: false, expectedOutput: "Hello, String from Util v2");
     }
 }

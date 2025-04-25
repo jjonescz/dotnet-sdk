@@ -210,9 +210,15 @@ internal sealed class VirtualProjectBuildingCommand
         var cacheEntry = new RunFileBuildCacheEntry(GlobalProperties);
         entryPointFileInfo = new FileInfo(EntryPointFileFullPath);
 
+        // Collect current other source files.
+        foreach (var other in FindOtherFiles())
+        {
+            var otherFileInfo = new FileInfo(other.File.Path);
+            cacheEntry.OtherSources.Add(other.File.Path, otherFileInfo.LastWriteTimeUtc);
+        }
+
         // Collect current implicit build files.
-        DirectoryInfo? directory = entryPointFileInfo.Directory;
-        while (directory != null)
+        for (DirectoryInfo? directory = entryPointFileInfo.Directory; directory != null; directory = directory.Parent)
         {
             foreach (var implicitBuildFileName in s_implicitBuildFileNames)
             {
@@ -223,8 +229,6 @@ internal sealed class VirtualProjectBuildingCommand
                     cacheEntry.ImplicitBuildFiles.Add(implicitBuildFilePath, implicitBuildFileInfo.LastWriteTimeUtc);
                 }
             }
-
-            directory = directory.Parent;
         }
 
         return cacheEntry;
@@ -289,12 +293,23 @@ internal sealed class VirtualProjectBuildingCommand
 
         DateTime buildTimeUtc = successCacheFile.LastWriteTimeUtc;
 
-        // Check that the source file is up to date.
+        // Check that the entry-point file is up to date.
         // If it does not exist, we also want to build.
         if (!entryPointFileInfo.Exists || entryPointFileInfo.LastWriteTimeUtc > buildTimeUtc)
         {
             Reporter.Verbose.WriteLine("Building because entry point file is missing or modified: " + entryPointFileInfo.FullName);
             return true;
+        }
+
+        // Check that other source files are up to date.
+        foreach (var otherSourceFilePath in previousCacheEntry.OtherSources.Keys)
+        {
+            var otherSourceFileInfo = new FileInfo(otherSourceFilePath);
+            if (!otherSourceFileInfo.Exists || otherSourceFileInfo.LastWriteTimeUtc > buildTimeUtc)
+            {
+                Reporter.Verbose.WriteLine("Building because other source file is missing or modified: " + otherSourceFileInfo.FullName);
+                return true;
+            }
         }
 
         // Check that implicit build files are up to date.
@@ -370,9 +385,51 @@ internal sealed class VirtualProjectBuildingCommand
         allDirectives.Add(entryPointFile.Path, FindDirectivesForVirtualProject(entryPointFile));
 
         // Discover other C# files.
+        var excluded = ImmutableArray.CreateBuilder<string>();
+        foreach (var other in FindOtherFiles())
+        {
+            if (other.Exclude)
+            {
+                if (!other.IsTopLevel)
+                {
+                    throw new GracefulException(CliCommandStrings.EntryPointInNestedFolder, other.File.Path);
+                }
+
+                // Exclude other entry points.
+                excluded.Add(other.File.Path);
+            }
+            else
+            {
+                // Parse directives from other non-entry-point files.
+                allDirectives.Add(other.File.Path, FindDirectivesForVirtualProject(other.File));
+            }
+        }
+
+        // Generate project file XML text.
+        var csprojWriter = new StringWriter();
+        WriteVirtualProjectFile(
+            writer: csprojWriter,
+            directives: allDirectives.Values.SelectMany(d => d).ToImmutableArray(),
+            artifactsPath: GetArtifactsPath(),
+            excludeCompileItems: excluded.DrainToImmutable());
+        _projectFileText = csprojWriter.ToString();
+
+        return this;
+    }
+
+    private static bool HasTopLevelStatements(SourceFile file)
+    {
+        var tree = (CSharpSyntaxTree)CSharpSyntaxTree.ParseText(file.Text, path: file.Path);
+        return tree.GetRoot().ChildNodes().OfType<GlobalStatementSyntax>().Any();
+    }
+
+    /// <summary>
+    /// Discovers other files except the current entry point.
+    /// </summary>
+    private IEnumerable<(SourceFile File, bool IsTopLevel, bool Exclude)> FindOtherFiles()
+    {
         var entryFile = new FileInfo(EntryPointFileFullPath);
         var entryDirectory = entryFile.Directory!;
-        var excluded = ImmutableArray.CreateBuilder<string>();
         var files = entryDirectory.EnumerateFiles("*.cs", s_csEnumerationOptions)
             .OrderBy(f => f.FullName, StringComparer.OrdinalIgnoreCase);
         foreach (var file in files)
@@ -387,38 +444,9 @@ internal sealed class VirtualProjectBuildingCommand
 
             SourceFile sourceFile = LoadSourceFile(file.FullName);
 
-            if (HasTopLevelStatements(sourceFile))
-            {
-                if (!isTopLevel)
-                {
-                    throw new GracefulException(CliCommandStrings.EntryPointInNestedFolder, file.FullName);
-                }
+            bool exclude = HasTopLevelStatements(sourceFile);
 
-                // Exclude other entry points.
-                excluded.Add(file.FullName);
-            }
-            else
-            {
-                // Parse directives from other non-entry-point files.
-                allDirectives.Add(sourceFile.Path, FindDirectivesForVirtualProject(sourceFile));
-            }
-        }
-
-        // Generate project file XML text.
-        var csprojWriter = new StringWriter();
-        WriteVirtualProjectFile(
-            writer: csprojWriter,
-            directives: allDirectives.Values.SelectMany(d => d).ToImmutableArray(),
-            artifactsPath: GetArtifactsPath(),
-            excludeCompileItems: excluded.DrainToImmutable());
-        _projectFileText = csprojWriter.ToString();
-
-        return this;
-
-        static bool HasTopLevelStatements(SourceFile file)
-        {
-            var tree = (CSharpSyntaxTree)CSharpSyntaxTree.ParseText(file.Text, path: file.Path);
-            return tree.GetRoot().ChildNodes().OfType<GlobalStatementSyntax>().Any();
+            yield return (File: sourceFile, IsTopLevel: isTopLevel, Exclude: exclude);
         }
     }
 
@@ -998,7 +1026,12 @@ internal abstract class CSharpDirective
 internal sealed class RunFileBuildCacheEntry
 {
     private static StringComparer GlobalPropertiesComparer => StringComparer.OrdinalIgnoreCase;
-    private static StringComparer ImplicitBuildFilesComparer => StringComparer.Ordinal;
+
+    /// <summary>
+    /// We can't know which parts of the path are case insensitive, so we are conservative
+    /// to avoid false positives in the cache (saying we are up to date even if we are not).
+    /// </summary>
+    private static StringComparer FilePathComparer => StringComparer.Ordinal;
 
     [JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
     public Dictionary<string, string> GlobalProperties { get; }
@@ -1009,18 +1042,26 @@ internal sealed class RunFileBuildCacheEntry
     [JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
     public Dictionary<string, DateTime> ImplicitBuildFiles { get; }
 
+    /// <summary>
+    /// Maps full path to <see cref="FileSystemInfo.LastWriteTimeUtc"/>.
+    /// </summary>
+    [JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
+    public Dictionary<string, DateTime> OtherSources { get; }
+
     [JsonConstructor]
     public RunFileBuildCacheEntry()
     {
         GlobalProperties = new(GlobalPropertiesComparer);
-        ImplicitBuildFiles = new(ImplicitBuildFilesComparer);
+        ImplicitBuildFiles = new(FilePathComparer);
+        OtherSources = new(FilePathComparer);
     }
 
     public RunFileBuildCacheEntry(Dictionary<string, string> globalProperties)
     {
         Debug.Assert(globalProperties.Comparer == GlobalPropertiesComparer);
         GlobalProperties = globalProperties;
-        ImplicitBuildFiles = new(ImplicitBuildFilesComparer);
+        ImplicitBuildFiles = new(FilePathComparer);
+        OtherSources = new(FilePathComparer);
     }
 }
 
