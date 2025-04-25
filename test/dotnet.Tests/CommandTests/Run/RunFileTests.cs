@@ -1135,5 +1135,15 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         Build(testInstance, expectedUpToDate: false, expectedOutput: "Hello, String from Util v2");
 
         Build(testInstance, expectedUpToDate: true, expectedOutput: "Hello, String from Util v2");
+
+        // Create unrelated entry point file (shouldn't affect our up-to-date status).
+        File.WriteAllText(Path.Join(testInstance.Path, "Program2.cs"), s_program);
+
+        Build(testInstance, expectedUpToDate: true, expectedOutput: "Hello, String from Util v2");
+
+        // Delete unrelated entry point file (shouldn't affect our up-to-date status).
+        File.Delete(Path.Join(testInstance.Path, "Program2.cs"));
+
+        Build(testInstance, expectedUpToDate: true, expectedOutput: "Hello, String from Util v2");
     }
 }

@@ -213,7 +213,10 @@ internal sealed class VirtualProjectBuildingCommand
         // Collect current other source files.
         foreach (var other in FindOtherFiles())
         {
-            cacheEntry.OtherSources.Add(other.File.Path);
+            if (!other.Exclude)
+            {
+                cacheEntry.OtherSources.Add(other.File.Path);
+            }
         }
 
         // Collect current implicit build files.
@@ -432,7 +435,7 @@ internal sealed class VirtualProjectBuildingCommand
     }
 
     /// <summary>
-    /// Discovers other files except the current entry point.
+    /// Discovers other C# files except the current entry point.
     /// </summary>
     private IEnumerable<(SourceFile File, bool IsTopLevel, bool Exclude)> FindOtherFiles()
     {
