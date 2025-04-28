@@ -32,7 +32,7 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
 
         // Find directives (this can fail, so do this before creating the target directory).
         var sourceFile = VirtualProjectBuildingCommand.LoadSourceFile(file);
-        var directives = VirtualProjectBuildingCommand.FindDirectivesForConversion(sourceFile, force: _force);
+        var directives = VirtualProjectBuildingCommand.FindDirectives(sourceFile, reportAllErrors: !_force, errors: null);
 
         Directory.CreateDirectory(targetDirectory);
 

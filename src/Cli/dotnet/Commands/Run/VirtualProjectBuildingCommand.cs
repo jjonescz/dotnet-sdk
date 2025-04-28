@@ -352,7 +352,7 @@ internal sealed class VirtualProjectBuildingCommand
         Debug.Assert(_directives.IsDefault, $"{nameof(PrepareProjectInstance)} should not be called multiple times.");
 
         var sourceFile = LoadSourceFile(EntryPointFileFullPath);
-        _directives = FindDirectives(sourceFile, reportErrors: false);
+        _directives = FindDirectives(sourceFile, reportAllErrors: false, errors: null);
 
         return this;
     }
@@ -643,14 +643,22 @@ internal sealed class VirtualProjectBuildingCommand
         static string EscapeValue(string value) => SecurityElement.Escape(value);
     }
 
-    public static ImmutableArray<CSharpDirective> FindDirectivesForConversion(SourceFile sourceFile, bool force)
+    /// <param name="reportAllErrors">
+    /// If <see langword="true"/>, the whole <paramref name="sourceFile"/> is parsed to find diagnostics about every app directive.
+    /// Otherwise, only directives up to the first C# token is checked.
+    /// The former is useful for <c>dotnet project convert</c> where we want to report all errors because it would be difficult to fix them up after the conversion.
+    /// The latter is useful for <c>dotnet run file.cs</c> where if there are app directives after the first token,
+    /// compiler reports <see cref="ErrorCode.ERR_PPIgnoredFollowsToken"/> anyway, so we speed up success scenarios by not parsing the whole file up front in the SDK CLI.
+    /// </param>
+    /// <param name="errors">
+    /// If <see langword="null"/>, the first error is thrown as <see cref="GracefulException"/>.
+    /// Otherwise, all errors are put into the list.
+    /// Does not have any effect when <paramref name="reportAllErrors"/> is <see langword="false"/>.
+    /// </param>
+    public static ImmutableArray<CSharpDirective> FindDirectives(SourceFile sourceFile, bool reportAllErrors, ImmutableArray<SimpleDiagnostic>.Builder? errors)
     {
-        return FindDirectives(sourceFile, reportErrors: !force);
-    }
-
 #pragma warning disable RSEXPERIMENTAL003 // 'SyntaxTokenParser' is experimental
-    private static ImmutableArray<CSharpDirective> FindDirectives(SourceFile sourceFile, bool reportErrors)
-    {
+
         var builder = ImmutableArray.CreateBuilder<CSharpDirective>();
         SyntaxTokenParser tokenizer = SyntaxFactory.CreateTokenParser(sourceFile.Text,
             CSharpParseOptions.Default.WithFeatures([new("FileBasedProgram", "true")]));
@@ -697,7 +705,7 @@ internal sealed class VirtualProjectBuildingCommand
 
         // In conversion mode, we want to report errors for any invalid directives in the rest of the file
         // so users don't end up with invalid directives in the converted project.
-        if (reportErrors)
+        if (reportAllErrors)
         {
             tokenizer.ResetTo(result);
 
@@ -707,12 +715,12 @@ internal sealed class VirtualProjectBuildingCommand
 
                 foreach (var trivia in result.Token.LeadingTrivia)
                 {
-                    reportErrorFor(sourceFile, trivia);
+                    reportErrorFor(trivia);
                 }
 
                 foreach (var trivia in result.Token.TrailingTrivia)
                 {
-                    reportErrorFor(sourceFile, trivia);
+                    reportErrorFor(trivia);
                 }
             }
             while (!result.Token.IsKind(SyntaxKind.EndOfFileToken));
@@ -727,15 +735,27 @@ internal sealed class VirtualProjectBuildingCommand
             return previousWhiteSpaceSpan.IsEmpty ? trivia.FullSpan : TextSpan.FromBounds(previousWhiteSpaceSpan.Start, trivia.FullSpan.End);
         }
 
-        static void reportErrorFor(SourceFile sourceFile, SyntaxTrivia trivia)
+        void reportErrorFor(SyntaxTrivia trivia)
         {
             if (trivia.ContainsDiagnostics && trivia.IsKind(SyntaxKind.IgnoredDirectiveTrivia))
             {
-                throw new GracefulException(CliCommandStrings.CannotConvertDirective, sourceFile.GetLocationString(trivia.Span));
+                string location = sourceFile.GetLocationString(trivia.Span);
+                if (errors != null)
+                {
+                    errors.Add(new SimpleDiagnostic
+                    {
+                        Location = sourceFile.GetFileLinePositionSpan(trivia.Span),
+                        Message = string.Format(CliCommandStrings.CannotConvertDirective, location),
+                    });
+                }
+                else
+                {
+                    throw new GracefulException(CliCommandStrings.CannotConvertDirective, location);
+                }
             }
         }
-    }
 #pragma warning restore RSEXPERIMENTAL003 // 'SyntaxTokenParser' is experimental
+    }
 
     public static SourceFile LoadSourceFile(string filePath)
     {
@@ -779,9 +799,14 @@ internal sealed class VirtualProjectBuildingCommand
 
 internal readonly record struct SourceFile(string Path, SourceText Text)
 {
+    public FileLinePositionSpan GetFileLinePositionSpan(TextSpan span)
+    {
+        return new FileLinePositionSpan(Path, Text.Lines.GetLinePositionSpan(span));
+    }
+
     public string GetLocationString(TextSpan span)
     {
-        var positionSpan = new FileLinePositionSpan(Path, Text.Lines.GetLinePositionSpan(span));
+        var positionSpan = GetFileLinePositionSpan(span);
         return $"{positionSpan.Path}:{positionSpan.StartLinePosition.Line + 1}";
     }
 }
@@ -934,6 +959,12 @@ internal abstract class CSharpDirective
             };
         }
     }
+}
+
+internal sealed class SimpleDiagnostic
+{
+    public required FileLinePositionSpan Location { get; init; }
+    public required string Message { get; init; }
 }
 
 internal sealed class RunFileBuildCacheEntry

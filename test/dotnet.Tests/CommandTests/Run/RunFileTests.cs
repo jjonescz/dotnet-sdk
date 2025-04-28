@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Text.Json;
 using Microsoft.DotNet.Cli.Commands;
 using Microsoft.DotNet.Cli.Commands.Run;
 
@@ -1023,5 +1024,46 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .Execute()
             .Should().Fail()
             .And.HaveStdErrContaining(string.Format(CliCommandStrings.InvalidOptionCombination, RunCommandParser.NoCacheOption.Name, RunCommandParser.NoRestoreOption.Name));
+    }
+
+    [Fact]
+    public void Api()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        var programPath = Path.Join(testInstance.Path, "Program.cs");
+        File.WriteAllText(programPath, """
+            #!/program
+            #:sdk Microsoft.NET.Sdk
+            #:sdk Aspire.Hosting.Sdk 9.1.0
+            #:property TargetFramework net11.0
+            #:package System.CommandLine 2.0.0-beta4.22272.1
+            #:property LangVersion preview
+            Console.WriteLine();
+            """);
+
+        new DotnetCommand(Log, "run-api")
+            .WithStandardInput(JsonSerializer.Serialize(new { EntryPointFileFullPath = programPath, ArtifactsPath = "/artifacts" }))
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut("""{"$type":"Project","Content":"\u003CProject Sdk=\u0022Microsoft.NET.Sdk\u0022\u003E\r\n\r\n  \u003CSdk Name=\u0022Aspire.Hosting.Sdk\u0022 Version=\u00229.1.0\u0022 /\u003E\r\n\r\n  \u003CPropertyGroup\u003E\r\n    \u003COutputType\u003EExe\u003C/OutputType\u003E\r\n    \u003CTargetFramework\u003Enet10.0\u003C/TargetFramework\u003E\r\n    \u003CImplicitUsings\u003Eenable\u003C/ImplicitUsings\u003E\r\n    \u003CNullable\u003Eenable\u003C/Nullable\u003E\r\n  \u003C/PropertyGroup\u003E\r\n\r\n  \u003CPropertyGroup\u003E\r\n    \u003CTargetFramework\u003Enet11.0\u003C/TargetFramework\u003E\r\n    \u003CLangVersion\u003Epreview\u003C/LangVersion\u003E\r\n  \u003C/PropertyGroup\u003E\r\n\r\n  \u003CItemGroup\u003E\r\n    \u003CPackageReference Include=\u0022System.CommandLine\u0022 Version=\u00222.0.0-beta4.22272.1\u0022 /\u003E\r\n  \u003C/ItemGroup\u003E\r\n\r\n\u003C/Project\u003E\r\n","Diagnostics":[]}""");
+    }
+
+    [Fact]
+    public void Api_Diagnostic()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        var programPath = Path.Join(testInstance.Path, "Program.cs");
+        File.WriteAllText(programPath, """
+            Console.WriteLine();
+            #:property LangVersion preview
+            """);
+
+        var escapedProgramPath = JsonSerializer.Serialize(programPath);
+        var escapedMessage = JsonSerializer.Serialize(string.Format(CliCommandStrings.CannotConvertDirective, $"{programPath}:2"));
+        new DotnetCommand(Log, "run-api")
+            .WithStandardInput(JsonSerializer.Serialize(new { EntryPointFileFullPath = programPath, ArtifactsPath = "/artifacts" }))
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut($$$"""{"$type":"Project","Content":"\u003CProject Sdk=\u0022Microsoft.NET.Sdk\u0022\u003E\r\n\r\n  \u003CPropertyGroup\u003E\r\n    \u003COutputType\u003EExe\u003C/OutputType\u003E\r\n    \u003CTargetFramework\u003Enet10.0\u003C/TargetFramework\u003E\r\n    \u003CImplicitUsings\u003Eenable\u003C/ImplicitUsings\u003E\r\n    \u003CNullable\u003Eenable\u003C/Nullable\u003E\r\n  \u003C/PropertyGroup\u003E\r\n\r\n\u003C/Project\u003E\r\n","Diagnostics":[{"Location":{"Path":{{{escapedProgramPath}}},"Span":{"Start":{"Line":1,"Character":0},"End":{"Line":1,"Character":30}},"HasMappedPath":false,"StartLinePosition":{"Line":1,"Character":0},"EndLinePosition":{"Line":1,"Character":30},"IsValid":true},"Message":{{{escapedMessage}}}}]}""");
     }
 }
