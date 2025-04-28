@@ -1045,7 +1045,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             """);
 
         new DotnetCommand(Log, "run-api")
-            .WithStandardInput(JsonSerializer.Serialize(new RunApiInput { EntryPointFileFullPath = programPath, ArtifactsPath = "/artifacts" }, RunFileApiJsonSerializerContext.Default.RunApiInput))
+            .WithStandardInput(JsonSerializer.Serialize(new RunApiInput.GetProject { EntryPointFileFullPath = programPath, ArtifactsPath = "/artifacts" }, RunFileApiJsonSerializerContext.Default.RunApiInput))
             .Execute()
             .Should().Pass()
             .And.HaveStdOut(JsonSerializer.Serialize(new RunApiOutput.Project
@@ -1138,7 +1138,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             """);
 
         new DotnetCommand(Log, "run-api")
-            .WithStandardInput(JsonSerializer.Serialize(new RunApiInput { EntryPointFileFullPath = programPath, ArtifactsPath = "/artifacts" }, RunFileApiJsonSerializerContext.Default.RunApiInput))
+            .WithStandardInput(JsonSerializer.Serialize(new RunApiInput.GetProject { EntryPointFileFullPath = programPath, ArtifactsPath = "/artifacts" }, RunFileApiJsonSerializerContext.Default.RunApiInput))
             .Execute()
             .Should().Pass()
             .And.HaveStdOut(JsonSerializer.Serialize(new RunApiOutput.Project
@@ -1227,7 +1227,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             """);
 
         new DotnetCommand(Log, "run-api")
-            .WithStandardInput(JsonSerializer.Serialize(new RunApiInput { EntryPointFileFullPath = programPath, ArtifactsPath = "/artifacts" }, RunFileApiJsonSerializerContext.Default.RunApiInput))
+            .WithStandardInput(JsonSerializer.Serialize(new RunApiInput.GetProject { EntryPointFileFullPath = programPath, ArtifactsPath = "/artifacts" }, RunFileApiJsonSerializerContext.Default.RunApiInput))
             .Execute()
             .Should().Pass()
             .And.HaveStdOut(JsonSerializer.Serialize(new RunApiOutput.Project

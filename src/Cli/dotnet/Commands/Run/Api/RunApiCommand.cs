@@ -22,19 +22,8 @@ internal sealed class RunApiCommand(ParseResult parseResult) : CommandBase(parse
             try
             {
                 RunApiInput input = JsonSerializer.Deserialize(line, RunFileApiJsonSerializerContext.Default.RunApiInput);
-                var sourceFile = VirtualProjectBuildingCommand.LoadSourceFile(input.EntryPointFileFullPath);
-                var errors = ImmutableArray.CreateBuilder<SimpleDiagnostic>();
-                var directives = VirtualProjectBuildingCommand.FindDirectives(sourceFile, reportAllErrors: true, errors);
-                string artifactsPath = input.ArtifactsPath ?? VirtualProjectBuildingCommand.GetArtifactsPath(input.EntryPointFileFullPath);
-
-                var csprojWriter = new StringWriter();
-                VirtualProjectBuildingCommand.WriteProjectFile(csprojWriter, directives, isVirtualProject: true, targetFilePath: input.EntryPointFileFullPath, artifactsPath: artifactsPath);
-
-                Respond(new RunApiOutput.Project
-                {
-                    Content = csprojWriter.ToString(),
-                    Diagnostics = errors.ToImmutableArray(),
-                });
+                RunApiOutput output = input.Execute();
+                Respond(output);
             }
             catch (Exception ex)
             {
@@ -52,10 +41,35 @@ internal sealed class RunApiCommand(ParseResult parseResult) : CommandBase(parse
     }
 }
 
-internal sealed class RunApiInput
+[JsonDerivedType(typeof(GetProject), nameof(GetProject))]
+internal abstract class RunApiInput
 {
-    public string? ArtifactsPath { get; init; }
-    public required string EntryPointFileFullPath { get; init; }
+    private RunApiInput() { }
+
+    public abstract RunApiOutput Execute();
+
+    public sealed class GetProject : RunApiInput
+    {
+        public string? ArtifactsPath { get; init; }
+        public required string EntryPointFileFullPath { get; init; }
+
+        public override RunApiOutput Execute()
+        {
+            var sourceFile = VirtualProjectBuildingCommand.LoadSourceFile(EntryPointFileFullPath);
+            var errors = ImmutableArray.CreateBuilder<SimpleDiagnostic>();
+            var directives = VirtualProjectBuildingCommand.FindDirectives(sourceFile, reportAllErrors: true, errors);
+            string artifactsPath = ArtifactsPath ?? VirtualProjectBuildingCommand.GetArtifactsPath(EntryPointFileFullPath);
+
+            var csprojWriter = new StringWriter();
+            VirtualProjectBuildingCommand.WriteProjectFile(csprojWriter, directives, isVirtualProject: true, targetFilePath: EntryPointFileFullPath, artifactsPath: artifactsPath);
+
+            return new RunApiOutput.Project
+            {
+                Content = csprojWriter.ToString(),
+                Diagnostics = errors.ToImmutableArray(),
+            };
+        }
+    }
 }
 
 [JsonDerivedType(typeof(Error), nameof(Error))]
