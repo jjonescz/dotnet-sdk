@@ -489,7 +489,10 @@ internal sealed class VirtualProjectBuildingCommand
             processedDirectives++;
         }
 
-        writer.WriteLine();
+        if (isVirtualProject || processedDirectives > 1)
+        {
+            writer.WriteLine();
+        }
 
         // Kept in sync with the default `dotnet new console` project file (enforced by `DotnetProjectAddTests.SameAsTemplate`).
         writer.WriteLine($"""
