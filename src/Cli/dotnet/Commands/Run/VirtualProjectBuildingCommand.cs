@@ -74,7 +74,7 @@ internal sealed class VirtualProjectBuildingCommand
     {
         var binaryLogger = GetBinaryLogger(binaryLoggerArgs);
 
-        RunFileBuildCacheEntry cacheEntry;
+        CacheInfo cache;
 
         if (noCache)
         {
@@ -83,21 +83,21 @@ internal sealed class VirtualProjectBuildingCommand
                 throw new GracefulException(CliCommandStrings.InvalidOptionCombination, RunCommandParser.NoCacheOption.Name, RunCommandParser.NoRestoreOption.Name);
             }
 
-            cacheEntry = ComputeCacheEntry(out _);
+            cache = ComputeCacheEntry();
         }
-        else if (!NeedsToBuild(out cacheEntry))
+        else if (!NeedsToBuild(out cache))
         {
             if (binaryLogger is not null)
             {
                 Reporter.Output.WriteLine(CliCommandStrings.NoBinaryLogBecauseUpToDate.Yellow());
             }
 
-            PrepareProjectInstance();
+            PrepareProjectInstance(cache);
 
             return 0;
         }
 
-        MarkBuildStart();
+        MarkBuildStart(cache);
 
         Dictionary<string, string?> savedEnvironmentVariables = [];
         try
@@ -122,7 +122,7 @@ internal sealed class VirtualProjectBuildingCommand
             };
             BuildManager.DefaultBuildManager.BeginBuild(parameters);
 
-            PrepareProjectInstance();
+            PrepareProjectInstance(cache);
 
             // Do a restore first (equivalent to MSBuild's "implicit restore", i.e., `/restore`).
             // See https://github.com/dotnet/msbuild/blob/a1c2e7402ef0abe36bf493e395b04dd2cb1b3540/src/MSBuild/XMake.cs#L1838
@@ -157,7 +157,7 @@ internal sealed class VirtualProjectBuildingCommand
 
             BuildManager.DefaultBuildManager.EndBuild();
 
-            MarkBuildSuccess(cacheEntry);
+            MarkBuildSuccess(cache);
 
             return 0;
         }
@@ -199,28 +199,65 @@ internal sealed class VirtualProjectBuildingCommand
     }
 
     /// <summary>
-    /// Compute current cache entry - we need to do this always:
+    /// Common info needed by <see cref="ComputeCacheEntry"/> but also later stages.
+    /// </summary>
+    private sealed class CacheInfo
+    {
+        public required FileInfo EntryPointFile { get; init; }
+        public required string ArtifactsDirectory { get; init; }
+        public required FileInfo SuccessCacheFile { get; init; }
+        public required RunFileBuildCacheEntry? PreviousEntry { get; init; }
+        public required RunFileBuildCacheEntry CurrentEntry { get; init; }
+        public required ImmutableArray<OtherSourceFile> OtherSources { get; init; }
+    }
+
+    /// <summary>
+    /// Compute current <see cref="RunFileBuildCacheEntry"/> - we need to do this always:
     /// <list type="bullet">
     /// <item>if we can skip build, we still need to check everything in the cache entry (e.g., implicit build files)</item>
     /// <item>if we have to build, we need to have the cache entry to write it to the success cache file</item>
     /// </list>
     /// </summary>
-    private RunFileBuildCacheEntry ComputeCacheEntry(out FileInfo entryPointFileInfo)
+    private CacheInfo ComputeCacheEntry()
     {
+        string artifactsDirectory = GetArtifactsPath();
+        var successCacheFile = new FileInfo(Path.Join(artifactsDirectory, BuildSuccessCacheFileName));
+        DateTime? buildTimeUtcOpt = !successCacheFile.Exists ? null : successCacheFile.LastWriteTimeUtc;
+
+        var previousCacheEntry = DeserializeCacheEntry(successCacheFile);
+
         var cacheEntry = new RunFileBuildCacheEntry(GlobalProperties);
-        entryPointFileInfo = new FileInfo(EntryPointFileFullPath);
+        var entryPointFile = new FileInfo(EntryPointFileFullPath);
 
         // Collect current other source files.
-        foreach (var other in FindOtherFiles())
+        var otherSources = ImmutableArray.CreateBuilder<OtherSourceFile>(previousCacheEntry?.OtherSources.Count ?? 8);
+        foreach (var item in FindOtherFiles(entryPointFile: entryPointFile))
         {
-            if (!other.Exclude)
+            OtherSourceFile otherSource;
+
+            // No need to parse the file if it hasn't changed since last time.
+            if (buildTimeUtcOpt is { } buildTimeUtc &&
+                previousCacheEntry?.OtherSources.TryGetValue(item.File.FullName, out var previous) == true &&
+                item.File.LastWriteTimeUtc <= buildTimeUtc)
             {
-                cacheEntry.OtherSources.Add(other.File.Path);
+                otherSource = new OtherSourceFile
+                {
+                    Path = item.File.FullName,
+                    IsTopLevel = item.IsTopLevel,
+                    IsEntryPoint = previous.IsEntryPoint,
+                };
             }
+            else
+            {
+                otherSource = ToOtherSourceFile(item);
+            }
+
+            otherSources.Add(otherSource);
+            cacheEntry.OtherSources.Add(item.File.FullName, new() { IsEntryPoint = otherSource.IsEntryPoint });
         }
 
         // Collect current implicit build files.
-        for (DirectoryInfo? directory = entryPointFileInfo.Directory; directory != null; directory = directory.Parent)
+        for (DirectoryInfo? directory = entryPointFile.Directory; directory != null; directory = directory.Parent)
         {
             foreach (var implicitBuildFileName in s_implicitBuildFileNames)
             {
@@ -232,17 +269,39 @@ internal sealed class VirtualProjectBuildingCommand
             }
         }
 
-        return cacheEntry;
+        return new CacheInfo
+        {
+            EntryPointFile = entryPointFile,
+            ArtifactsDirectory = artifactsDirectory,
+            SuccessCacheFile = successCacheFile,
+            PreviousEntry = previousCacheEntry,
+            CurrentEntry = cacheEntry,
+            OtherSources = otherSources.DrainToImmutable(),
+        };
+
+        static RunFileBuildCacheEntry? DeserializeCacheEntry(FileInfo cacheFile)
+        {
+            try
+            {
+                using var stream = File.Open(cacheFile.FullName, FileMode.Open, FileAccess.Read, FileShare.Read);
+                return JsonSerializer.Deserialize(stream, RunFileJsonSerializerContext.Default.RunFileBuildCacheEntry);
+            }
+            catch (Exception e)
+            {
+                Reporter.Verbose.WriteLine($"Failed to deserialize cache entry ({cacheFile.FullName}): {e.GetType().FullName}: {e.Message}");
+                return null;
+            }
+        }
     }
 
-    private bool NeedsToBuild(out RunFileBuildCacheEntry cacheEntry)
+    private bool NeedsToBuild(out CacheInfo cache)
     {
-        cacheEntry = ComputeCacheEntry(out FileInfo entryPointFileInfo);
+        cache = ComputeCacheEntry();
 
         // Check cache files.
 
-        string artifactsDirectory = GetArtifactsPath();
-        var successCacheFile = new FileInfo(Path.Join(artifactsDirectory, BuildSuccessCacheFileName));
+        string artifactsDirectory = cache.ArtifactsDirectory;
+        var successCacheFile = cache.SuccessCacheFile;
 
         if (!successCacheFile.Exists)
         {
@@ -257,13 +316,14 @@ internal sealed class VirtualProjectBuildingCommand
             return true;
         }
 
-        if (startCacheFile.LastWriteTimeUtc > successCacheFile.LastWriteTimeUtc)
+        DateTime buildTimeUtc = successCacheFile.LastWriteTimeUtc;
+        if (startCacheFile.LastWriteTimeUtc > buildTimeUtc)
         {
             Reporter.Verbose.WriteLine("Building because start cache file is newer than success cache file (previous build likely failed): " + startCacheFile.FullName);
             return true;
         }
 
-        var previousCacheEntry = DeserializeCacheEntry(successCacheFile);
+        var previousCacheEntry = cache.PreviousEntry;
         if (previousCacheEntry is null)
         {
             Reporter.Verbose.WriteLine("Building because previous cache entry could not be deserialized: " + successCacheFile.FullName);
@@ -272,15 +332,16 @@ internal sealed class VirtualProjectBuildingCommand
 
         // Check that properties match.
 
-        if (previousCacheEntry.GlobalProperties.Count != cacheEntry.GlobalProperties.Count)
+        var currentEntry = cache.CurrentEntry;
+        if (previousCacheEntry.GlobalProperties.Count != currentEntry.GlobalProperties.Count)
         {
             Reporter.Verbose.WriteLine($"""
-                Building because previous global properties count ({previousCacheEntry.GlobalProperties.Count}) does not match current count ({cacheEntry.GlobalProperties.Count}): {successCacheFile.FullName}
+                Building because previous global properties count ({previousCacheEntry.GlobalProperties.Count}) does not match current count ({currentEntry.GlobalProperties.Count}): {successCacheFile.FullName}
                 """);
             return true;
         }
 
-        foreach (var (key, value) in cacheEntry.GlobalProperties)
+        foreach (var (key, value) in currentEntry.GlobalProperties)
         {
             if (!previousCacheEntry.GlobalProperties.TryGetValue(key, out var otherValue) ||
                 value != otherValue)
@@ -292,31 +353,33 @@ internal sealed class VirtualProjectBuildingCommand
             }
         }
 
-        DateTime buildTimeUtc = successCacheFile.LastWriteTimeUtc;
-
         // Check that the entry-point file is up to date.
         // If it does not exist, we also want to build.
-        if (!entryPointFileInfo.Exists || entryPointFileInfo.LastWriteTimeUtc > buildTimeUtc)
+        var entryPointFile = cache.EntryPointFile;
+        if (!entryPointFile.Exists || entryPointFile.LastWriteTimeUtc > buildTimeUtc)
         {
-            Reporter.Verbose.WriteLine("Building because entry point file is missing or modified: " + entryPointFileInfo.FullName);
+            Reporter.Verbose.WriteLine("Building because entry point file is missing or modified: " + entryPointFile.FullName);
             return true;
         }
 
         // Check that other source files are up to date.
-        foreach (var otherSourceFilePath in previousCacheEntry.OtherSources)
+        foreach (var (otherSourceFilePath, otherSource) in previousCacheEntry.OtherSources)
         {
-            var otherSourceFileInfo = new FileInfo(otherSourceFilePath);
-            if (!otherSourceFileInfo.Exists || otherSourceFileInfo.LastWriteTimeUtc > buildTimeUtc)
+            if (!otherSource.IsEntryPoint)
             {
-                Reporter.Verbose.WriteLine("Building because other source file is missing or modified: " + otherSourceFileInfo.FullName);
-                return true;
+                var otherSourceFile = new FileInfo(otherSourceFilePath);
+                if (!otherSourceFile.Exists || otherSourceFile.LastWriteTimeUtc > buildTimeUtc)
+                {
+                    Reporter.Verbose.WriteLine("Building because other source file is missing or modified: " + otherSourceFile.FullName);
+                    return true;
+                }
             }
         }
 
         // Check that no new other source files are present.
-        foreach (var otherSourceFilePath in cacheEntry.OtherSources)
+        foreach (var (otherSourceFilePath, otherSource) in currentEntry.OtherSources)
         {
-            if (!previousCacheEntry.OtherSources.Contains(otherSourceFilePath))
+            if (!otherSource.IsEntryPoint && !previousCacheEntry.OtherSources.ContainsKey(otherSourceFilePath))
             {
                 Reporter.Verbose.WriteLine("Building because new other source file is present: " + otherSourceFilePath);
                 return true;
@@ -335,7 +398,7 @@ internal sealed class VirtualProjectBuildingCommand
         }
 
         // Check that no new implicit build files are present.
-        foreach (var implicitBuildFilePath in cacheEntry.ImplicitBuildFiles)
+        foreach (var implicitBuildFilePath in currentEntry.ImplicitBuildFiles)
         {
             if (!previousCacheEntry.ImplicitBuildFiles.Contains(implicitBuildFilePath))
             {
@@ -344,43 +407,40 @@ internal sealed class VirtualProjectBuildingCommand
             }
         }
 
+        // If everything is up to date, reuse project file text.
+        currentEntry.ProjectFileText = previousCacheEntry?.ProjectFileText;
+
         return false;
-
-        static RunFileBuildCacheEntry? DeserializeCacheEntry(FileInfo cacheFile)
-        {
-            try
-            {
-                using var stream = File.Open(cacheFile.FullName, FileMode.Open, FileAccess.Read, FileShare.Read);
-                return JsonSerializer.Deserialize(stream, RunFileJsonSerializerContext.Default.RunFileBuildCacheEntry);
-            }
-            catch (Exception e)
-            {
-                Reporter.Verbose.WriteLine($"Failed to deserialize cache entry ({cacheFile.FullName}): {e.GetType().FullName}: {e.Message}");
-                return null;
-            }
-        }
     }
 
-    private void MarkBuildStart()
+    private static void MarkBuildStart(CacheInfo cache)
     {
-        string directory = GetArtifactsPath();
+        string directory = cache.ArtifactsDirectory;
         Directory.CreateDirectory(directory);
-        File.WriteAllText(Path.Join(directory, BuildStartCacheFileName), EntryPointFileFullPath);
+        File.WriteAllText(Path.Join(directory, BuildStartCacheFileName), cache.EntryPointFile.FullName);
     }
 
-    private void MarkBuildSuccess(RunFileBuildCacheEntry cacheEntry)
+    private static void MarkBuildSuccess(CacheInfo cache)
     {
-        string successCacheFile = Path.Join(GetArtifactsPath(), BuildSuccessCacheFileName);
+        string successCacheFile = Path.Join(cache.ArtifactsDirectory, BuildSuccessCacheFileName);
         using var stream = File.Open(successCacheFile, FileMode.Create, FileAccess.Write, FileShare.None);
-        JsonSerializer.Serialize(stream, cacheEntry, RunFileJsonSerializerContext.Default.RunFileBuildCacheEntry);
+        JsonSerializer.Serialize(stream, cache.CurrentEntry, RunFileJsonSerializerContext.Default.RunFileBuildCacheEntry);
     }
 
     /// <summary>
     /// Needs to be called before the first call to <see cref="CreateProjectInstance(ProjectCollection)"/>.
     /// </summary>
-    public VirtualProjectBuildingCommand PrepareProjectInstance()
+    public VirtualProjectBuildingCommand PrepareProjectInstance() => PrepareProjectInstance(cache: null);
+
+    private VirtualProjectBuildingCommand PrepareProjectInstance(CacheInfo? cache)
     {
         Debug.Assert(_projectFileText == null, $"{nameof(PrepareProjectInstance)} should not be called multiple times.");
+
+        if (cache?.CurrentEntry.ProjectFileText is { } projectFileText)
+        {
+            _projectFileText = projectFileText;
+            return this;
+        }
 
         SourceFile entryPointFile = LoadSourceFile(EntryPointFileFullPath);
 
@@ -397,22 +457,24 @@ internal sealed class VirtualProjectBuildingCommand
 
         // Discover other C# files.
         var excluded = ImmutableArray.CreateBuilder<string>();
-        foreach (var other in FindOtherFiles())
+        foreach (var other in cache?.OtherSources ?? FindOtherFiles(entryPointFile: new FileInfo(EntryPointFileFullPath)).Select(ToOtherSourceFile))
         {
-            if (other.Exclude)
+            var file = other.GetOrLoadFile();
+
+            if (other.IsEntryPoint)
             {
                 if (!other.IsTopLevel)
                 {
-                    throw new GracefulException(CliCommandStrings.EntryPointInNestedFolder, other.File.Path);
+                    throw new GracefulException(CliCommandStrings.EntryPointInNestedFolder, file.Path);
                 }
 
                 // Exclude other entry points.
-                excluded.Add(other.File.Path);
+                excluded.Add(file.Path);
             }
             else
             {
                 // Parse directives from other non-entry-point files.
-                allDirectives.Add(other.File.Path, FindDirectivesForVirtualProject(other.File));
+                allDirectives.Add(file.Path, FindDirectivesForVirtualProject(file));
             }
         }
 
@@ -423,7 +485,9 @@ internal sealed class VirtualProjectBuildingCommand
             directives: allDirectives.Values.SelectMany(d => d).ToImmutableArray(),
             artifactsPath: GetArtifactsPath(),
             excludeCompileItems: excluded.DrainToImmutable());
-        _projectFileText = csprojWriter.ToString();
+        projectFileText = csprojWriter.ToString();
+        if (cache != null) cache.CurrentEntry.ProjectFileText = projectFileText;
+        _projectFileText = projectFileText;
 
         return this;
     }
@@ -435,12 +499,11 @@ internal sealed class VirtualProjectBuildingCommand
     }
 
     /// <summary>
-    /// Discovers other C# files except the current entry point.
+    /// Discovers inputs that can be used to create <see cref="OtherSourceFile"/>s (via <see cref="ToOtherSourceFile"/>).
     /// </summary>
-    private IEnumerable<(SourceFile File, bool IsTopLevel, bool Exclude)> FindOtherFiles()
+    private static IEnumerable<(FileInfo File, bool IsTopLevel)> FindOtherFiles(FileInfo entryPointFile)
     {
-        var entryFile = new FileInfo(EntryPointFileFullPath);
-        var entryDirectory = entryFile.Directory!;
+        var entryDirectory = entryPointFile.Directory!;
         var files = entryDirectory.EnumerateFiles("*.cs", s_csEnumerationOptions)
             .OrderBy(f => f.FullName, StringComparer.OrdinalIgnoreCase);
         foreach (var file in files)
@@ -448,17 +511,28 @@ internal sealed class VirtualProjectBuildingCommand
             bool isTopLevel = entryDirectory.FullName.Equals(file.Directory!.FullName, StringComparison.OrdinalIgnoreCase);
 
             // Skip the current entry point.
-            if (isTopLevel && entryFile.Name.Equals(file.Name, StringComparison.OrdinalIgnoreCase))
+            if (isTopLevel && entryPointFile.Name.Equals(file.Name, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
 
-            SourceFile sourceFile = LoadSourceFile(file.FullName);
-
-            bool exclude = HasTopLevelStatements(sourceFile);
-
-            yield return (File: sourceFile, IsTopLevel: isTopLevel, Exclude: exclude);
+            yield return (File: file, IsTopLevel: isTopLevel);
         }
+    }
+
+    private static OtherSourceFile ToOtherSourceFile((FileInfo File, bool IsTopLevel) input)
+    {
+        SourceFile file = LoadSourceFile(input.File.FullName);
+
+        bool isEntryPoint = HasTopLevelStatements(file);
+
+        return new OtherSourceFile
+        {
+            Path = file.Path,
+            Text = file.Text,
+            IsEntryPoint = isEntryPoint,
+            IsTopLevel = input.IsTopLevel,
+        };
     }
 
     public ProjectInstance CreateProjectInstance(ProjectCollection projectCollection)
@@ -888,6 +962,36 @@ internal readonly record struct SourceFile(string Path, SourceText Text)
     }
 }
 
+/// <summary>
+/// C# source file that is in the directory subtree of the current entry point but is not the current entry point.
+/// </summary>
+internal readonly struct OtherSourceFile
+{
+    public required string Path { get; init; }
+
+    public SourceText? Text { get; init; }
+
+    /// <summary>
+    /// <see langword="false"/> if the file is in a folder nested relative to the current entry point.
+    /// </summary>
+    public required bool IsTopLevel { get; init; }
+
+    /// <summary>
+    /// <see langword="true"/> if this is another entry point that should be excluded.
+    /// </summary>
+    public required bool IsEntryPoint { get; init; }
+
+    public SourceFile GetOrLoadFile()
+    {
+        if (Text != null)
+        {
+            return new SourceFile(Path, Text);
+        }
+
+        return VirtualProjectBuildingCommand.LoadSourceFile(Path);
+    }
+}
+
 internal static partial class Patterns
 {
     [GeneratedRegex("""\s+""")]
@@ -1054,10 +1158,12 @@ internal sealed class RunFileBuildCacheEntry
     public HashSet<string> ImplicitBuildFiles { get; }
 
     /// <summary>
-    /// Full paths.
+    /// Keys are full paths.
     /// </summary>
     [JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
-    public HashSet<string> OtherSources { get; }
+    public Dictionary<string, OtherSource> OtherSources { get; }
+
+    public string? ProjectFileText { get; set; }
 
     [JsonConstructor]
     public RunFileBuildCacheEntry()
@@ -1074,6 +1180,8 @@ internal sealed class RunFileBuildCacheEntry
         ImplicitBuildFiles = new(FilePathComparer);
         OtherSources = new(FilePathComparer);
     }
+
+    public readonly record struct OtherSource(bool IsEntryPoint);
 }
 
 [JsonSerializable(typeof(RunFileBuildCacheEntry))]
