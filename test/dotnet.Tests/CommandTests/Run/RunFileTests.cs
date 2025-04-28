@@ -706,7 +706,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         File.WriteAllText(programFile, s_program);
 
         // Remove artifacts from possible previous runs of this test.
-        var artifactsDir = new VirtualProjectBuildingCommand { EntryPointFileFullPath = programFile }.GetArtifactsPath();
+        var artifactsDir = VirtualProjectBuildingCommand.GetArtifactsPath(programFile);
         if (Directory.Exists(artifactsDir)) Directory.Delete(artifactsDir, recursive: true);
 
         // It is an error when never built before.
@@ -1051,9 +1051,16 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .And.HaveStdOut(JsonSerializer.Serialize(new RunApiOutput.Project
             {
                 Content = $"""
-                    <Project Sdk="Microsoft.NET.Sdk">
+                    <Project>
 
-                      <Sdk Name="Aspire.Hosting.Sdk" Version="9.1.0" />
+                      <PropertyGroup>
+                        <IncludeProjectNameInArtifactsPaths>false</IncludeProjectNameInArtifactsPaths>
+                        <ArtifactsPath>/artifacts</ArtifactsPath>
+                      </PropertyGroup>
+
+                      <!-- We need to explicitly import Sdk props/targets so we can override the targets below. -->
+                      <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                      <Import Project="Sdk.props" Sdk="Aspire.Hosting.Sdk/9.1.0" />
 
                       <PropertyGroup>
                         <OutputType>Exe</OutputType>
@@ -1063,13 +1070,55 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
                       </PropertyGroup>
 
                       <PropertyGroup>
+                        <EnableDefaultItems>false</EnableDefaultItems>
+                      </PropertyGroup>
+
+                      <PropertyGroup>
                         <TargetFramework>net11.0</TargetFramework>
                         <LangVersion>preview</LangVersion>
+                      </PropertyGroup>
+
+                      <PropertyGroup>
+                        <Features>$(Features);FileBasedProgram</Features>
                       </PropertyGroup>
 
                       <ItemGroup>
                         <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
                       </ItemGroup>
+
+                      <ItemGroup>
+                        <Compile Include="{programPath}" />
+                      </ItemGroup>
+
+                      <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
+                      <Import Project="Sdk.targets" Sdk="Aspire.Hosting.Sdk/9.1.0" />
+
+                      <!--
+                        Override targets which don't work with project files that are not present on disk.
+                        See https://github.com/NuGet/Home/issues/14148.
+                      -->
+
+                      <Target Name="_FilterRestoreGraphProjectInputItems"
+                              DependsOnTargets="_LoadRestoreGraphEntryPoints"
+                              Returns="@(FilteredRestoreGraphProjectInputItems)">
+                        <ItemGroup>
+                          <FilteredRestoreGraphProjectInputItems Include="@(RestoreGraphProjectInputItems)" />
+                        </ItemGroup>
+                      </Target>
+
+                      <Target Name="_GetAllRestoreProjectPathItems"
+                              DependsOnTargets="_FilterRestoreGraphProjectInputItems"
+                              Returns="@(_RestoreProjectPathItems)">
+                        <ItemGroup>
+                          <_RestoreProjectPathItems Include="@(FilteredRestoreGraphProjectInputItems)" />
+                        </ItemGroup>
+                      </Target>
+
+                      <Target Name="_GenerateRestoreGraph"
+                              DependsOnTargets="_FilterRestoreGraphProjectInputItems;_GetAllRestoreProjectPathItems;_GenerateRestoreGraphProjectEntry;_GenerateProjectRestoreGraph"
+                              Returns="@(_RestoreGraphEntry)">
+                        <!-- Output from dependency _GenerateRestoreGraphProjectEntry and _GenerateProjectRestoreGraph -->
+                      </Target>
 
                     </Project>
 
@@ -1095,7 +1144,15 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .And.HaveStdOut(JsonSerializer.Serialize(new RunApiOutput.Project
             {
                 Content = $"""
-                    <Project Sdk="Microsoft.NET.Sdk">
+                    <Project>
+
+                      <PropertyGroup>
+                        <IncludeProjectNameInArtifactsPaths>false</IncludeProjectNameInArtifactsPaths>
+                        <ArtifactsPath>/artifacts</ArtifactsPath>
+                      </PropertyGroup>
+
+                      <!-- We need to explicitly import Sdk props/targets so we can override the targets below. -->
+                      <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
 
                       <PropertyGroup>
                         <OutputType>Exe</OutputType>
@@ -1103,6 +1160,47 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
                         <ImplicitUsings>enable</ImplicitUsings>
                         <Nullable>enable</Nullable>
                       </PropertyGroup>
+
+                      <PropertyGroup>
+                        <EnableDefaultItems>false</EnableDefaultItems>
+                      </PropertyGroup>
+
+                      <PropertyGroup>
+                        <Features>$(Features);FileBasedProgram</Features>
+                      </PropertyGroup>
+
+                      <ItemGroup>
+                        <Compile Include="{programPath}" />
+                      </ItemGroup>
+
+                      <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
+
+                      <!--
+                        Override targets which don't work with project files that are not present on disk.
+                        See https://github.com/NuGet/Home/issues/14148.
+                      -->
+
+                      <Target Name="_FilterRestoreGraphProjectInputItems"
+                              DependsOnTargets="_LoadRestoreGraphEntryPoints"
+                              Returns="@(FilteredRestoreGraphProjectInputItems)">
+                        <ItemGroup>
+                          <FilteredRestoreGraphProjectInputItems Include="@(RestoreGraphProjectInputItems)" />
+                        </ItemGroup>
+                      </Target>
+
+                      <Target Name="_GetAllRestoreProjectPathItems"
+                              DependsOnTargets="_FilterRestoreGraphProjectInputItems"
+                              Returns="@(_RestoreProjectPathItems)">
+                        <ItemGroup>
+                          <_RestoreProjectPathItems Include="@(FilteredRestoreGraphProjectInputItems)" />
+                        </ItemGroup>
+                      </Target>
+
+                      <Target Name="_GenerateRestoreGraph"
+                              DependsOnTargets="_FilterRestoreGraphProjectInputItems;_GetAllRestoreProjectPathItems;_GenerateRestoreGraphProjectEntry;_GenerateProjectRestoreGraph"
+                              Returns="@(_RestoreGraphEntry)">
+                        <!-- Output from dependency _GenerateRestoreGraphProjectEntry and _GenerateProjectRestoreGraph -->
+                      </Target>
 
                     </Project>
 
@@ -1135,7 +1233,15 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .And.HaveStdOut(JsonSerializer.Serialize(new RunApiOutput.Project
             {
                 Content = $"""
-                    <Project Sdk="Microsoft.NET.Sdk">
+                    <Project>
+
+                      <PropertyGroup>
+                        <IncludeProjectNameInArtifactsPaths>false</IncludeProjectNameInArtifactsPaths>
+                        <ArtifactsPath>/artifacts</ArtifactsPath>
+                      </PropertyGroup>
+
+                      <!-- We need to explicitly import Sdk props/targets so we can override the targets below. -->
+                      <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
 
                       <PropertyGroup>
                         <OutputType>Exe</OutputType>
@@ -1143,6 +1249,47 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
                         <ImplicitUsings>enable</ImplicitUsings>
                         <Nullable>enable</Nullable>
                       </PropertyGroup>
+
+                      <PropertyGroup>
+                        <EnableDefaultItems>false</EnableDefaultItems>
+                      </PropertyGroup>
+
+                      <PropertyGroup>
+                        <Features>$(Features);FileBasedProgram</Features>
+                      </PropertyGroup>
+
+                      <ItemGroup>
+                        <Compile Include="{programPath}" />
+                      </ItemGroup>
+
+                      <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
+
+                      <!--
+                        Override targets which don't work with project files that are not present on disk.
+                        See https://github.com/NuGet/Home/issues/14148.
+                      -->
+
+                      <Target Name="_FilterRestoreGraphProjectInputItems"
+                              DependsOnTargets="_LoadRestoreGraphEntryPoints"
+                              Returns="@(FilteredRestoreGraphProjectInputItems)">
+                        <ItemGroup>
+                          <FilteredRestoreGraphProjectInputItems Include="@(RestoreGraphProjectInputItems)" />
+                        </ItemGroup>
+                      </Target>
+
+                      <Target Name="_GetAllRestoreProjectPathItems"
+                              DependsOnTargets="_FilterRestoreGraphProjectInputItems"
+                              Returns="@(_RestoreProjectPathItems)">
+                        <ItemGroup>
+                          <_RestoreProjectPathItems Include="@(FilteredRestoreGraphProjectInputItems)" />
+                        </ItemGroup>
+                      </Target>
+
+                      <Target Name="_GenerateRestoreGraph"
+                              DependsOnTargets="_FilterRestoreGraphProjectInputItems;_GetAllRestoreProjectPathItems;_GenerateRestoreGraphProjectEntry;_GenerateProjectRestoreGraph"
+                              Returns="@(_RestoreGraphEntry)">
+                        <!-- Output from dependency _GenerateRestoreGraphProjectEntry and _GenerateProjectRestoreGraph -->
+                      </Target>
 
                     </Project>
 

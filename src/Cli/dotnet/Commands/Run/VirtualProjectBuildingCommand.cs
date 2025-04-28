@@ -402,8 +402,10 @@ internal sealed class VirtualProjectBuildingCommand
         }
     }
 
+    private string GetArtifactsPath() => GetArtifactsPath(EntryPointFileFullPath);
+
     // internal for testing
-    internal string GetArtifactsPath()
+    internal static string GetArtifactsPath(string entryPointFileFullPath)
     {
         // We want a location where permissions are expected to be restricted to the current user.
         string directory = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
@@ -411,24 +413,19 @@ internal sealed class VirtualProjectBuildingCommand
             : Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
 
         // Include entry point file name so the directory name is not completely opaque.
-        string fileName = Path.GetFileNameWithoutExtension(EntryPointFileFullPath);
-        string hash = Sha256Hasher.HashWithNormalizedCasing(EntryPointFileFullPath);
+        string fileName = Path.GetFileNameWithoutExtension(entryPointFileFullPath);
+        string hash = Sha256Hasher.HashWithNormalizedCasing(entryPointFileFullPath);
         string directoryName = $"{fileName}-{hash}";
 
         return Path.Join(directory, "dotnet", "runfile", directoryName);
     }
 
-    public static void WriteProjectFile(TextWriter writer, ImmutableArray<CSharpDirective> directives)
-    {
-        WriteProjectFile(writer, directives, isVirtualProject: false, targetFilePath: null, artifactsPath: null);
-    }
-
-    private static void WriteProjectFile(
+    public static void WriteProjectFile(
         TextWriter writer,
         ImmutableArray<CSharpDirective> directives,
         bool isVirtualProject,
-        string? targetFilePath,
-        string? artifactsPath)
+        string? targetFilePath = null,
+        string? artifactsPath = null)
     {
         int processedDirectives = 0;
 
@@ -492,10 +489,7 @@ internal sealed class VirtualProjectBuildingCommand
             processedDirectives++;
         }
 
-        if (processedDirectives > 1)
-        {
-            writer.WriteLine();
-        }
+        writer.WriteLine();
 
         // Kept in sync with the default `dotnet new console` project file (enforced by `DotnetProjectAddTests.SameAsTemplate`).
         writer.WriteLine($"""

@@ -25,9 +25,10 @@ internal sealed class RunApiCommand(ParseResult parseResult) : CommandBase(parse
                 var sourceFile = VirtualProjectBuildingCommand.LoadSourceFile(input.EntryPointFileFullPath);
                 var errors = ImmutableArray.CreateBuilder<SimpleDiagnostic>();
                 var directives = VirtualProjectBuildingCommand.FindDirectives(sourceFile, reportAllErrors: true, errors);
+                string artifactsPath = input.ArtifactsPath ?? VirtualProjectBuildingCommand.GetArtifactsPath(input.EntryPointFileFullPath);
 
                 var csprojWriter = new StringWriter();
-                VirtualProjectBuildingCommand.WriteProjectFile(csprojWriter, directives);
+                VirtualProjectBuildingCommand.WriteProjectFile(csprojWriter, directives, isVirtualProject: true, targetFilePath: input.EntryPointFileFullPath, artifactsPath: artifactsPath);
 
                 Respond(new RunApiOutput.Project
                 {
@@ -53,7 +54,7 @@ internal sealed class RunApiCommand(ParseResult parseResult) : CommandBase(parse
 
 internal sealed class RunApiInput
 {
-    public required string? ArtifactsPath { get; init; }
+    public string? ArtifactsPath { get; init; }
     public required string EntryPointFileFullPath { get; init; }
 }
 
