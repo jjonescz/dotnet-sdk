@@ -2,8 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Text.Json;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.Text;
 using Microsoft.DotNet.Cli.Commands;
 using Microsoft.DotNet.Cli.Commands.Run;
+using Microsoft.DotNet.Cli.Commands.Run.Api;
 
 namespace Microsoft.DotNet.Cli.Run.Tests;
 
@@ -1042,10 +1045,37 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             """);
 
         new DotnetCommand(Log, "run-api")
-            .WithStandardInput(JsonSerializer.Serialize(new { EntryPointFileFullPath = programPath, ArtifactsPath = "/artifacts" }))
+            .WithStandardInput(JsonSerializer.Serialize(new RunApiInput { EntryPointFileFullPath = programPath, ArtifactsPath = "/artifacts" }, RunFileApiJsonSerializerContext.Default.RunApiInput))
             .Execute()
             .Should().Pass()
-            .And.HaveStdOut("""{"$type":"Project","Content":"\u003CProject Sdk=\u0022Microsoft.NET.Sdk\u0022\u003E\r\n\r\n  \u003CSdk Name=\u0022Aspire.Hosting.Sdk\u0022 Version=\u00229.1.0\u0022 /\u003E\r\n\r\n  \u003CPropertyGroup\u003E\r\n    \u003COutputType\u003EExe\u003C/OutputType\u003E\r\n    \u003CTargetFramework\u003Enet10.0\u003C/TargetFramework\u003E\r\n    \u003CImplicitUsings\u003Eenable\u003C/ImplicitUsings\u003E\r\n    \u003CNullable\u003Eenable\u003C/Nullable\u003E\r\n  \u003C/PropertyGroup\u003E\r\n\r\n  \u003CPropertyGroup\u003E\r\n    \u003CTargetFramework\u003Enet11.0\u003C/TargetFramework\u003E\r\n    \u003CLangVersion\u003Epreview\u003C/LangVersion\u003E\r\n  \u003C/PropertyGroup\u003E\r\n\r\n  \u003CItemGroup\u003E\r\n    \u003CPackageReference Include=\u0022System.CommandLine\u0022 Version=\u00222.0.0-beta4.22272.1\u0022 /\u003E\r\n  \u003C/ItemGroup\u003E\r\n\r\n\u003C/Project\u003E\r\n","Diagnostics":[]}""");
+            .And.HaveStdOut(JsonSerializer.Serialize(new RunApiOutput.Project
+            {
+                Content = $"""
+                    <Project Sdk="Microsoft.NET.Sdk">
+
+                      <Sdk Name="Aspire.Hosting.Sdk" Version="9.1.0" />
+
+                      <PropertyGroup>
+                        <OutputType>Exe</OutputType>
+                        <TargetFramework>{ToolsetInfo.CurrentTargetFramework}</TargetFramework>
+                        <ImplicitUsings>enable</ImplicitUsings>
+                        <Nullable>enable</Nullable>
+                      </PropertyGroup>
+
+                      <PropertyGroup>
+                        <TargetFramework>net11.0</TargetFramework>
+                        <LangVersion>preview</LangVersion>
+                      </PropertyGroup>
+
+                      <ItemGroup>
+                        <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
+                      </ItemGroup>
+
+                    </Project>
+
+                    """,
+                Diagnostics = [],
+            }, RunFileApiJsonSerializerContext.Default.RunApiOutput));
     }
 
     [Fact]
@@ -1058,13 +1088,34 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             #:property LangVersion preview
             """);
 
-        var escapedProgramPath = JsonSerializer.Serialize(programPath);
-        var escapedMessage = JsonSerializer.Serialize(string.Format(CliCommandStrings.CannotConvertDirective, $"{programPath}:2"));
         new DotnetCommand(Log, "run-api")
-            .WithStandardInput(JsonSerializer.Serialize(new { EntryPointFileFullPath = programPath, ArtifactsPath = "/artifacts" }))
+            .WithStandardInput(JsonSerializer.Serialize(new RunApiInput { EntryPointFileFullPath = programPath, ArtifactsPath = "/artifacts" }, RunFileApiJsonSerializerContext.Default.RunApiInput))
             .Execute()
             .Should().Pass()
-            .And.HaveStdOut($$$"""{"$type":"Project","Content":"\u003CProject Sdk=\u0022Microsoft.NET.Sdk\u0022\u003E\r\n\r\n  \u003CPropertyGroup\u003E\r\n    \u003COutputType\u003EExe\u003C/OutputType\u003E\r\n    \u003CTargetFramework\u003Enet10.0\u003C/TargetFramework\u003E\r\n    \u003CImplicitUsings\u003Eenable\u003C/ImplicitUsings\u003E\r\n    \u003CNullable\u003Eenable\u003C/Nullable\u003E\r\n  \u003C/PropertyGroup\u003E\r\n\r\n\u003C/Project\u003E\r\n","Diagnostics":[{"Location":{"Path":{{{escapedProgramPath}}},"Span":{"Start":{"Line":1,"Character":0},"End":{"Line":1,"Character":30}},"HasMappedPath":false,"StartLinePosition":{"Line":1,"Character":0},"EndLinePosition":{"Line":1,"Character":30},"IsValid":true},"Message":{{{escapedMessage}}}}]}""");
+            .And.HaveStdOut(JsonSerializer.Serialize(new RunApiOutput.Project
+            {
+                Content = $"""
+                    <Project Sdk="Microsoft.NET.Sdk">
+
+                      <PropertyGroup>
+                        <OutputType>Exe</OutputType>
+                        <TargetFramework>{ToolsetInfo.CurrentTargetFramework}</TargetFramework>
+                        <ImplicitUsings>enable</ImplicitUsings>
+                        <Nullable>enable</Nullable>
+                      </PropertyGroup>
+
+                    </Project>
+
+                    """,
+                Diagnostics =
+                [
+                    new()
+                    {
+                        Location = new FileLinePositionSpan(programPath, new LinePosition(1, 0), new LinePosition(1, 30)),
+                        Message = string.Format(CliCommandStrings.CannotConvertDirective, $"{programPath}:2"),
+                    },
+                ],
+            }, RunFileApiJsonSerializerContext.Default.RunApiOutput));
     }
 
     [Fact]
@@ -1077,12 +1128,33 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             Console.WriteLine();
             """);
 
-        var escapedProgramPath = JsonSerializer.Serialize(programPath);
-        var escapedMessage = JsonSerializer.Serialize(string.Format(CliCommandStrings.UnrecognizedDirective, "unknown", $"{programPath}:1"));
         new DotnetCommand(Log, "run-api")
-            .WithStandardInput(JsonSerializer.Serialize(new { EntryPointFileFullPath = programPath, ArtifactsPath = "/artifacts" }))
+            .WithStandardInput(JsonSerializer.Serialize(new RunApiInput { EntryPointFileFullPath = programPath, ArtifactsPath = "/artifacts" }, RunFileApiJsonSerializerContext.Default.RunApiInput))
             .Execute()
             .Should().Pass()
-            .And.HaveStdOut($$$$$"""{"$type":"Project","Content":"\u003CProject Sdk=\u0022Microsoft.NET.Sdk\u0022\u003E\r\n\r\n  \u003CPropertyGroup\u003E\r\n    \u003COutputType\u003EExe\u003C/OutputType\u003E\r\n    \u003CTargetFramework\u003Enet10.0\u003C/TargetFramework\u003E\r\n    \u003CImplicitUsings\u003Eenable\u003C/ImplicitUsings\u003E\r\n    \u003CNullable\u003Eenable\u003C/Nullable\u003E\r\n  \u003C/PropertyGroup\u003E\r\n\r\n\u003C/Project\u003E\r\n","Diagnostics":[{"Location":{"Path":{{{{{escapedProgramPath}}}}},"Span":{"Start":{"Line":0,"Character":0},"End":{"Line":1,"Character":0}},"HasMappedPath":false,"StartLinePosition":{"Line":0,"Character":0},"EndLinePosition":{"Line":1,"Character":0},"IsValid":true},"Message":{{{{{escapedMessage}}}}}}]}""");
+            .And.HaveStdOut(JsonSerializer.Serialize(new RunApiOutput.Project
+            {
+                Content = $"""
+                    <Project Sdk="Microsoft.NET.Sdk">
+
+                      <PropertyGroup>
+                        <OutputType>Exe</OutputType>
+                        <TargetFramework>{ToolsetInfo.CurrentTargetFramework}</TargetFramework>
+                        <ImplicitUsings>enable</ImplicitUsings>
+                        <Nullable>enable</Nullable>
+                      </PropertyGroup>
+
+                    </Project>
+
+                    """,
+                Diagnostics =
+                [
+                    new()
+                    {
+                        Location = new FileLinePositionSpan(programPath, new LinePosition(0, 0), new LinePosition(1, 0)),
+                        Message = string.Format(CliCommandStrings.UnrecognizedDirective, "unknown", $"{programPath}:1"),
+                    },
+                ],
+            }, RunFileApiJsonSerializerContext.Default.RunApiOutput));
     }
 }
