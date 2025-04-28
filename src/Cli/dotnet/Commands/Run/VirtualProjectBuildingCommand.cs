@@ -505,16 +505,16 @@ internal sealed class VirtualProjectBuildingCommand
     {
         var entryDirectory = entryPointFile.Directory!;
         var files = entryDirectory.EnumerateFiles("*.cs", s_csEnumerationOptions)
-            .OrderBy(f => f.FullName, StringComparer.OrdinalIgnoreCase);
+            .OrderBy(f => f.FullName, StringComparer.Ordinal);
         foreach (var file in files)
         {
-            bool isTopLevel = entryDirectory.FullName.Equals(file.Directory!.FullName, StringComparison.OrdinalIgnoreCase);
-
-            // Skip the current entry point.
-            if (isTopLevel && entryPointFile.Name.Equals(file.Name, StringComparison.OrdinalIgnoreCase))
+            // Skip the current entry point (FileInfo.FullName is a normalized path, so we can compare it).
+            if (entryPointFile.FullName.Equals(file.FullName, StringComparison.Ordinal))
             {
                 continue;
             }
+
+            bool isTopLevel = entryDirectory.FullName.Equals(file.Directory!.FullName, StringComparison.Ordinal);
 
             yield return (File: file, IsTopLevel: isTopLevel);
         }
