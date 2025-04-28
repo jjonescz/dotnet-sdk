@@ -8,6 +8,10 @@ using System.Text.Json.Serialization;
 
 namespace Microsoft.DotNet.Cli.Commands.Run.Api;
 
+/// <summary>
+/// Takes JSON from stdin lines, produces JSON on stdout lines, doesn't perform any changes.
+/// Can be used by IDEs to see the project file behind a file-based program.
+/// </summary>
 internal sealed class RunApiCommand(ParseResult parseResult) : CommandBase(parseResult)
 {
     public override int Execute()
