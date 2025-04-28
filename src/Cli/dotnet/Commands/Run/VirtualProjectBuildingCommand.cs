@@ -697,7 +697,11 @@ internal sealed class VirtualProjectBuildingCommand
                 var name = parts.MoveNext() ? message[parts.Current] : default;
                 var value = parts.MoveNext() ? message[parts.Current] : default;
                 Debug.Assert(!parts.MoveNext());
-                builder.Add(CSharpDirective.Parse(sourceFile, span, name.ToString(), value.ToString()));
+
+                if (CSharpDirective.Parse(errors, sourceFile, span, name.ToString(), value.ToString()) is { } directive)
+                {
+                    builder.Add(directive);
+                }
             }
 
             previousWhiteSpaceSpan = default;
@@ -829,23 +833,42 @@ internal abstract class CSharpDirective
     /// </summary>
     public required TextSpan Span { get; init; }
 
-    public static CSharpDirective Parse(SourceFile sourceFile, TextSpan span, string directiveKind, string directiveText)
+    public static CSharpDirective? Parse(ImmutableArray<SimpleDiagnostic>.Builder? errors, SourceFile sourceFile, TextSpan span, string directiveKind, string directiveText)
     {
         return directiveKind switch
         {
-            "sdk" => Sdk.Parse(sourceFile, span, directiveKind, directiveText),
-            "property" => Property.Parse(sourceFile, span, directiveKind, directiveText),
-            "package" => Package.Parse(sourceFile, span, directiveKind, directiveText),
-            _ => throw new GracefulException(CliCommandStrings.UnrecognizedDirective, directiveKind, sourceFile.GetLocationString(span)),
+            "sdk" => Sdk.Parse(errors, sourceFile, span, directiveKind, directiveText),
+            "property" => Property.Parse(errors, sourceFile, span, directiveKind, directiveText),
+            "package" => Package.Parse(errors, sourceFile, span, directiveKind, directiveText),
+            _ => ReportError<CSharpDirective>(errors, sourceFile, span, string.Format(CliCommandStrings.UnrecognizedDirective, directiveKind, sourceFile.GetLocationString(span))),
         };
     }
 
-    private static (string, string?) ParseOptionalTwoParts(SourceFile sourceFile, TextSpan span, string directiveKind, string directiveText, SearchValues<char>? separators = null)
+    private static T? ReportError<T>(ImmutableArray<SimpleDiagnostic>.Builder? errors, SourceFile sourceFile, TextSpan span, string message, Exception? inner = null)
+    {
+        if (errors != null)
+        {
+            errors.Add(new SimpleDiagnostic { Location = sourceFile.GetFileLinePositionSpan(span), Message = message });
+            return default;
+        }
+        else
+        {
+            throw new GracefulException(message, inner);
+        }
+    }
+
+    private static (string, string?)? ParseOptionalTwoParts(ImmutableArray<SimpleDiagnostic>.Builder? errors, SourceFile sourceFile, TextSpan span, string directiveKind, string directiveText, SearchValues<char>? separators = null)
     {
         var i = separators != null
             ? directiveText.AsSpan().IndexOfAny(separators)
             : directiveText.IndexOf(' ', StringComparison.Ordinal);
-        var firstPart = checkFirstPart(i < 0 ? directiveText : directiveText[..i]);
+        var firstPart = i < 0 ? directiveText : directiveText[..i];
+
+        if (string.IsNullOrWhiteSpace(firstPart))
+        {
+            return ReportError<(string, string?)?>(errors, sourceFile, span, string.Format(CliCommandStrings.MissingDirectiveName, directiveKind, sourceFile.GetLocationString(span)));
+        }
+
         var secondPart = i < 0 ? [] : directiveText.AsSpan((i + 1)..).TrimStart();
         if (i < 0 || secondPart.IsWhiteSpace())
         {
@@ -853,16 +876,6 @@ internal abstract class CSharpDirective
         }
 
         return (firstPart, secondPart.ToString());
-
-        string checkFirstPart(string firstPart)
-        {
-            if (string.IsNullOrWhiteSpace(firstPart))
-            {
-                throw new GracefulException(CliCommandStrings.MissingDirectiveName, directiveKind, sourceFile.GetLocationString(span));
-            }
-
-            return firstPart;
-        }
     }
 
     /// <summary>
@@ -880,9 +893,12 @@ internal abstract class CSharpDirective
         public required string Name { get; init; }
         public string? Version { get; init; }
 
-        public static new Sdk Parse(SourceFile sourceFile, TextSpan span, string directiveKind, string directiveText)
+        public static new Sdk? Parse(ImmutableArray<SimpleDiagnostic>.Builder? errors, SourceFile sourceFile, TextSpan span, string directiveKind, string directiveText)
         {
-            var (sdkName, sdkVersion) = ParseOptionalTwoParts(sourceFile, span, directiveKind, directiveText);
+            if (ParseOptionalTwoParts(errors, sourceFile, span, directiveKind, directiveText) is not var (sdkName, sdkVersion))
+            {
+                return null;
+            }
 
             return new Sdk
             {
@@ -908,13 +924,16 @@ internal abstract class CSharpDirective
         public required string Name { get; init; }
         public required string Value { get; init; }
 
-        public static new Property Parse(SourceFile sourceFile, TextSpan span, string directiveKind, string directiveText)
+        public static new Property? Parse(ImmutableArray<SimpleDiagnostic>.Builder? errors, SourceFile sourceFile, TextSpan span, string directiveKind, string directiveText)
         {
-            var (propertyName, propertyValue) = ParseOptionalTwoParts(sourceFile, span, directiveKind, directiveText);
+            if (ParseOptionalTwoParts(errors, sourceFile, span, directiveKind, directiveText) is not var (propertyName, propertyValue))
+            {
+                return null;
+            }
 
             if (propertyValue is null)
             {
-                throw new GracefulException(CliCommandStrings.PropertyDirectiveMissingParts, sourceFile.GetLocationString(span));
+                return ReportError<Property?>(errors, sourceFile, span, string.Format(CliCommandStrings.PropertyDirectiveMissingParts, sourceFile.GetLocationString(span)));
             }
 
             try
@@ -923,7 +942,7 @@ internal abstract class CSharpDirective
             }
             catch (XmlException ex)
             {
-                throw new GracefulException(string.Format(CliCommandStrings.PropertyDirectiveInvalidName, sourceFile.GetLocationString(span), ex.Message), ex);
+                return ReportError<Property?>(errors, sourceFile, span, string.Format(CliCommandStrings.PropertyDirectiveInvalidName, sourceFile.GetLocationString(span), ex.Message), ex);
             }
 
             return new Property
@@ -947,9 +966,12 @@ internal abstract class CSharpDirective
         public required string Name { get; init; }
         public string? Version { get; init; }
 
-        public static new Package Parse(SourceFile sourceFile, TextSpan span, string directiveKind, string directiveText)
+        public static new Package? Parse(ImmutableArray<SimpleDiagnostic>.Builder? errors, SourceFile sourceFile, TextSpan span, string directiveKind, string directiveText)
         {
-            var (packageName, packageVersion) = ParseOptionalTwoParts(sourceFile, span, directiveKind, directiveText, s_separators);
+            if (ParseOptionalTwoParts(errors, sourceFile, span, directiveKind, directiveText, s_separators) is not var (packageName, packageVersion))
+            {
+                return null;
+            }
 
             return new Package
             {

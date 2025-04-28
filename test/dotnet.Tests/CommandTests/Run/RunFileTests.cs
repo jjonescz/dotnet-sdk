@@ -1049,7 +1049,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     }
 
     [Fact]
-    public void Api_Diagnostic()
+    public void Api_Diagnostic_01()
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
         var programPath = Path.Join(testInstance.Path, "Program.cs");
@@ -1065,5 +1065,24 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .Execute()
             .Should().Pass()
             .And.HaveStdOut($$$"""{"$type":"Project","Content":"\u003CProject Sdk=\u0022Microsoft.NET.Sdk\u0022\u003E\r\n\r\n  \u003CPropertyGroup\u003E\r\n    \u003COutputType\u003EExe\u003C/OutputType\u003E\r\n    \u003CTargetFramework\u003Enet10.0\u003C/TargetFramework\u003E\r\n    \u003CImplicitUsings\u003Eenable\u003C/ImplicitUsings\u003E\r\n    \u003CNullable\u003Eenable\u003C/Nullable\u003E\r\n  \u003C/PropertyGroup\u003E\r\n\r\n\u003C/Project\u003E\r\n","Diagnostics":[{"Location":{"Path":{{{escapedProgramPath}}},"Span":{"Start":{"Line":1,"Character":0},"End":{"Line":1,"Character":30}},"HasMappedPath":false,"StartLinePosition":{"Line":1,"Character":0},"EndLinePosition":{"Line":1,"Character":30},"IsValid":true},"Message":{{{escapedMessage}}}}]}""");
+    }
+
+    [Fact]
+    public void Api_Diagnostic_02()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        var programPath = Path.Join(testInstance.Path, "Program.cs");
+        File.WriteAllText(programPath, """
+            #:unknown directive
+            Console.WriteLine();
+            """);
+
+        var escapedProgramPath = JsonSerializer.Serialize(programPath);
+        var escapedMessage = JsonSerializer.Serialize(string.Format(CliCommandStrings.UnrecognizedDirective, "unknown", $"{programPath}:1"));
+        new DotnetCommand(Log, "run-api")
+            .WithStandardInput(JsonSerializer.Serialize(new { EntryPointFileFullPath = programPath, ArtifactsPath = "/artifacts" }))
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut($$$$$"""{"$type":"Project","Content":"\u003CProject Sdk=\u0022Microsoft.NET.Sdk\u0022\u003E\r\n\r\n  \u003CPropertyGroup\u003E\r\n    \u003COutputType\u003EExe\u003C/OutputType\u003E\r\n    \u003CTargetFramework\u003Enet10.0\u003C/TargetFramework\u003E\r\n    \u003CImplicitUsings\u003Eenable\u003C/ImplicitUsings\u003E\r\n    \u003CNullable\u003Eenable\u003C/Nullable\u003E\r\n  \u003C/PropertyGroup\u003E\r\n\r\n\u003C/Project\u003E\r\n","Diagnostics":[{"Location":{"Path":{{{{{escapedProgramPath}}}}},"Span":{"Start":{"Line":0,"Character":0},"End":{"Line":1,"Character":0}},"HasMappedPath":false,"StartLinePosition":{"Line":0,"Character":0},"EndLinePosition":{"Line":1,"Character":0},"IsValid":true},"Message":{{{{{escapedMessage}}}}}}]}""");
     }
 }
