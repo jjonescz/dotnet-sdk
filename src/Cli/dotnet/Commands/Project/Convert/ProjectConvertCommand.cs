@@ -12,50 +12,93 @@ namespace Microsoft.DotNet.Cli.Commands.Project.Convert;
 
 internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBase(parseResult)
 {
-    private readonly string _file = parseResult.GetValue(ProjectConvertCommandParser.FileArgument) ?? string.Empty;
+    private readonly string? _fileOrDirectory = parseResult.GetValue(ProjectConvertCommandParser.FileOrDirectoryArgument);
     private readonly string? _outputDirectory = parseResult.GetValue(SharedOptions.OutputOption)?.FullName;
     private readonly bool _force = parseResult.GetValue(ProjectConvertCommandParser.ForceOption);
 
     public override int Execute()
     {
-        string file = Path.GetFullPath(_file);
-        if (!VirtualProjectBuildingCommand.IsValidEntryPointPath(file))
+        // Check target directory.
+        if (_outputDirectory != null && Directory.Exists(_outputDirectory))
         {
-            throw new GracefulException(CliCommandStrings.InvalidFilePath, file);
+            throw new GracefulException(CliCommandStrings.DirectoryAlreadyExists, _outputDirectory);
         }
 
-        string targetDirectory = _outputDirectory ?? Path.ChangeExtension(file, null);
-        if (Directory.Exists(targetDirectory))
+        // Check entry-point file path.
+        string fileOrDirectory = Path.GetFullPath(_fileOrDirectory!);
+        bool isFile = VirtualProjectBuildingCommand.IsValidEntryPointPath(fileOrDirectory);
+        if (!isFile && (File.Exists(fileOrDirectory) || !Directory.Exists(fileOrDirectory)))
         {
-            throw new GracefulException(CliCommandStrings.DirectoryAlreadyExists, targetDirectory);
+            throw new GracefulException(CliCommandStrings.InvalidFileOrDirectoryPath, fileOrDirectory);
         }
 
-        // Generate project file.
-        // TODO: Load directives from other files.
-        SourceFile sourceFile = VirtualProjectBuildingCommand.LoadSourceFile(file);
-        var directives = VirtualProjectBuildingCommand.FindDirectivesForConversion(sourceFile, force: _force);
+        // Discover other files.
+        SourceFile? entryPointSourceFile = isFile ? VirtualProjectBuildingCommand.LoadSourceFile(fileOrDirectory) : null;
+        VirtualProjectBuildingCommand.DiscoverOtherFiles(
+            entryPointFile: entryPointSourceFile,
+            entryDirectory: isFile ? null : new DirectoryInfo(fileOrDirectory),
+            reportAllDirectiveErrors: !_force,
+            otherEntryPoints: out var otherEntryPoints,
+            allFiles: out var allFiles,
+            sortedDirectives: out var sortedDirectives);
 
-        Directory.CreateDirectory(targetDirectory);
-        string projectFile = Path.Join(targetDirectory, Path.GetFileNameWithoutExtension(file) + ".csproj");
-        using (var csprojStream = File.Open(projectFile, FileMode.Create, FileAccess.Write))
-        using (var csprojWriter = new StreamWriter(csprojStream, Encoding.UTF8))
+        // If there are other entry points, a directory must be specified (so it's clear that we convert all the entry points, not just the specified one).
+        if (isFile && otherEntryPoints.Length != 0)
         {
-            VirtualProjectBuildingCommand.WriteConvertedProjectFile(csprojWriter, directives);
+            throw new GracefulException(CliCommandStrings.DirectoryMustBeSpecified, fileOrDirectory);
         }
 
-        var targetFile = Path.Join(targetDirectory, Path.GetFileName(file));
+        ReadOnlySpan<SourceFile> currentEntryPoint = entryPointSourceFile is { } file ? [file] : [];
+        ReadOnlySpan<SourceFile> allEntryPoints = [.. currentEntryPoint, .. otherEntryPoints];
 
-        // Write the converted entry point file or move it if no conversion is needed.
-        if (VirtualProjectBuildingCommand.RemoveDirectivesFromFile(directives, sourceFile.Text) is { } convertedEntryPointFileText)
+        // Check there are some entry points.
+        if (allEntryPoints.Length == 0)
         {
-            using var stream = File.Open(targetFile, FileMode.Create, FileAccess.Write);
-            using var writer = new StreamWriter(stream, Encoding.UTF8);
-            convertedEntryPointFileText.Write(writer);
-            File.Delete(file);
+            throw new GracefulException(CliCommandStrings.NoEntryPoints, fileOrDirectory);
         }
-        else
+
+        // If there is a single entry point, generate the project directly in the output folder, otherwise create a subfolder.
+        string targetDirectory = _outputDirectory ?? Environment.CurrentDirectory;
+        bool deleteSourceFiles = _outputDirectory != null;
+        if (allEntryPoints.Length > 1)
         {
-            File.Move(file, targetFile);
+            targetDirectory = Path.Join(targetDirectory, Path.GetFileNameWithoutExtension(fileOrDirectory));
+            deleteSourceFiles = true;
+        }
+
+        // Generate project file per entry point.
+        foreach (var entryPoint in allEntryPoints)
+        {
+            Directory.CreateDirectory(targetDirectory);
+            string projectFile = Path.Join(targetDirectory, Path.GetFileNameWithoutExtension(entryPoint.Path) + ".csproj");
+            using (var csprojStream = File.Open(projectFile, FileMode.Create, FileAccess.Write))
+            using (var csprojWriter = new StreamWriter(csprojStream, Encoding.UTF8))
+            {
+                VirtualProjectBuildingCommand.WriteProjectFile(csprojWriter, sortedDirectives, isVirtualProject: false);
+            }
+        }
+
+        // Remove directives from files.
+        foreach (var info in allFiles.Values)
+        {
+            var targetFile = Path.Join(targetDirectory, Path.GetFileName(info.File.Path));
+
+            // Write the converted file or move it if no conversion is needed.
+            if (VirtualProjectBuildingCommand.RemoveDirectivesFromFile(info.Directives, info.File.Text) is { } convertedEntryPointFileText)
+            {
+                using var stream = File.Open(targetFile, FileMode.Create, FileAccess.Write);
+                using var writer = new StreamWriter(stream, Encoding.UTF8);
+                convertedEntryPointFileText.Write(writer);
+
+                if (deleteSourceFiles)
+                {
+                    File.Delete(info.File.Path);
+                }
+            }
+            else if (deleteSourceFiles)
+            {
+                File.Move(info.File.Path, targetFile);
+            }
         }
 
         return 0;

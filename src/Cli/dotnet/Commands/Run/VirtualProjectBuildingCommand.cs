@@ -231,7 +231,7 @@ internal sealed class VirtualProjectBuildingCommand
 
         // Collect current other source files.
         var otherSources = ImmutableArray.CreateBuilder<OtherSourceFile>(previousCacheEntry?.OtherSources.Count ?? 8);
-        foreach (var item in FindOtherFiles(entryPointFile: entryPointFile))
+        foreach (var item in FindOtherFiles(entryPointFile: entryPointFile, entryDirectory: null))
         {
             OtherSourceFile otherSource;
 
@@ -442,22 +442,80 @@ internal sealed class VirtualProjectBuildingCommand
             return this;
         }
 
-        SourceFile entryPointFile = LoadSourceFile(EntryPointFileFullPath);
+        DiscoverOtherFiles(
+            entryPointFile: LoadSourceFile(EntryPointFileFullPath),
+            entryDirectory: null,
+            cache,
+            reportAllDirectiveErrors: false,
+            otherEntryPoints: out var otherEntryPoints,
+            allFiles: out _,
+            sortedDirectives: out var sortedDirectives);
 
-        if (!HasTopLevelStatements(entryPointFile))
+        var csprojWriter = new StringWriter();
+
+        WriteProjectFile(
+            writer: csprojWriter,
+            directives: sortedDirectives,
+            isVirtualProject: true,
+            artifactsPath: GetArtifactsPath(),
+            excludeCompileItems: otherEntryPoints.Select(f => f.Path).ToImmutableArray());
+
+        projectFileText = csprojWriter.ToString();
+        if (cache != null) cache.CurrentEntry.ProjectFileText = projectFileText;
+        _projectFileText = projectFileText;
+
+        return this;
+    }
+
+    public static void DiscoverOtherFiles(
+        SourceFile? entryPointFile,
+        DirectoryInfo? entryDirectory,
+        bool reportAllDirectiveErrors,
+        out ImmutableArray<SourceFile> otherEntryPoints,
+        out IReadOnlyDictionary<string, (SourceFile File, ImmutableArray<CSharpDirective> Directives)> allFiles,
+        out ImmutableArray<CSharpDirective> sortedDirectives)
+    {
+        DiscoverOtherFiles(
+            entryPointFile: entryPointFile,
+            entryDirectory: entryDirectory,
+            cache: null,
+            reportAllDirectiveErrors: reportAllDirectiveErrors,
+            otherEntryPoints: out otherEntryPoints,
+            allFiles: out allFiles,
+            sortedDirectives: out sortedDirectives);
+    }
+
+    private static void DiscoverOtherFiles(
+        SourceFile? entryPointFile,
+        DirectoryInfo? entryDirectory,
+        CacheInfo? cache,
+        bool reportAllDirectiveErrors,
+        out ImmutableArray<SourceFile> otherEntryPoints,
+        out IReadOnlyDictionary<string, (SourceFile File, ImmutableArray<CSharpDirective> Directives)> allFiles,
+        out ImmutableArray<CSharpDirective> sortedDirectives)
+    {
+        // Sorted by file path to get deterministic results.
+        var allFilesBuilder = new SortedDictionary<string, (SourceFile File, ImmutableArray<CSharpDirective> Directives)>(StringComparer.Ordinal);
+
+        // Process entry-point file if provided.
+        if (entryPointFile is { } entryPointFileValue)
         {
-            throw new GracefulException(CliCommandStrings.NoTopLevelStatements, EntryPointFileFullPath);
+            if (!HasTopLevelStatements(entryPointFileValue))
+            {
+                throw new GracefulException(CliCommandStrings.NoTopLevelStatements, entryPointFileValue.Path);
+            }
+
+            // Parse directives in the entry-point file.
+            allFilesBuilder.Add(entryPointFileValue.Path, (entryPointFileValue, FindDirectives(entryPointFileValue, reportErrors: reportAllDirectiveErrors)));
         }
 
-        // Sorted by file path to get deterministic results.
-        var allDirectives = new SortedDictionary<string, ImmutableArray<CSharpDirective>>();
-
-        // Parse directives in the entry-point file.
-        allDirectives.Add(entryPointFile.Path, FindDirectivesForVirtualProject(entryPointFile));
-
         // Discover other C# files.
-        var excluded = ImmutableArray.CreateBuilder<string>();
-        foreach (var other in cache?.OtherSources ?? FindOtherFiles(entryPointFile: new FileInfo(EntryPointFileFullPath)).Select(ToOtherSourceFile))
+        var otherEntryPointsBuilder = ImmutableArray.CreateBuilder<SourceFile>();
+        var otherSources = cache?.OtherSources ?? FindOtherFiles(
+            entryPointFile: entryPointFile?.GetFileInfo(),
+            entryDirectory: entryDirectory)
+            .Select(ToOtherSourceFile);
+        foreach (var other in otherSources)
         {
             var file = other.GetOrLoadFile();
 
@@ -469,27 +527,18 @@ internal sealed class VirtualProjectBuildingCommand
                 }
 
                 // Exclude other entry points.
-                excluded.Add(file.Path);
+                otherEntryPointsBuilder.Add(file);
             }
             else
             {
                 // Parse directives from other non-entry-point files.
-                allDirectives.Add(file.Path, FindDirectivesForVirtualProject(file));
+                allFilesBuilder.Add(file.Path, (file, FindDirectives(file, reportErrors: reportAllDirectiveErrors)));
             }
         }
 
-        // Generate project file XML text.
-        var csprojWriter = new StringWriter();
-        WriteVirtualProjectFile(
-            writer: csprojWriter,
-            directives: allDirectives.Values.SelectMany(d => d).ToImmutableArray(),
-            artifactsPath: GetArtifactsPath(),
-            excludeCompileItems: excluded.DrainToImmutable());
-        projectFileText = csprojWriter.ToString();
-        if (cache != null) cache.CurrentEntry.ProjectFileText = projectFileText;
-        _projectFileText = projectFileText;
-
-        return this;
+        otherEntryPoints = otherEntryPointsBuilder.DrainToImmutable();
+        allFiles = allFilesBuilder;
+        sortedDirectives = allFilesBuilder.Values.SelectMany(x => x.Directives).ToImmutableArray();
     }
 
     private static bool HasTopLevelStatements(SourceFile file)
@@ -501,15 +550,16 @@ internal sealed class VirtualProjectBuildingCommand
     /// <summary>
     /// Discovers inputs that can be used to create <see cref="OtherSourceFile"/>s (via <see cref="ToOtherSourceFile"/>).
     /// </summary>
-    private static IEnumerable<(FileInfo File, bool IsTopLevel)> FindOtherFiles(FileInfo entryPointFile)
+    private static IEnumerable<(FileInfo File, bool IsTopLevel)> FindOtherFiles(FileInfo? entryPointFile, DirectoryInfo? entryDirectory)
     {
-        var entryDirectory = entryPointFile.Directory!;
+        entryDirectory ??= entryPointFile?.Directory;
+        Debug.Assert(entryDirectory != null);
         var files = entryDirectory.EnumerateFiles("*.cs", s_csEnumerationOptions)
             .OrderBy(f => f.FullName, StringComparer.Ordinal);
         foreach (var file in files)
         {
             // Skip the current entry point (FileInfo.FullName is a normalized path, so we can compare it).
-            if (entryPointFile.FullName.Equals(file.FullName, StringComparison.Ordinal))
+            if (entryPointFile?.FullName.Equals(file.FullName, StringComparison.Ordinal) == true)
             {
                 continue;
             }
@@ -588,27 +638,12 @@ internal sealed class VirtualProjectBuildingCommand
         return Path.Join(directory, "dotnet", "runfile", directoryName);
     }
 
-    public static void WriteConvertedProjectFile(TextWriter writer, ImmutableArray<CSharpDirective> directives)
-    {
-        WriteProjectFileImpl(writer, directives, isVirtualProject: false, artifactsPath: null, excludeCompileItems: default);
-    }
-
-    // internal for testing
-    internal static void WriteVirtualProjectFile(
-        TextWriter writer,
-        ImmutableArray<CSharpDirective> directives,
-        string artifactsPath,
-        ImmutableArray<string> excludeCompileItems)
-    {
-        WriteProjectFileImpl(writer, directives, isVirtualProject: true, artifactsPath: artifactsPath, excludeCompileItems);
-    }
-
-    private static void WriteProjectFileImpl(
+    public static void WriteProjectFile(
         TextWriter writer,
         ImmutableArray<CSharpDirective> directives,
         bool isVirtualProject,
-        string? artifactsPath,
-        ImmutableArray<string> excludeCompileItems)
+        string? artifactsPath = null,
+        ImmutableArray<string> excludeCompileItems = default)
     {
         int processedDirectives = 0;
 
@@ -823,19 +858,8 @@ internal sealed class VirtualProjectBuildingCommand
         static string EscapeValue(string value) => SecurityElement.Escape(value);
     }
 
-    public static ImmutableArray<CSharpDirective> FindDirectivesForConversion(SourceFile sourceFile, bool force)
-    {
-        return FindDirectivesImpl(sourceFile, reportErrors: !force);
-    }
-
-    // internal for testing
-    internal static ImmutableArray<CSharpDirective> FindDirectivesForVirtualProject(SourceFile sourceFile)
-    {
-        return FindDirectivesImpl(sourceFile, reportErrors: false);
-    }
-
 #pragma warning disable RSEXPERIMENTAL003 // 'SyntaxTokenParser' is experimental
-    private static ImmutableArray<CSharpDirective> FindDirectivesImpl(SourceFile sourceFile, bool reportErrors)
+    public static ImmutableArray<CSharpDirective> FindDirectives(SourceFile sourceFile, bool reportErrors)
     {
         var builder = ImmutableArray.CreateBuilder<CSharpDirective>();
         SyntaxTokenParser tokenizer = SyntaxFactory.CreateTokenParser(sourceFile.Text,
@@ -960,6 +984,8 @@ internal readonly record struct SourceFile(string Path, SourceText Text)
         var positionSpan = new FileLinePositionSpan(Path, Text.Lines.GetLinePositionSpan(span));
         return $"{positionSpan.Path}:{positionSpan.StartLinePosition.Line + 1}";
     }
+
+    public FileInfo GetFileInfo() => new FileInfo(Path);
 }
 
 /// <summary>

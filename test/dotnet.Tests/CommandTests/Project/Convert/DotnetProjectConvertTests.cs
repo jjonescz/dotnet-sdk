@@ -166,7 +166,7 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Fail()
-            .And.HaveStdErrContaining(string.Format(CliCommandStrings.InvalidFilePath, Path.Join(testInstance.Path, "NotHere.cs")));
+            .And.HaveStdErrContaining(string.Format(CliCommandStrings.InvalidFileOrDirectoryPath, Path.Join(testInstance.Path, "NotHere.cs")));
 
         new DirectoryInfo(testInstance.Path)
             .EnumerateFileSystemInfos().Should().BeEmpty();
@@ -183,7 +183,7 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Fail()
-            .And.HaveStdErrContaining(string.Format(CliCommandStrings.InvalidFilePath, filePath));
+            .And.HaveStdErrContaining(string.Format(CliCommandStrings.InvalidFileOrDirectoryPath, filePath));
 
         new DirectoryInfo(testInstance.Path)
             .EnumerateFileSystemInfos().Select(f => f.Name).Order()
@@ -323,6 +323,66 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     }
 
     [Fact]
+    public void MultipleFiles_SingleEntryPoint()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        string programContent = "Console.WriteLine(Util.GetMessage());";
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), $"""
+            #:sdk Aspire.Hosting.Sdk/9.1.0
+            #:property Prop1 ValueProgram
+            {programContent}
+            """);
+        string utilContent = """
+            static class Util
+            {
+                public static string GetMessage()
+                {
+                    return "String from Util v2";
+                }
+            }
+            """;
+        File.WriteAllText(Path.Join(testInstance.Path, "Util.cs"), $"""
+            #:property Prop1 ValueUtil
+            {utilContent}
+            """);
+
+        new DotnetCommand(Log, "project", "convert", "Program.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass();
+
+        new DirectoryInfo(testInstance.Path)
+            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
+            .Should().BeEquivalentTo(["Program.csproj", "Program.cs", "Util.cs"]);
+
+        File.ReadAllText(Path.Join(testInstance.Path, "Program.cs"))
+            .Should().Be(programContent);
+
+        File.ReadAllText(Path.Join(testInstance.Path, "Util.cs"))
+            .Should().Be(utilContent);
+
+        File.ReadAllText(Path.Join(testInstance.Path, "Program.csproj"))
+            .Should().Be($"""
+                <Project Sdk="Aspire.Hosting.Sdk/9.1.0">
+
+                  <PropertyGroup>
+                    <OutputType>Exe</OutputType>
+                    <TargetFramework>{ToolsetInfo.CurrentTargetFramework}</TargetFramework>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <Nullable>enable</Nullable>
+                  </PropertyGroup>
+
+                  <PropertyGroup>
+                    <Prop1>ValueProgram</Prop1>
+                    <Prop1>ValueUtil</Prop1>
+                  </PropertyGroup>
+
+                </Project>
+
+                """);
+    }
+
+    [Fact]
     public void Directives()
     {
         VerifyConversion(
@@ -377,7 +437,7 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
                 #:property LangVersion preview
                 Console.WriteLine();
                 """,
-            inMemory: true,
+            isVirtualProject: true,
             excludeCompileItems: ["/test1", "/test2"],
             expectedProject: $"""
                 <Project>
@@ -817,25 +877,21 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
         out string actualProject,
         out string? actualCSharp,
         bool force,
-        bool inMemory,
+        bool isVirtualProject,
         ImmutableArray<string> excludeCompileItems)
     {
         var sourceFile = new SourceFile("/app/Program.cs", SourceText.From(inputCSharp, Encoding.UTF8));
 
-        var directives = inMemory
-            ? VirtualProjectBuildingCommand.FindDirectivesForVirtualProject(sourceFile)
-            : VirtualProjectBuildingCommand.FindDirectivesForConversion(sourceFile, force: force);
+        var directives = VirtualProjectBuildingCommand.FindDirectives(sourceFile, reportErrors: !isVirtualProject && !force);
 
         var projectWriter = new StringWriter();
 
-        if (inMemory)
-        {
-            VirtualProjectBuildingCommand.WriteVirtualProjectFile(projectWriter, directives, "/artifacts", excludeCompileItems);
-        }
-        else
-        {
-            VirtualProjectBuildingCommand.WriteConvertedProjectFile(projectWriter, directives);
-        }
+        VirtualProjectBuildingCommand.WriteProjectFile(
+            projectWriter,
+            directives,
+            isVirtualProject: isVirtualProject,
+            artifactsPath: isVirtualProject ? "/artifacts" : null,
+            excludeCompileItems: isVirtualProject ? excludeCompileItems : default);
 
         actualProject = projectWriter.ToString();
         actualCSharp = VirtualProjectBuildingCommand.RemoveDirectivesFromFile(directives, sourceFile.Text)?.ToString();
@@ -849,7 +905,7 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
         string expectedProject,
         string? expectedCSharp,
         bool force = false,
-        bool inMemory = false,
+        bool isVirtualProject = false,
         ImmutableArray<string> excludeCompileItems = default)
     {
         Convert(
@@ -857,7 +913,7 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             out var actualProject,
             out var actualCSharp,
             force: force,
-            inMemory: inMemory,
+            isVirtualProject: isVirtualProject,
             excludeCompileItems: excludeCompileItems);
         actualProject.Should().Be(expectedProject);
         actualCSharp.Should().Be(expectedCSharp);
@@ -870,7 +926,7 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             out _,
             out _,
             force: false,
-            inMemory: false,
+            isVirtualProject: false,
             excludeCompileItems: default);
         convert.Should().Throw<GracefulException>().WithMessage(expectedWildcardPattern);
     }

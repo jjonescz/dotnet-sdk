@@ -364,8 +364,11 @@ For MSTest before 2.2.4, the timeout is used for all testcases.</value>
   <data name="CmdExpressionName" xml:space="preserve">
     <value>EXPRESSION</value>
   </data>
-  <data name="CmdFileDescription" xml:space="preserve">
-    <value>Path to the file-based program.</value>
+  <data name="FileOrDirectoryArgumentName" xml:space="preserve">
+    <value>FILE | DIRECTORY</value>
+  </data>
+  <data name="FileOrDirectoryArgumentDescription" xml:space="preserve">
+    <value>Path to the file-based program's entry point or directory of multiple entry points.</value>
   </data>
   <data name="CmdOptionForceDescription" xml:space="preserve">
     <value>Force conversion even if there are malformed directives.</value>
@@ -972,9 +975,17 @@ Make the profile names distinct.</value>
   <data name="IntermediateWorkingDirOptionDescription" xml:space="preserve">
     <value>The working directory used by the command to execute.</value>
   </data>
-  <data name="InvalidFilePath" xml:space="preserve">
-    <value>The specified file must exist and have '.cs' file extension: '{0}'</value>
-    <comment>{Locked=".cs"}</comment>
+  <data name="InvalidFileOrDirectoryPath" xml:space="preserve">
+    <value>The specified path must be an existing file with '.cs' extension or an existing directory: '{0}'</value>
+    <comment>{Locked=".cs"}. {0} is file or directory path</comment>
+  </data>
+  <data name="DirectoryMustBeSpecified" xml:space="preserve">
+    <value>Since there are multiple entry points, a directory must be specified rather than a file (and all entry points will be converted together): '{0}'</value>
+    <comment>{0} is file path</comment>
+  </data>
+  <data name="NoEntryPoints" xml:space="preserve">
+    <value>Cannot convert, no entry points found: '{0}'</value>
+    <comment>{0} is directory path</comment>
   </data>
   <data name="InvalidSemVerVersionString" xml:space="preserve">
     <value>Failed to parse "{0}" as a semantic version.</value>
@@ -1493,7 +1504,7 @@ Tool '{1}' (version '{2}') was successfully installed. Entry is added to the man
     <value>Convert a file-based program to a project-based program.</value>
   </data>
   <data name="NoTopLevelStatements" xml:space="preserve">
-    <value>Cannot run a file without top-level statements and without a project: '{0}'</value>
+    <value>The entry point of a file-based program must have top-level statements: '{0}'</value>
     <comment>{0} is file path</comment>
   </data>
   <data name="EntryPointInNestedFolder" xml:space="preserve">
