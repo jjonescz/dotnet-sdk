@@ -446,19 +446,19 @@ internal sealed class VirtualProjectBuildingCommand
             entryPointFile: LoadSourceFile(EntryPointFileFullPath),
             entryDirectory: null,
             cache,
+            parseDirectivesFromOtherEntryPoints: false,
             reportAllDirectiveErrors: false,
             otherEntryPoints: out var otherEntryPoints,
-            allFiles: out _,
-            sortedDirectives: out var sortedDirectives);
+            parsedFiles: out var parsedFiles);
 
         var csprojWriter = new StringWriter();
 
         WriteProjectFile(
             writer: csprojWriter,
-            directives: sortedDirectives,
+            directives: parsedFiles[EntryPointFileFullPath].SortedDirectives,
             isVirtualProject: true,
             artifactsPath: GetArtifactsPath(),
-            excludeCompileItems: otherEntryPoints.Select(f => f.Path).ToImmutableArray());
+            excludeCompileItems: otherEntryPoints);
 
         projectFileText = csprojWriter.ToString();
         if (cache != null) cache.CurrentEntry.ProjectFileText = projectFileText;
@@ -467,35 +467,46 @@ internal sealed class VirtualProjectBuildingCommand
         return this;
     }
 
+    /// <param name="parseDirectivesFromOtherEntryPoints">
+    /// Whether <paramref name="parsedFiles"/> should contain other entry points
+    /// or just the current one (<paramref name="entryPointFile"/>).
+    /// </param>
+    /// <param name="otherEntryPoints">
+    /// Full paths.
+    /// </param>
+    /// <param name="parsedFiles">
+    /// For a source file full path, contains loaded text and parsed directives.
+    /// Contains other entry points only if <paramref name="parseDirectivesFromOtherEntryPoints"/> is set to <see langword="true"/>.
+    /// </param>
     public static void DiscoverOtherFiles(
         SourceFile? entryPointFile,
         DirectoryInfo? entryDirectory,
+        bool parseDirectivesFromOtherEntryPoints,
         bool reportAllDirectiveErrors,
-        out ImmutableArray<SourceFile> otherEntryPoints,
-        out IReadOnlyDictionary<string, (SourceFile File, ImmutableArray<CSharpDirective> Directives)> allFiles,
-        out ImmutableArray<CSharpDirective> sortedDirectives)
+        out ImmutableArray<string> otherEntryPoints,
+        out IReadOnlyDictionary<string, ParsedSourceFile> parsedFiles)
     {
         DiscoverOtherFiles(
             entryPointFile: entryPointFile,
             entryDirectory: entryDirectory,
             cache: null,
+            parseDirectivesFromOtherEntryPoints: parseDirectivesFromOtherEntryPoints,
             reportAllDirectiveErrors: reportAllDirectiveErrors,
             otherEntryPoints: out otherEntryPoints,
-            allFiles: out allFiles,
-            sortedDirectives: out sortedDirectives);
+            parsedFiles: out parsedFiles);
     }
 
     private static void DiscoverOtherFiles(
         SourceFile? entryPointFile,
         DirectoryInfo? entryDirectory,
         CacheInfo? cache,
+        bool parseDirectivesFromOtherEntryPoints,
         bool reportAllDirectiveErrors,
-        out ImmutableArray<SourceFile> otherEntryPoints,
-        out IReadOnlyDictionary<string, (SourceFile File, ImmutableArray<CSharpDirective> Directives)> allFiles,
-        out ImmutableArray<CSharpDirective> sortedDirectives)
+        out ImmutableArray<string> otherEntryPoints,
+        out IReadOnlyDictionary<string, ParsedSourceFile> parsedFiles)
     {
-        // Sorted by file path to get deterministic results.
-        var allFilesBuilder = new SortedDictionary<string, (SourceFile File, ImmutableArray<CSharpDirective> Directives)>(StringComparer.Ordinal);
+        // Sorted by file path for deterministic results when building `sortedDirectives`.
+        var parsedFilesBuilder = new SortedDictionary<string, (SourceFile File, bool IsEntryPoint, ImmutableArray<CSharpDirective> Directives)>(StringComparer.Ordinal);
 
         // Process entry-point file if provided.
         if (entryPointFile is { } entryPointFileValue)
@@ -506,11 +517,12 @@ internal sealed class VirtualProjectBuildingCommand
             }
 
             // Parse directives in the entry-point file.
-            allFilesBuilder.Add(entryPointFileValue.Path, (entryPointFileValue, FindDirectives(entryPointFileValue, reportErrors: reportAllDirectiveErrors)));
+            var directives = FindDirectives(entryPointFileValue, reportErrors: reportAllDirectiveErrors);
+            parsedFilesBuilder.Add(entryPointFileValue.Path, (entryPointFileValue, IsEntryPoint: true, directives));
         }
 
         // Discover other C# files.
-        var otherEntryPointsBuilder = ImmutableArray.CreateBuilder<SourceFile>();
+        var otherEntryPointsBuilder = ImmutableArray.CreateBuilder<string>();
         var otherSources = cache?.OtherSources ?? FindOtherFiles(
             entryPointFile: entryPointFile?.GetFileInfo(),
             entryDirectory: entryDirectory)
@@ -526,19 +538,37 @@ internal sealed class VirtualProjectBuildingCommand
                     throw new GracefulException(CliCommandStrings.EntryPointInNestedFolder, file.Path);
                 }
 
-                // Exclude other entry points.
-                otherEntryPointsBuilder.Add(file);
+                otherEntryPointsBuilder.Add(file.Path);
+                if (parseDirectivesFromOtherEntryPoints)
+                {
+                    var directives = FindDirectives(file, reportErrors: reportAllDirectiveErrors);
+                    parsedFilesBuilder.Add(file.Path, (file, IsEntryPoint: true, directives));
+                }
             }
             else
             {
-                // Parse directives from other non-entry-point files.
-                allFilesBuilder.Add(file.Path, (file, FindDirectives(file, reportErrors: reportAllDirectiveErrors)));
+                var directives = FindDirectives(file, reportErrors: reportAllDirectiveErrors);
+                parsedFilesBuilder.Add(file.Path, (file, IsEntryPoint: false, directives));
             }
         }
 
         otherEntryPoints = otherEntryPointsBuilder.DrainToImmutable();
-        allFiles = allFilesBuilder;
-        sortedDirectives = allFilesBuilder.Values.SelectMany(x => x.Directives).ToImmutableArray();
+
+        var sharedDirectives = parsedFilesBuilder.Values.Where(f => !f.IsEntryPoint).SelectMany(f => f.Directives).ToList();
+        parsedFiles = parsedFilesBuilder.Values.ToDictionary(
+            keySelector: f => f.File.Path,
+            elementSelector: ComputeParsedSourceFile,
+            comparer: StringComparer.Ordinal);
+
+        ParsedSourceFile ComputeParsedSourceFile((SourceFile File, bool IsEntryPoint, ImmutableArray<CSharpDirective> Directives) input)
+        {
+            return new ParsedSourceFile
+            {
+                File = input.File,
+                Directives = input.Directives,
+                SortedDirectives = input.IsEntryPoint ? [.. sharedDirectives, .. input.Directives] : default,
+            };
+        }
     }
 
     private static bool HasTopLevelStatements(SourceFile file)
@@ -1016,6 +1046,23 @@ internal readonly struct OtherSourceFile
 
         return VirtualProjectBuildingCommand.LoadSourceFile(Path);
     }
+}
+
+internal readonly struct ParsedSourceFile
+{
+    public required SourceFile File { get; init; }
+
+    public required ImmutableArray<CSharpDirective> Directives { get; init; }
+
+    /// <summary>
+    /// If this <see cref="ParsedSourceFile"/> represents an entry point,
+    /// contains directives from all non-entry-point files and the current entry point,
+    /// sorted in a deterministic order so they can be used to generate a project file.
+    /// Otherwise, this is <see langword="default"/>.
+    /// </summary>
+    public required ImmutableArray<CSharpDirective> SortedDirectives { get; init; }
+
+    public bool IsEntryPoint => !SortedDirectives.IsDefault;
 }
 
 internal static partial class Patterns

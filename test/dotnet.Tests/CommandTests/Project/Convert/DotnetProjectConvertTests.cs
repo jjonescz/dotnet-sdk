@@ -337,7 +337,7 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             {
                 public static string GetMessage()
                 {
-                    return "String from Util v2";
+                    return "String from Util";
                 }
             }
             """;
@@ -373,13 +373,119 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
                   </PropertyGroup>
 
                   <PropertyGroup>
-                    <Prop1>ValueProgram</Prop1>
                     <Prop1>ValueUtil</Prop1>
+                    <Prop1>ValueProgram</Prop1>
                   </PropertyGroup>
 
                 </Project>
 
                 """);
+    }
+
+    [Fact]
+    public void MultipleFiles_MultipleEntryPoints()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        string program1Content = """Console.WriteLine("1" + Util.GetMessage());""";
+        File.WriteAllText(Path.Join(testInstance.Path, "Program1.cs"), $"""
+            #:property Prop1 ValueProgram1
+            {program1Content}
+            """);
+        string program2Content = """Console.WriteLine("2" + Util.GetMessage());""";
+        File.WriteAllText(Path.Join(testInstance.Path, "Program2.cs"), $"""
+            #:property Prop1 ValueProgram2
+            {program2Content}
+            """);
+        string utilContent = """
+            static class Util
+            {
+                public static string GetMessage()
+                {
+                    return "String from Util";
+                }
+            }
+            """;
+        File.WriteAllText(Path.Join(testInstance.Path, "Util.cs"), $"""
+            #:property Prop1 ValueUtil
+            {utilContent}
+            """);
+
+        // Cannot convert a single entry point, must convert the whole directory.
+        new DotnetCommand(Log, "project", "convert", "Program1.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining(string.Format(CliCommandStrings.DirectoryMustBeSpecified, Path.Join(testInstance.Path, "Program1.cs")));
+
+        new DotnetCommand(Log, "project", "convert", ".")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass();
+
+        new DirectoryInfo(testInstance.Path)
+            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
+            .Should().BeEquivalentTo(["Program1", "Program2", "Shared"]);
+
+        new DirectoryInfo(Path.Join(testInstance.Path, "Program1"))
+            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
+            .Should().BeEquivalentTo(["Program1.csproj", "Program1.cs"]);
+
+        File.ReadAllText(Path.Join(testInstance.Path, "Program1", "Program1.cs"))
+            .Should().Be(program1Content);
+
+        File.ReadAllText(Path.Join(testInstance.Path, "Program1", "Program1.csproj"))
+            .Should().Be($"""
+                <Project Sdk="Microsoft.NET.Sdk">
+
+                  <PropertyGroup>
+                    <OutputType>Exe</OutputType>
+                    <TargetFramework>{ToolsetInfo.CurrentTargetFramework}</TargetFramework>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <Nullable>enable</Nullable>
+                  </PropertyGroup>
+
+                  <PropertyGroup>
+                    <Prop1>ValueUtil</Prop1>
+                    <Prop1>ValueProgram1</Prop1>
+                  </PropertyGroup>
+
+                </Project>
+
+                """);
+
+        new DirectoryInfo(Path.Join(testInstance.Path, "Program2"))
+            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
+            .Should().BeEquivalentTo(["Program2.csproj", "Program2.cs"]);
+
+        File.ReadAllText(Path.Join(testInstance.Path, "Program2", "Program2.cs"))
+            .Should().Be(program2Content);
+
+        File.ReadAllText(Path.Join(testInstance.Path, "Program2", "Program2.csproj"))
+            .Should().Be($"""
+                <Project Sdk="Microsoft.NET.Sdk">
+
+                  <PropertyGroup>
+                    <OutputType>Exe</OutputType>
+                    <TargetFramework>{ToolsetInfo.CurrentTargetFramework}</TargetFramework>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <Nullable>enable</Nullable>
+                  </PropertyGroup>
+
+                  <PropertyGroup>
+                    <Prop1>ValueUtil</Prop1>
+                    <Prop1>ValueProgram2</Prop1>
+                  </PropertyGroup>
+
+                </Project>
+
+                """);
+
+        new DirectoryInfo(Path.Join(testInstance.Path, "Shared"))
+            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
+            .Should().BeEquivalentTo(["Util.cs"]);
+
+        File.ReadAllText(Path.Join(testInstance.Path, "Shared", "Util.cs"))
+            .Should().Be(utilContent);
     }
 
     [Fact]
