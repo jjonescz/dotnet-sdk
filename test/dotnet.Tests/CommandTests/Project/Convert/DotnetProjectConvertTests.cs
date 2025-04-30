@@ -31,15 +31,12 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .Execute()
             .Should().Pass();
 
-        new DirectoryInfo(dotnetProjectConvert)
-            .EnumerateFileSystemInfos().Select(d => d.Name).Order()
-            .Should().BeEquivalentTo(["Program"]);
+        new DirectoryInfo(dotnetProjectConvert).Should().HaveSubtree("""
+            Program.cs
+            Program.csproj
+            """);
 
-        new DirectoryInfo(Path.Join(dotnetProjectConvert, "Program"))
-            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
-            .Should().BeEquivalentTo(["Program.csproj", "Program.cs"]);
-
-        var dotnetProjectConvertProject = Path.Join(dotnetProjectConvert, "Program", "Program.csproj");
+        var dotnetProjectConvertProject = Path.Join(dotnetProjectConvert, "Program.csproj");
 
         Path.GetFileName(dotnetProjectConvertProject).Should().Be("Program.csproj");
 
@@ -60,25 +57,6 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     }
 
     [Fact]
-    public void DirectoryAlreadyExists()
-    {
-        var testInstance = _testAssetsManager.CreateTestDirectory();
-        var directoryPath = Path.Join(testInstance.Path, "MyApp");
-        Directory.CreateDirectory(directoryPath);
-        File.WriteAllText(Path.Join(testInstance.Path, "MyApp.cs"), "Console.WriteLine();");
-
-        new DotnetCommand(Log, "project", "convert", "MyApp.cs")
-            .WithWorkingDirectory(testInstance.Path)
-            .Execute()
-            .Should().Fail()
-            .And.HaveStdErrContaining(string.Format(CliCommandStrings.DirectoryAlreadyExists, directoryPath));
-
-        new DirectoryInfo(testInstance.Path)
-            .EnumerateFileSystemInfos().Select(d => d.Name).Order()
-            .Should().BeEquivalentTo(["MyApp", "MyApp.cs"]);
-    }
-
-    [Fact]
     public void OutputOption()
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
@@ -90,16 +68,12 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .Execute()
             .Should().Pass();
 
-        new DirectoryInfo(testInstance.Path)
-            .EnumerateDirectories().Select(d => d.Name).Order()
-            .Should().BeEquivalentTo(["MyApp", "MyApp1"]);
-
-        new DirectoryInfo(Path.Join(testInstance.Path, "MyApp"))
-            .EnumerateFileSystemInfos().Should().BeEmpty();
-
-        new DirectoryInfo(Path.Join(testInstance.Path, "MyApp1"))
-            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
-            .Should().BeEquivalentTo(["MyApp.csproj", "MyApp.cs"]);
+        new DirectoryInfo(testInstance.Path).Should().HaveSubtree("""
+            MyApp/
+            MyApp1/
+            MyApp1/MyApp.cs
+            MyApp1/MyApp.csproj
+            """);
     }
 
     [Fact]
@@ -116,30 +90,10 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .Should().Fail()
             .And.HaveStdErrContaining(string.Format(CliCommandStrings.DirectoryAlreadyExists, directoryPath));
 
-        new DirectoryInfo(testInstance.Path)
-            .EnumerateFileSystemInfos().Select(d => d.Name).Order()
-            .Should().BeEquivalentTo(["MyApp.cs", "SomeOutput"]);
-    }
-
-    [Fact]
-    public void MultipleEntryPointFiles()
-    {
-        var testInstance = _testAssetsManager.CreateTestDirectory();
-        File.WriteAllText(Path.Join(testInstance.Path, "Program1.cs"), "Console.WriteLine(1);");
-        File.WriteAllText(Path.Join(testInstance.Path, "Program2.cs"), "Console.WriteLine(2);");
-
-        new DotnetCommand(Log, "project", "convert", "Program1.cs")
-            .WithWorkingDirectory(testInstance.Path)
-            .Execute()
-            .Should().Pass();
-
-        new DirectoryInfo(testInstance.Path)
-            .EnumerateFileSystemInfos().Select(d => d.Name).Order()
-            .Should().BeEquivalentTo(["Program1", "Program2.cs"]);
-
-        new DirectoryInfo(Path.Join(testInstance.Path, "Program1"))
-            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
-            .Should().BeEquivalentTo(["Program1.csproj", "Program1.cs"]);
+        new DirectoryInfo(testInstance.Path).Should().HaveSubtree("""
+            MyApp.cs
+            SomeOutput/
+            """);
     }
 
     [Fact]
@@ -153,8 +107,7 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .Should().Fail()
             .And.HaveStdErrContaining("convert"); // Required argument missing for command 'convert'
 
-        new DirectoryInfo(testInstance.Path)
-            .EnumerateFileSystemInfos().Should().BeEmpty();
+        new DirectoryInfo(testInstance.Path).Should().HaveSubtree(string.Empty);
     }
 
     [Fact]
@@ -168,8 +121,7 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .Should().Fail()
             .And.HaveStdErrContaining(string.Format(CliCommandStrings.InvalidFileOrDirectoryPath, Path.Join(testInstance.Path, "NotHere.cs")));
 
-        new DirectoryInfo(testInstance.Path)
-            .EnumerateFileSystemInfos().Should().BeEmpty();
+        new DirectoryInfo(testInstance.Path).Should().HaveSubtree(string.Empty);
     }
 
     [Fact]
@@ -185,9 +137,9 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .Should().Fail()
             .And.HaveStdErrContaining(string.Format(CliCommandStrings.InvalidFileOrDirectoryPath, filePath));
 
-        new DirectoryInfo(testInstance.Path)
-            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
-            .Should().BeEquivalentTo(["Program.vb"]);
+        new DirectoryInfo(testInstance.Path).Should().HaveSubtree("""
+            Program.vb
+            """);
     }
 
     [Fact]
@@ -201,13 +153,10 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .Execute()
             .Should().Pass();
 
-        new DirectoryInfo(testInstance.Path)
-            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
-            .Should().BeEquivalentTo(["Program"]);
-
-        new DirectoryInfo(Path.Join(testInstance.Path, "Program"))
-            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
-            .Should().BeEquivalentTo(["Program.csproj", "Program.CS"]);
+        new DirectoryInfo(testInstance.Path).Should().HaveSubtree("""
+            Program.CS
+            Program.csproj
+            """);
     }
 
     [Theory]
@@ -221,17 +170,14 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
         new DotnetCommand(Log, "project", "convert", "Program.cs")
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
-            .Should().Pass();
+            .Should().Fail()
+            .And.HaveStdErrContaining(string.Format(CliCommandStrings.NoTopLevelStatements, Path.Join(testInstance.Path, "Program.cs")));
 
-        new DirectoryInfo(testInstance.Path)
-            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
-            .Should().BeEquivalentTo(["Program"]);
+        new DirectoryInfo(testInstance.Path).Should().HaveSubtree("""
+            Program.cs
+            """);
 
-        new DirectoryInfo(Path.Join(testInstance.Path, "Program"))
-            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
-            .Should().BeEquivalentTo(["Program.csproj", "Program.cs"]);
-
-        File.ReadAllText(Path.Join(testInstance.Path, "Program", "Program.cs"))
+        File.ReadAllText(Path.Join(testInstance.Path, "Program.cs"))
             .Should().Be(content);
     }
 
@@ -248,13 +194,11 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .Execute()
             .Should().Pass();
 
-        new DirectoryInfo(Path.Join(testInstance.Path, "app"))
-            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
-            .Should().BeEquivalentTo(["Program"]);
-
-        new DirectoryInfo(Path.Join(testInstance.Path, "app", "Program"))
-            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
-            .Should().BeEquivalentTo(["Program.csproj", "Program.cs"]);
+        new DirectoryInfo(testInstance.Path).Should().HaveSubtree("""
+            app/
+            app/Program.cs
+            app/Program.csproj
+            """);
     }
 
     /// <summary>
@@ -266,7 +210,10 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
         var filePath = Path.Join(testInstance.Path, "Program.cs");
-        File.WriteAllText(filePath, "#:invalid");
+        File.WriteAllText(filePath, """
+            #:invalid
+            Console.WriteLine();
+            """);
 
         new DotnetCommand(Log, "project", "convert", "Program.cs")
             .WithWorkingDirectory(testInstance.Path)
@@ -274,8 +221,9 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .Should().Fail()
             .And.HaveStdErrContaining(string.Format(CliCommandStrings.UnrecognizedDirective, "invalid", $"{filePath}:1"));
 
-        new DirectoryInfo(Path.Join(testInstance.Path))
-            .EnumerateDirectories().Should().BeEmpty();
+        new DirectoryInfo(testInstance.Path).Should().HaveSubtree("""
+            Program.cs
+            """);
     }
 
     /// <summary>
@@ -295,18 +243,15 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .Execute()
             .Should().Pass();
 
-        new DirectoryInfo(testInstance.Path)
-            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
-            .Should().BeEquivalentTo(["Program"]);
+        new DirectoryInfo(testInstance.Path).Should().HaveSubtree("""
+            Program.cs
+            Program.csproj
+            """);
 
-        new DirectoryInfo(Path.Join(testInstance.Path, "Program"))
-            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
-            .Should().BeEquivalentTo(["Program.csproj", "Program.cs"]);
-
-        File.ReadAllText(Path.Join(testInstance.Path, "Program", "Program.cs"))
+        File.ReadAllText(Path.Join(testInstance.Path, "Program.cs"))
             .Should().Be("Console.WriteLine();");
 
-        File.ReadAllText(Path.Join(testInstance.Path, "Program", "Program.csproj"))
+        File.ReadAllText(Path.Join(testInstance.Path, "Program.csproj"))
             .Should().Be($"""
                 <Project Sdk="Aspire.Hosting.Sdk/9.1.0">
 
@@ -351,9 +296,11 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .Execute()
             .Should().Pass();
 
-        new DirectoryInfo(testInstance.Path)
-            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
-            .Should().BeEquivalentTo(["Program.csproj", "Program.cs", "Util.cs"]);
+        new DirectoryInfo(testInstance.Path).Should().HaveSubtree("""
+            Program.cs
+            Program.csproj
+            Util.cs
+            """);
 
         File.ReadAllText(Path.Join(testInstance.Path, "Program.cs"))
             .Should().Be(programContent);
@@ -422,13 +369,16 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .Execute()
             .Should().Pass();
 
-        new DirectoryInfo(testInstance.Path)
-            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
-            .Should().BeEquivalentTo(["Program1", "Program2", "Shared"]);
-
-        new DirectoryInfo(Path.Join(testInstance.Path, "Program1"))
-            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
-            .Should().BeEquivalentTo(["Program1.csproj", "Program1.cs"]);
+        new DirectoryInfo(testInstance.Path).Should().HaveSubtree("""
+            Program1/
+            Program1/Program1.cs
+            Program1/Program1.csproj
+            Program2/
+            Program2/Program2.cs
+            Program2/Program2.csproj
+            Shared/
+            Shared/Util.cs
+            """);
 
         File.ReadAllText(Path.Join(testInstance.Path, "Program1", "Program1.cs"))
             .Should().Be(program1Content);
@@ -453,10 +403,6 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
 
                 """);
 
-        new DirectoryInfo(Path.Join(testInstance.Path, "Program2"))
-            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
-            .Should().BeEquivalentTo(["Program2.csproj", "Program2.cs"]);
-
         File.ReadAllText(Path.Join(testInstance.Path, "Program2", "Program2.cs"))
             .Should().Be(program2Content);
 
@@ -479,10 +425,6 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
                 </Project>
 
                 """);
-
-        new DirectoryInfo(Path.Join(testInstance.Path, "Shared"))
-            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
-            .Should().BeEquivalentTo(["Util.cs"]);
 
         File.ReadAllText(Path.Join(testInstance.Path, "Shared", "Util.cs"))
             .Should().Be(utilContent);
