@@ -13,7 +13,7 @@ namespace Microsoft.DotNet.Cli.Commands.Project.Convert;
 
 internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBase(parseResult)
 {
-    private readonly string? _fileOrDirectory = parseResult.GetValue(ProjectConvertCommandParser.FileOrDirectoryArgument);
+    private readonly string _fileOrDirectory = parseResult.GetValue(ProjectConvertCommandParser.FileOrDirectoryArgument)!;
     private readonly string? _outputDirectory = parseResult.GetValue(SharedOptions.OutputOption)?.FullName;
     private readonly bool _force = parseResult.GetValue(ProjectConvertCommandParser.ForceOption);
     private readonly string _sharedDirectoryName = parseResult.GetValue(ProjectConvertCommandParser.SharedDirectoryNameOption)!;
@@ -27,7 +27,7 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
         }
 
         // Check entry-point file path.
-        string fileOrDirectory = Path.GetFullPath(_fileOrDirectory!);
+        string fileOrDirectory = Path.GetFullPath(_fileOrDirectory);
         bool isFile = VirtualProjectBuildingCommand.IsValidEntryPointPath(fileOrDirectory);
         if (!isFile && (File.Exists(fileOrDirectory) || !Directory.Exists(fileOrDirectory)))
         {
