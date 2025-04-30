@@ -456,7 +456,7 @@ internal sealed class VirtualProjectBuildingCommand
         WriteProjectFile(
             writer: csprojWriter,
             directives: parsedFiles[EntryPointFileFullPath].SortedDirectives,
-            virtualProjectOptions: new VirtualProjectOptions
+            options: new ProjectWritingOptions.Virtual
             {
                 ArtifactsPath = GetArtifactsPath(),
                 ExcludeCompileItems = otherEntryPoints,
@@ -673,7 +673,7 @@ internal sealed class VirtualProjectBuildingCommand
     public static void WriteProjectFile(
         TextWriter writer,
         ImmutableArray<CSharpDirective> directives,
-        VirtualProjectOptions? virtualProjectOptions)
+        ProjectWritingOptions options)
     {
         int processedDirectives = 0;
 
@@ -689,7 +689,7 @@ internal sealed class VirtualProjectBuildingCommand
             processedDirectives++;
         }
 
-        if (virtualProjectOptions is { ArtifactsPath: var artifactsPath })
+        if (options is ProjectWritingOptions.Virtual { ArtifactsPath: var artifactsPath })
         {
             Debug.Assert(!string.IsNullOrWhiteSpace(artifactsPath));
 
@@ -715,7 +715,7 @@ internal sealed class VirtualProjectBuildingCommand
 
         foreach (var sdk in sdkDirectives.Skip(1))
         {
-            if (virtualProjectOptions != null)
+            if (options is ProjectWritingOptions.Virtual)
             {
                 writer.WriteLine($"""
                       <Import Project="Sdk.props" Sdk="{EscapeValue(sdk.ToSlashDelimitedString())}" />
@@ -771,7 +771,7 @@ internal sealed class VirtualProjectBuildingCommand
             writer.WriteLine("  </PropertyGroup>");
         }
 
-        if (virtualProjectOptions != null)
+        if (options is ProjectWritingOptions.Virtual)
         {
             // After `#:property` directives so they don't override this.
             writer.WriteLine("""
@@ -812,7 +812,7 @@ internal sealed class VirtualProjectBuildingCommand
 
         Debug.Assert(processedDirectives + directives.OfType<CSharpDirective.Shebang>().Count() == directives.Length);
 
-        if (virtualProjectOptions is { ExcludeCompileItems: var excludeCompileItems })
+        if (options is ProjectWritingOptions.Virtual { ExcludeCompileItems: var excludeCompileItems })
         {
             if (!excludeCompileItems.IsEmpty)
             {
@@ -828,11 +828,23 @@ internal sealed class VirtualProjectBuildingCommand
                         """);
                 }
 
-                writer.WriteLine($"""
-                      </ItemGroup>
-
-                    """);
+                writer.WriteLine("  </ItemGroup>");
             }
+        }
+        else if (options is ProjectWritingOptions.Converted { SharedDirectoryName: string sharedDirectoryName })
+        {
+            // Currently we handle only C# files but we should handle more (like .resx).
+            writer.WriteLine($"""
+
+                      <ItemGroup>
+                        <Compile Include="..\{sharedDirectoryName}\**\*.cs" />
+                      </ItemGroup>
+                    """);
+        }
+
+        if (options is ProjectWritingOptions.Virtual)
+        {
+            writer.WriteLine();
 
             foreach (var sdk in sdkDirectives)
             {
@@ -1007,10 +1019,20 @@ internal sealed class VirtualProjectBuildingCommand
     }
 }
 
-internal readonly struct VirtualProjectOptions
+internal abstract class ProjectWritingOptions
 {
-    public required string ArtifactsPath { get; init; }
-    public required ImmutableArray<string> ExcludeCompileItems { get; init; }
+    private ProjectWritingOptions() { }
+
+    public sealed class Virtual : ProjectWritingOptions
+    {
+        public required string ArtifactsPath { get; init; }
+        public required ImmutableArray<string> ExcludeCompileItems { get; init; }
+    }
+
+    public sealed class Converted : ProjectWritingOptions
+    {
+        public required string? SharedDirectoryName { get; init; }
+    }
 }
 
 internal readonly record struct SourceFile(string Path, SourceText Text)

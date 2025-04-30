@@ -504,6 +504,10 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
                     <Prop1>ValueProgram1</Prop1>
                   </PropertyGroup>
 
+                  <ItemGroup>
+                    <Compile Include="..\Shared\**\*.cs" />
+                  </ItemGroup>
+
                 </Project>
 
                 """);
@@ -526,6 +530,10 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
                     <Prop1>ValueUtil</Prop1>
                     <Prop1>ValueProgram2</Prop1>
                   </PropertyGroup>
+
+                  <ItemGroup>
+                    <Compile Include="..\Shared\**\*.cs" />
+                  </ItemGroup>
 
                 </Project>
 
@@ -1239,11 +1247,16 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
         VirtualProjectBuildingCommand.WriteProjectFile(
             projectWriter,
             directives,
-            virtualProjectOptions: !isVirtualProject ? null : new VirtualProjectOptions
-            {
-                ArtifactsPath = "/artifacts",
-                ExcludeCompileItems = excludeCompileItems,
-            });
+            options: isVirtualProject
+                ? new ProjectWritingOptions.Virtual
+                {
+                    ArtifactsPath = "/artifacts",
+                    ExcludeCompileItems = excludeCompileItems,
+                }
+                : new ProjectWritingOptions.Converted
+                {
+                    SharedDirectoryName = null,
+                });
 
         actualProject = projectWriter.ToString();
         actualCSharp = VirtualProjectBuildingCommand.RemoveDirectivesFromFile(directives, sourceFile.Text)?.ToString();
