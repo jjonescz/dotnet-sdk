@@ -137,7 +137,7 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
 
                 string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(parsed.File.Path);
 
-                if (string.Equals(fileNameWithoutExtension, _sharedDirectoryName, StringComparison.OrdinalIgnoreCase))
+                if (needToMoveToSharedDirectory && string.Equals(fileNameWithoutExtension, _sharedDirectoryName, StringComparison.OrdinalIgnoreCase))
                 {
                     throw new GracefulException(CliCommandStrings.SharedDirectoryNameConflicts, _sharedDirectoryName);
                 }
