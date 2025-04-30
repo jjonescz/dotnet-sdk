@@ -97,6 +97,47 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     }
 
     [Fact]
+    public void OutputOption_SameAsSource()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "MyApp.cs"), "Console.WriteLine();");
+
+        new DotnetCommand(Log, "project", "convert", "MyApp.cs", "-o", ".")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining(string.Format(CliCommandStrings.DirectoryAlreadyExists, testInstance.Path));
+    }
+
+    [Fact]
+    public void OutputOption_SameAsNestedSource()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        Directory.CreateDirectory(Path.Join(testInstance.Path, "app"));
+        File.WriteAllText(Path.Join(testInstance.Path, "app", "MyApp.cs"), "Console.WriteLine();");
+
+        new DotnetCommand(Log, "project", "convert", "app/MyApp.cs", "-o", "app")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining(string.Format(CliCommandStrings.DirectoryAlreadyExists, Path.Join(testInstance.Path, "app")));
+    }
+
+    [Fact]
+    public void OutputOption_SameAsParentCurrent()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        Directory.CreateDirectory(Path.Join(testInstance.Path, "app"));
+        File.WriteAllText(Path.Join(testInstance.Path, "app", "MyApp.cs"), "Console.WriteLine();");
+
+        new DotnetCommand(Log, "project", "convert", "app/MyApp.cs", "-o", ".")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining(string.Format(CliCommandStrings.DirectoryAlreadyExists, testInstance.Path));
+    }
+
+    [Fact]
     public void NoFileArgument()
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
@@ -230,6 +271,19 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .Execute()
             .Should().Fail()
             .And.HaveStdErrContaining(string.Format(CliCommandStrings.EntryPointInNestedFolder, Path.Join(testInstance.Path, "app", "Program.cs")));
+    }
+
+    [Fact]
+    public void NoEntryPoints()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Util.cs"), "class C;");
+
+        new DotnetCommand(Log, "project", "convert", ".")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining(string.Format(CliCommandStrings.NoEntryPoints, testInstance.Path));
     }
 
     /// <summary>
@@ -602,6 +656,28 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             Program2/
             Program2/Program2.cs
             Program2/Program2.csproj
+            """);
+    }
+
+    [Fact]
+    public void MultipleFiles_MultipleEntryPoints_NoSharedNeeded_ConflictDoesNotMatter()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program1.cs"), "Console.Write(1);");
+        File.WriteAllText(Path.Join(testInstance.Path, "Shared.cs"), "Console.Write(2);");
+
+        new DotnetCommand(Log, "project", "convert", ".")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass();
+
+        new DirectoryInfo(testInstance.Path).Should().HaveSubtree("""
+            Program1/
+            Program1/Program1.cs
+            Program1/Program1.csproj
+            Shared/
+            Shared/Shared.cs
+            Shared/Shared.csproj
             """);
     }
 
