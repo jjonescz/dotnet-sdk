@@ -456,9 +456,11 @@ internal sealed class VirtualProjectBuildingCommand
         WriteProjectFile(
             writer: csprojWriter,
             directives: parsedFiles[EntryPointFileFullPath].SortedDirectives,
-            isVirtualProject: true,
-            artifactsPath: GetArtifactsPath(),
-            excludeCompileItems: otherEntryPoints);
+            virtualProjectOptions: new VirtualProjectOptions
+            {
+                ArtifactsPath = GetArtifactsPath(),
+                ExcludeCompileItems = otherEntryPoints,
+            });
 
         projectFileText = csprojWriter.ToString();
         if (cache != null) cache.CurrentEntry.ProjectFileText = projectFileText;
@@ -671,9 +673,7 @@ internal sealed class VirtualProjectBuildingCommand
     public static void WriteProjectFile(
         TextWriter writer,
         ImmutableArray<CSharpDirective> directives,
-        bool isVirtualProject,
-        string? artifactsPath = null,
-        ImmutableArray<string> excludeCompileItems = default)
+        VirtualProjectOptions? virtualProjectOptions)
     {
         int processedDirectives = 0;
 
@@ -689,7 +689,7 @@ internal sealed class VirtualProjectBuildingCommand
             processedDirectives++;
         }
 
-        if (isVirtualProject)
+        if (virtualProjectOptions is { ArtifactsPath: var artifactsPath })
         {
             Debug.Assert(!string.IsNullOrWhiteSpace(artifactsPath));
 
@@ -715,7 +715,7 @@ internal sealed class VirtualProjectBuildingCommand
 
         foreach (var sdk in sdkDirectives.Skip(1))
         {
-            if (isVirtualProject)
+            if (virtualProjectOptions != null)
             {
                 writer.WriteLine($"""
                       <Import Project="Sdk.props" Sdk="{EscapeValue(sdk.ToSlashDelimitedString())}" />
@@ -771,7 +771,7 @@ internal sealed class VirtualProjectBuildingCommand
             writer.WriteLine("  </PropertyGroup>");
         }
 
-        if (isVirtualProject)
+        if (virtualProjectOptions != null)
         {
             // After `#:property` directives so they don't override this.
             writer.WriteLine("""
@@ -812,7 +812,7 @@ internal sealed class VirtualProjectBuildingCommand
 
         Debug.Assert(processedDirectives + directives.OfType<CSharpDirective.Shebang>().Count() == directives.Length);
 
-        if (isVirtualProject)
+        if (virtualProjectOptions is { ExcludeCompileItems: var excludeCompileItems })
         {
             if (!excludeCompileItems.IsEmpty)
             {
@@ -1005,6 +1005,12 @@ internal sealed class VirtualProjectBuildingCommand
     {
         return entryPointFilePath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) && File.Exists(entryPointFilePath);
     }
+}
+
+internal readonly struct VirtualProjectOptions
+{
+    public required string ArtifactsPath { get; init; }
+    public required ImmutableArray<string> ExcludeCompileItems { get; init; }
 }
 
 internal readonly record struct SourceFile(string Path, SourceText Text)

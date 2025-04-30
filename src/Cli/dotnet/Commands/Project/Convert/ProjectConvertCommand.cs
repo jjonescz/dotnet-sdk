@@ -162,7 +162,7 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
                     using (var csprojStream = File.Open(projectFile, FileMode.Create, FileAccess.Write))
                     using (var csprojWriter = new StreamWriter(csprojStream, Encoding.UTF8))
                     {
-                        VirtualProjectBuildingCommand.WriteProjectFile(csprojWriter, parsed.SortedDirectives, isVirtualProject: false);
+                        VirtualProjectBuildingCommand.WriteProjectFile(csprojWriter, parsed.SortedDirectives, virtualProjectOptions: null);
                     }
                 });
             }

@@ -1219,9 +1219,11 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
         VirtualProjectBuildingCommand.WriteProjectFile(
             projectWriter,
             directives,
-            isVirtualProject: isVirtualProject,
-            artifactsPath: isVirtualProject ? "/artifacts" : null,
-            excludeCompileItems: isVirtualProject ? excludeCompileItems : default);
+            virtualProjectOptions: !isVirtualProject ? null : new VirtualProjectOptions
+            {
+                ArtifactsPath = "/artifacts",
+                ExcludeCompileItems = excludeCompileItems,
+            });
 
         actualProject = projectWriter.ToString();
         actualCSharp = VirtualProjectBuildingCommand.RemoveDirectivesFromFile(directives, sourceFile.Text)?.ToString();
