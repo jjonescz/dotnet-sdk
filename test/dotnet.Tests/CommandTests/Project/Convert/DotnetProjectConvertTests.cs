@@ -611,6 +611,27 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             Shared1/
             Shared1/Util.cs
             """);
+
+        string expectedCsproj = $"""
+            <Project Sdk="Microsoft.NET.Sdk">
+
+              <PropertyGroup>
+                <OutputType>Exe</OutputType>
+                <TargetFramework>{ToolsetInfo.CurrentTargetFramework}</TargetFramework>
+                <ImplicitUsings>enable</ImplicitUsings>
+                <Nullable>enable</Nullable>
+              </PropertyGroup>
+
+              <ItemGroup>
+                <Compile Include="..\Shared1\**\*.cs" />
+              </ItemGroup>
+
+            </Project>
+
+            """;
+
+        File.ReadAllText(Path.Join(testInstance.Path, "Program1", "Program1.csproj")).Should().Be(expectedCsproj);
+        File.ReadAllText(Path.Join(testInstance.Path, "Shared", "Shared.csproj")).Should().Be(expectedCsproj);
     }
 
     [Fact]
