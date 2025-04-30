@@ -489,6 +489,43 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     }
 
     [Fact]
+    public void MultipleFiles_MultipleEntryPoints_SharedConflict()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program1.cs"), "Console.Write(1);");
+        File.WriteAllText(Path.Join(testInstance.Path, "Shared.cs"), "Console.Write(2);");
+        File.WriteAllText(Path.Join(testInstance.Path, "Util.cs"), """class C;""");
+
+        new DotnetCommand(Log, "project", "convert", ".")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining(string.Format(CliCommandStrings.SharedDirectoryNameConflicts, "Shared"));
+
+        new DotnetCommand(Log, "project", "convert", ".", "--shared-directory-name", "program1")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining(string.Format(CliCommandStrings.SharedDirectoryNameConflicts, "program1"));
+
+        new DotnetCommand(Log, "project", "convert", ".", "--shared-directory-name", "Shared1")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass();
+
+        new DirectoryInfo(testInstance.Path).Should().HaveSubtree("""
+            Program1/
+            Program1/Program1.cs
+            Program1/Program1.csproj
+            Shared/
+            Shared/Shared.cs
+            Shared/Shared.csproj
+            Shared1/
+            Shared1/Util.cs
+            """);
+    }
+
+    [Fact]
     public void Directives()
     {
         VerifyConversion(

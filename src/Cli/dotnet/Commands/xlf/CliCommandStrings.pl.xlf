@@ -601,6 +601,11 @@ This is equivalent to deleting project.assets.json.</target>
         <target state="new">Force conversion even if there are malformed directives.</target>
         <note />
       </trans-unit>
+      <trans-unit id="CmdOptionSharedDirectoryNameDescription">
+        <source>Name of the directory where non-entry-point files should be placed.</source>
+        <target state="new">Name of the directory where non-entry-point files should be placed.</target>
+        <note />
+      </trans-unit>
       <trans-unit id="CmdOutdatedDescription">
         <source>Lists packages that have newer versions. Cannot be combined with '--deprecated' or '--vulnerable' options.</source>
         <target state="new">Lists packages that have newer versions. Cannot be combined with '--deprecated' or '--vulnerable' options.</target>
@@ -2665,6 +2670,11 @@ Your project targets multiple frameworks. Specify which framework to run using '
         <source>The --sdk-version option is no longer supported for this command.</source>
         <target state="new">The --sdk-version option is no longer supported for this command.</target>
         <note>{Locked="--sdk-version"}</note>
+      </trans-unit>
+      <trans-unit id="SharedDirectoryNameConflicts">
+        <source>Cannot put shared files into directory '{0}' because it conflicts with one of the entry points. Use option '--shared-directory-name' to specify a different value.</source>
+        <target state="new">Cannot put shared files into directory '{0}' because it conflicts with one of the entry points. Use option '--shared-directory-name' to specify a different value.</target>
+        <note>{Locked="--shared-directory-name"}. {0} is file name without extension</note>
       </trans-unit>
       <trans-unit id="ShouldInstallAWorkloadSet">
         <source>Workloads are configured to install and update using workload versions, but none were found. Run "dotnet workload restore" to install a workload version.</source>

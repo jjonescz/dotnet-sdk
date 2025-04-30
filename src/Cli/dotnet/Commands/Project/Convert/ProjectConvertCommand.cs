@@ -4,6 +4,7 @@
 #nullable enable
 
 using System.CommandLine;
+using System.Diagnostics;
 using Microsoft.DotNet.Cli.Commands.Run;
 using Microsoft.DotNet.Cli.Utils;
 using Microsoft.TemplateEngine.Cli.Commands;
@@ -15,6 +16,7 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
     private readonly string? _fileOrDirectory = parseResult.GetValue(ProjectConvertCommandParser.FileOrDirectoryArgument);
     private readonly string? _outputDirectory = parseResult.GetValue(SharedOptions.OutputOption)?.FullName;
     private readonly bool _force = parseResult.GetValue(ProjectConvertCommandParser.ForceOption);
+    private readonly string _sharedDirectoryName = parseResult.GetValue(ProjectConvertCommandParser.SharedDirectoryNameOption)!;
 
     public override int Execute()
     {
@@ -57,12 +59,19 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
             throw new GracefulException(CliCommandStrings.NoEntryPoints, fileOrDirectory);
         }
 
+        // We create a plan of what to do first. No changes are done here so we don't fail in an intermediate state.
+        // First we need to create Shared folder and copy all non-entry-point files to it, so that's in preActions.
+        // That way we handle a situation where user has a folder with the same name as one of the entry points
+        // (we need to move the folder first to Shared and then convert the entry point which will re-create the folder and copy the converted entry point into it).
+        var preActions = new List<Action>();
+        var actions = new List<Action>();
+
         // Determine the base target directory.
         string baseTargetDirectory;
         if (_outputDirectory != null)
         {
             baseTargetDirectory = _outputDirectory;
-            Directory.CreateDirectory(baseTargetDirectory);
+            preActions.Add(() => Directory.CreateDirectory(baseTargetDirectory));
         }
         else
         {
@@ -82,11 +91,16 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
             {
                 string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(parsed.File.Path);
 
+                if (string.Equals(fileNameWithoutExtension, _sharedDirectoryName, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new GracefulException(CliCommandStrings.SharedDirectoryNameConflicts, _sharedDirectoryName);
+                }
+
                 // If there is a single entry point, generate the project directly in the output folder, otherwise create a subfolder.
                 if (allEntryPoints.Length > 1)
                 {
                     targetDirectory = Path.Join(baseTargetDirectory, fileNameWithoutExtension);
-                    Directory.CreateDirectory(targetDirectory);
+                    actions.Add(() => Directory.CreateDirectory(targetDirectory));
                     deleteSourceFiles = true;
                 }
                 else
@@ -97,22 +111,24 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
 
                 // Generate a project file.
                 string projectFile = Path.Join(targetDirectory, fileNameWithoutExtension + ".csproj");
-                using (var csprojStream = File.Open(projectFile, FileMode.Create, FileAccess.Write))
-                using (var csprojWriter = new StreamWriter(csprojStream, Encoding.UTF8))
+                actions.Add(() =>
                 {
-                    VirtualProjectBuildingCommand.WriteProjectFile(csprojWriter, parsed.SortedDirectives, isVirtualProject: false);
-                }
+                    using (var csprojStream = File.Open(projectFile, FileMode.Create, FileAccess.Write))
+                    using (var csprojWriter = new StreamWriter(csprojStream, Encoding.UTF8))
+                    {
+                        VirtualProjectBuildingCommand.WriteProjectFile(csprojWriter, parsed.SortedDirectives, isVirtualProject: false);
+                    }
+                });
             }
             else
             {
                 if (sharedDirectory == null)
                 {
-                    // If there are multiple entry points, we need a Shared folder
-                    // (or SharedX where X is a unique number to avoid conflicts).
+                    // If there are multiple entry points, we need a Shared folder.
                     if (allEntryPoints.Length > 1)
                     {
-                        sharedDirectory = Path.Join(baseTargetDirectory, "Shared");
-                        Directory.CreateDirectory(sharedDirectory);
+                        sharedDirectory = Path.Join(baseTargetDirectory, _sharedDirectoryName);
+                        preActions.Add(() => Directory.CreateDirectory(sharedDirectory));
                         deleteSharedSourceFiles = true;
                     }
                     else
@@ -128,22 +144,29 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
 
             // Remove directives. Write the converted file or move it if no conversion is needed.
             var targetFile = Path.Join(targetDirectory, Path.GetFileName(parsed.File.Path));
-            if (VirtualProjectBuildingCommand.RemoveDirectivesFromFile(parsed.Directives, parsed.File.Text) is { } convertedEntryPointFileText)
+            (parsed.IsEntryPoint ? actions : preActions).Add(() =>
             {
-                using var stream = File.Open(targetFile, FileMode.Create, FileAccess.Write);
-                using var writer = new StreamWriter(stream, Encoding.UTF8);
-                convertedEntryPointFileText.Write(writer);
-
-                if (deleteSourceFiles)
+                if (VirtualProjectBuildingCommand.RemoveDirectivesFromFile(parsed.Directives, parsed.File.Text) is { } convertedEntryPointFileText)
                 {
-                    File.Delete(parsed.File.Path);
+                    using var stream = File.Open(targetFile, FileMode.Create, FileAccess.Write);
+                    using var writer = new StreamWriter(stream, Encoding.UTF8);
+                    convertedEntryPointFileText.Write(writer);
+
+                    if (deleteSourceFiles)
+                    {
+                        File.Delete(parsed.File.Path);
+                    }
                 }
-            }
-            else if (deleteSourceFiles)
-            {
-                File.Move(parsed.File.Path, targetFile);
-            }
+                else if (deleteSourceFiles)
+                {
+                    File.Move(parsed.File.Path, targetFile);
+                }
+            });
         }
+
+        // Execute actions.
+        preActions.ForEach(static action => action());
+        actions.ForEach(static action => action());
 
         return 0;
     }

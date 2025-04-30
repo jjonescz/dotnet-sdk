@@ -373,6 +373,9 @@ For MSTest before 2.2.4, the timeout is used for all testcases.</value>
   <data name="CmdOptionForceDescription" xml:space="preserve">
     <value>Force conversion even if there are malformed directives.</value>
   </data>
+  <data name="CmdOptionSharedDirectoryNameDescription" xml:space="preserve">
+    <value>Name of the directory where non-entry-point files should be placed.</value>
+  </data>
   <data name="CmdForceRestoreOptionDescription" xml:space="preserve">
     <value>Force all dependencies to be resolved even if the last restore was successful.
 This is equivalent to deleting project.assets.json.</value>
@@ -986,6 +989,10 @@ Make the profile names distinct.</value>
   <data name="NoEntryPoints" xml:space="preserve">
     <value>Cannot convert, no entry points found: '{0}'</value>
     <comment>{0} is directory path</comment>
+  </data>
+  <data name="SharedDirectoryNameConflicts" xml:space="preserve">
+    <value>Cannot put shared files into directory '{0}' because it conflicts with one of the entry points. Use option '--shared-directory-name' to specify a different value.</value>
+    <comment>{Locked="--shared-directory-name"}. {0} is file name without extension</comment>
   </data>
   <data name="InvalidSemVerVersionString" xml:space="preserve">
     <value>Failed to parse "{0}" as a semantic version.</value>

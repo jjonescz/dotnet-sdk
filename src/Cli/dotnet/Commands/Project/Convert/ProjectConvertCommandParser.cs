@@ -22,6 +22,13 @@ internal sealed class ProjectConvertCommandParser
         Arity = ArgumentArity.Zero,
     };
 
+    public static readonly CliOption<string> SharedDirectoryNameOption = new("--shared-directory-name")
+    {
+        Description = CliCommandStrings.CmdOptionSharedDirectoryNameDescription,
+        Arity = ArgumentArity.ExactlyOne,
+        DefaultValueFactory = _ => "Shared",
+    };
+
     public static CliCommand GetCommand()
     {
         CliCommand command = new("convert", CliCommandStrings.ProjectConvertAppFullName)
@@ -29,6 +36,7 @@ internal sealed class ProjectConvertCommandParser
             FileOrDirectoryArgument,
             SharedOptions.OutputOption,
             ForceOption,
+            SharedDirectoryNameOption,
         };
 
         command.SetAction((parseResult) => new ProjectConvertCommand(parseResult).Execute());
