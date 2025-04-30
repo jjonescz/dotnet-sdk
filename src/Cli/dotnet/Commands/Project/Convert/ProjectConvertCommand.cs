@@ -82,7 +82,7 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
         }
         else
         {
-            baseTargetDirectory = Environment.CurrentDirectory;
+            baseTargetDirectory = sourceDirectory;
         }
 
         string sharedDirectory;
