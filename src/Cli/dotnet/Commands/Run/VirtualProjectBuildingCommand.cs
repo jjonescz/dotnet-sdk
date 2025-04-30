@@ -623,12 +623,12 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         foreach (var file in files)
         {
             // Skip the current entry point (FileInfo.FullName is a normalized path, so we can compare it).
-            if (entryPointFile?.FullName.Equals(file.FullName, StringComparison.Ordinal) == true)
+            if (entryPointFile?.FullName.Equals(file.FullName, StringComparison.OrdinalIgnoreCase) == true)
             {
                 continue;
             }
 
-            bool isTopLevel = entryDirectory.FullName.Equals(file.Directory!.FullName, StringComparison.Ordinal);
+            bool isTopLevel = entryDirectory.FullName.Equals(file.Directory?.FullName, StringComparison.Ordinal);
 
             yield return (File: file, IsTopLevel: isTopLevel);
         }
