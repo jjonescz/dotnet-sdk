@@ -437,7 +437,10 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
         File.WriteAllText(Path.Join(testInstance.Path, "Program1.cs"), "Console.Write(1);");
         File.WriteAllText(Path.Join(testInstance.Path, "Program2.cs"), "Console.Write(2);");
         Directory.CreateDirectory(Path.Join(testInstance.Path, "Dir"));
-        File.WriteAllText(Path.Join(testInstance.Path, "Dir", "Util.cs"), "class C;");
+        File.WriteAllText(Path.Join(testInstance.Path, "Dir", "Util.cs"), """
+            #:sdk Test
+            class C;
+            """);
 
         new DotnetCommand(Log, "project", "convert", ".")
             .WithWorkingDirectory(testInstance.Path)
@@ -455,6 +458,9 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             Shared/Dir/
             Shared/Dir/Util.cs
             """);
+
+        File.ReadAllText(Path.Join(testInstance.Path, "Shared", "Dir", "Util.cs"))
+            .Should().Be("class C;");
     }
 
     [Fact]

@@ -172,7 +172,7 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
                 string? relativeDirectoryPath = Path.GetDirectoryName(Path.GetRelativePath(relativeTo: sourceDirectory, path: parsed.File.Path));
                 if (!string.IsNullOrEmpty(relativeDirectoryPath))
                 {
-                    targetDirectory = relativeDirectoryPath;
+                    targetDirectory = Path.Join(sharedDirectory, relativeDirectoryPath);
                     deleteSourceFiles = false;
                 }
                 else
