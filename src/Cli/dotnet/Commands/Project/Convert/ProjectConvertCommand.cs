@@ -34,7 +34,7 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
             throw new GracefulException(CliCommandStrings.InvalidFileOrDirectoryPath, fileOrDirectory);
         }
 
-        // Discover other files.
+        // Discover other C# files.
         SourceFile? entryPointSourceFile = isFile ? VirtualProjectBuildingCommand.LoadSourceFile(fileOrDirectory) : null;
         VirtualProjectBuildingCommand.DiscoverOtherFiles(
             entryPointFile: entryPointSourceFile,
@@ -59,9 +59,17 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
             throw new GracefulException(CliCommandStrings.NoEntryPoints, fileOrDirectory);
         }
 
+        // Discover other non-C# files and directories at the top level.
+        string sourceDirectory = isFile ? Path.GetDirectoryName(fileOrDirectory)! : fileOrDirectory;
+        string[] nonCSharpTopLevelFiles = Directory.EnumerateFiles(sourceDirectory)
+            .Where(f => !f.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        string[] topLevelDirs = Directory.GetDirectories(sourceDirectory);
+
         // We create a plan of what to do first. No changes are done here so we don't fail in an intermediate state.
-        // First we need to create Shared folder and copy all non-entry-point files to it, so that's in preActions.
-        // That way we handle a situation where user has a folder with the same name as one of the entry points
+        // First we need to create Shared folder and copy all existing folders and non-entry-point or non-C# files to it, so that's in preActions.
+        // Then we convert the C# files (remove directives from them and create csproj files for the entry-point ones).
+        // That way we re-create the source directory structure inside the Shared folder and also handle a situation where user has a folder with the same name as one of the entry points
         // (we need to move the folder first to Shared and then convert the entry point which will re-create the folder and copy the converted entry point into it).
         var preActions = new List<Action>();
         var actions = new List<Action>();
@@ -78,10 +86,46 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
             baseTargetDirectory = Environment.CurrentDirectory;
         }
 
-        string? sharedDirectory = null;
-        bool deleteSharedSourceFiles = false;
+        string sharedDirectory;
+        bool needToMoveToSharedDirectory;
 
-        // Process files.
+        // If there are multiple entry points and some non-C# or non-entry-point files/dirs, we need a Shared folder.
+        Debug.Assert(parsedFiles.Count >= allEntryPoints.Length);
+        if (allEntryPoints.Length > 1 && (nonCSharpTopLevelFiles.Length > 0 || topLevelDirs.Length > 0 || parsedFiles.Count > allEntryPoints.Length))
+        {
+            sharedDirectory = Path.Join(baseTargetDirectory, _sharedDirectoryName);
+            preActions.Add(() => Directory.CreateDirectory(sharedDirectory));
+            needToMoveToSharedDirectory = true;
+        }
+        else
+        {
+            sharedDirectory = baseTargetDirectory;
+            needToMoveToSharedDirectory = _outputDirectory != null;
+        }
+
+        // Move non-C# files and directories.
+        if (nonCSharpTopLevelFiles.Length > 0 || topLevelDirs.Length > 0)
+        {
+            if (needToMoveToSharedDirectory)
+            {
+                preActions.Add(() =>
+                {
+                    foreach (var dir in topLevelDirs)
+                    {
+                        string target = GetTargetTopLevelPath(sharedDirectory, dir);
+                        PathUtility.SafeRenameDirectory(dir, target);
+                    }
+
+                    foreach (var file in nonCSharpTopLevelFiles)
+                    {
+                        string target = GetTargetTopLevelPath(sharedDirectory, file);
+                        File.Move(file, target);
+                    }
+                });
+            }
+        }
+
+        // Process C# files.
         foreach (var parsed in parsedFiles.Values)
         {
             string targetDirectory;
@@ -89,6 +133,9 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
 
             if (parsed.IsEntryPoint)
             {
+                Debug.Assert(string.IsNullOrEmpty(Path.GetDirectoryName(Path.GetRelativePath(relativeTo: sourceDirectory, path: parsed.File.Path))),
+                    "Entry points are expected to be at the top level.");
+
                 string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(parsed.File.Path);
 
                 if (string.Equals(fileNameWithoutExtension, _sharedDirectoryName, StringComparison.OrdinalIgnoreCase))
@@ -122,33 +169,27 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
             }
             else
             {
-                if (sharedDirectory == null)
+                // If the file is nested, we have already moved it to the shared folder, so process it in place.
+                string? relativeDirectoryPath = Path.GetDirectoryName(Path.GetRelativePath(relativeTo: sourceDirectory, path: parsed.File.Path));
+                if (!string.IsNullOrEmpty(relativeDirectoryPath))
                 {
-                    // If there are multiple entry points, we need a Shared folder.
-                    if (allEntryPoints.Length > 1)
-                    {
-                        sharedDirectory = Path.Join(baseTargetDirectory, _sharedDirectoryName);
-                        preActions.Add(() => Directory.CreateDirectory(sharedDirectory));
-                        deleteSharedSourceFiles = true;
-                    }
-                    else
-                    {
-                        sharedDirectory = baseTargetDirectory;
-                        deleteSharedSourceFiles = _outputDirectory != null;
-                    }
+                    targetDirectory = relativeDirectoryPath;
+                    deleteSourceFiles = false;
                 }
-
-                targetDirectory = sharedDirectory;
-                deleteSourceFiles = deleteSharedSourceFiles;
+                else
+                {
+                    targetDirectory = sharedDirectory;
+                    deleteSourceFiles = needToMoveToSharedDirectory;
+                }
             }
 
             // Remove directives. Write the converted file or move it if no conversion is needed.
-            var targetFile = Path.Join(targetDirectory, Path.GetFileName(parsed.File.Path));
+            string targetFilePath = GetTargetTopLevelPath(targetDirectory, parsed.File.Path);
             (parsed.IsEntryPoint ? actions : preActions).Add(() =>
             {
                 if (VirtualProjectBuildingCommand.RemoveDirectivesFromFile(parsed.Directives, parsed.File.Text) is { } convertedEntryPointFileText)
                 {
-                    using var stream = File.Open(targetFile, FileMode.Create, FileAccess.Write);
+                    using var stream = File.Open(targetFilePath, FileMode.Create, FileAccess.Write);
                     using var writer = new StreamWriter(stream, Encoding.UTF8);
                     convertedEntryPointFileText.Write(writer);
 
@@ -159,7 +200,7 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
                 }
                 else if (deleteSourceFiles)
                 {
-                    File.Move(parsed.File.Path, targetFile);
+                    File.Move(parsed.File.Path, targetFilePath);
                 }
             });
         }
@@ -169,5 +210,10 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
         actions.ForEach(static action => action());
 
         return 0;
+
+        static string GetTargetTopLevelPath(string targetDirectory, string sourceFilePath)
+        {
+            return Path.Join(targetDirectory, Path.GetFileName(sourceFilePath));
+        }
     }
 }

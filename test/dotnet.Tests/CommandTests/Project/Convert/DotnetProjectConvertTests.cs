@@ -69,10 +69,10 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .Should().Pass();
 
         new DirectoryInfo(testInstance.Path).Should().HaveSubtree("""
-            MyApp/
             MyApp1/
             MyApp1/MyApp.cs
             MyApp1/MyApp.csproj
+            MyApp1/MyApp/
             """);
     }
 
@@ -431,12 +431,39 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     }
 
     [Fact]
+    public void MultipleFiles_MultipleEntryPoints_NestedFiles()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program1.cs"), "Console.Write(1);");
+        File.WriteAllText(Path.Join(testInstance.Path, "Program2.cs"), "Console.Write(2);");
+        Directory.CreateDirectory(Path.Join(testInstance.Path, "Dir"));
+        File.WriteAllText(Path.Join(testInstance.Path, "Dir", "Util.cs"), "class C;");
+
+        new DotnetCommand(Log, "project", "convert", ".")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass();
+
+        new DirectoryInfo(testInstance.Path).Should().HaveSubtree("""
+            Program1/
+            Program1/Program1.cs
+            Program1/Program1.csproj
+            Program2/
+            Program2/Program2.cs
+            Program2/Program2.csproj
+            Shared/
+            Shared/Dir/
+            Shared/Dir/Util.cs
+            """);
+    }
+
+    [Fact]
     public void MultipleFiles_MultipleEntryPoints_SharedConflict()
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
         File.WriteAllText(Path.Join(testInstance.Path, "Program1.cs"), "Console.Write(1);");
         File.WriteAllText(Path.Join(testInstance.Path, "Shared.cs"), "Console.Write(2);");
-        File.WriteAllText(Path.Join(testInstance.Path, "Util.cs"), """class C;""");
+        File.WriteAllText(Path.Join(testInstance.Path, "Util.cs"), "class C;");
 
         new DotnetCommand(Log, "project", "convert", ".")
             .WithWorkingDirectory(testInstance.Path)
@@ -464,6 +491,111 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             Shared/Shared.csproj
             Shared1/
             Shared1/Util.cs
+            """);
+    }
+
+    [Fact]
+    public void MultipleFiles_MultipleEntryPoints_SharedNamedUtil()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program1.cs"), "Console.Write(1);");
+        File.WriteAllText(Path.Join(testInstance.Path, "Program2.cs"), "Console.Write(2);");
+        File.WriteAllText(Path.Join(testInstance.Path, "Util.cs"), "class C;");
+
+        new DotnetCommand(Log, "project", "convert", ".", "--shared-directory-name", "Util")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass();
+
+        new DirectoryInfo(testInstance.Path).Should().HaveSubtree("""
+            Program1/
+            Program1/Program1.cs
+            Program1/Program1.csproj
+            Program2/
+            Program2/Program2.cs
+            Program2/Program2.csproj
+            Util/
+            Util/Util.cs
+            """);
+    }
+
+    [Fact]
+    public void MultipleFiles_MultipleEntryPoints_SharedNamedLikeExistingFolder()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program1.cs"), "Console.Write(1);");
+        File.WriteAllText(Path.Join(testInstance.Path, "Program2.cs"), "Console.Write(2);");
+        Directory.CreateDirectory(Path.Join(testInstance.Path, "Shared"));
+        File.WriteAllText(Path.Join(testInstance.Path, "Shared", "Util.cs"), "class C;");
+
+        new DotnetCommand(Log, "project", "convert", ".", "--shared-directory-name", "Shared")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass();
+
+        new DirectoryInfo(testInstance.Path).Should().HaveSubtree("""
+            Program1/
+            Program1/Program1.cs
+            Program1/Program1.csproj
+            Program2/
+            Program2/Program2.cs
+            Program2/Program2.csproj
+            Shared/
+            Shared/Shared/
+            Shared/Shared/Util.cs
+            """);
+    }
+
+    [Fact]
+    public void MultipleFiles_MultipleEntryPoints_NoSharedNeeded()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program1.cs"), "Console.Write(1);");
+        File.WriteAllText(Path.Join(testInstance.Path, "Program2.cs"), "Console.Write(2);");
+
+        new DotnetCommand(Log, "project", "convert", ".")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass();
+
+        new DirectoryInfo(testInstance.Path).Should().HaveSubtree("""
+            Program1/
+            Program1/Program1.cs
+            Program1/Program1.csproj
+            Program2/
+            Program2/Program2.cs
+            Program2/Program2.csproj
+            """);
+    }
+
+    [Fact]
+    public void MultipleFiles_MultipleEntryPoints_NonCSharpFiles()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program1.cs"), "Console.Write(1);");
+        File.WriteAllText(Path.Join(testInstance.Path, "Program2.cs"), "Console.Write(2);");
+        File.WriteAllText(Path.Join(testInstance.Path, "Strings.resx"), "<strings />");
+        Directory.CreateDirectory(Path.Join(testInstance.Path, "Folder1"));
+        Directory.CreateDirectory(Path.Join(testInstance.Path, "Folder2"));
+        File.WriteAllText(Path.Join(testInstance.Path, "Folder2/Strings.resx"), "<strings />");
+
+        new DotnetCommand(Log, "project", "convert", ".")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass();
+
+        new DirectoryInfo(testInstance.Path).Should().HaveSubtree("""
+            Program1/
+            Program1/Program1.cs
+            Program1/Program1.csproj
+            Program2/
+            Program2/Program2.cs
+            Program2/Program2.csproj
+            Shared/
+            Shared/Folder1/
+            Shared/Folder2/
+            Shared/Folder2/Strings.resx
+            Shared/Strings.resx
             """);
     }
 
