@@ -10,28 +10,28 @@ namespace Microsoft.DotNet.Cli.Commands.Project.Convert;
 
 internal sealed class ProjectConvertCommandParser
 {
-    public static readonly CliArgument<string> FileOrDirectoryArgument = new(CliCommandStrings.FileOrDirectoryArgumentName)
+    public static readonly Argument<string> FileOrDirectoryArgument = new(CliCommandStrings.FileOrDirectoryArgumentName)
     {
         Description = CliCommandStrings.FileOrDirectoryArgumentDescription,
         Arity = ArgumentArity.ExactlyOne,
     };
 
-    public static readonly CliOption<bool> ForceOption = new("--force")
+    public static readonly Option<bool> ForceOption = new("--force")
     {
         Description = CliCommandStrings.CmdOptionForceDescription,
         Arity = ArgumentArity.Zero,
     };
 
-    public static readonly CliOption<string> SharedDirectoryNameOption = new("--shared-directory-name")
+    public static readonly Option<string> SharedDirectoryNameOption = new("--shared-directory-name")
     {
         Description = CliCommandStrings.CmdOptionSharedDirectoryNameDescription,
         Arity = ArgumentArity.ExactlyOne,
         DefaultValueFactory = _ => "Shared",
     };
 
-    public static CliCommand GetCommand()
+    public static Command GetCommand()
     {
-        CliCommand command = new("convert", CliCommandStrings.ProjectConvertAppFullName)
+        Command command = new("convert", CliCommandStrings.ProjectConvertAppFullName)
         {
             FileOrDirectoryArgument,
             SharedOptions.OutputOption,

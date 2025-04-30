@@ -186,7 +186,7 @@ Other directives result in a warning, reserving them for future use.
 #:sdk Microsoft.NET.Sdk.Web
 #:property TargetFramework net11.0
 #:property LangVersion preview
-#:package System.CommandLine 2.0.0-*
+#:package System.CommandLine@2.0.0-*
 ```
 
 The value must be separated from the name of the directive by white space and any leading and trailing white space is not considered part of the value.
@@ -257,9 +257,11 @@ but that would require changes to the native dotnet host.
 
 ## Other commands
 
-We can consider supporting other commands like `dotnet build`, `dotnet pack`, `dotnet watch`.
+Commands `dotnet restore file.cs` and `dotnet build file.cs` are needed for IDE support and hence work for file-based programs.
+We can consider supporting other commands like `dotnet pack`, `dotnet watch`,
+however the primary scenario is `dotnet run` and we might never support additional commands.
 
-These commands need to have a way to receive the target path similarly to `dotnet run`,
+All commands supporting file-based programs should have a way to receive the target path similarly to `dotnet run`,
 e.g., via options like `--directory`/`--entry` as described [above](#integration-into-the-existing-dotnet-run-command),
 or as the first argument if it makes sense for them.
 
