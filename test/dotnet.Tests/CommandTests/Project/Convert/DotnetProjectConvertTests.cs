@@ -201,6 +201,37 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             """);
     }
 
+    [Fact]
+    public void NestedEntryPoint_Single()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        Directory.CreateDirectory(Path.Join(testInstance.Path, "app"));
+        File.WriteAllText(Path.Join(testInstance.Path, "app", "Program.cs"), "Console.WriteLine();");
+
+        new DotnetCommand(Log, "project", "convert", ".")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining(string.Format(CliCommandStrings.EntryPointInNestedFolder, Path.Join(testInstance.Path, "app", "Program.cs")));
+    }
+
+    [Theory]
+    [InlineData("Program.cs")]
+    [InlineData(".")]
+    public void NestedEntryPoint_Another(string arg)
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), "Console.Write(1);");
+        Directory.CreateDirectory(Path.Join(testInstance.Path, "app"));
+        File.WriteAllText(Path.Join(testInstance.Path, "app", "Program.cs"), "Console.Write(2);");
+
+        new DotnetCommand(Log, "project", "convert", arg)
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining(string.Format(CliCommandStrings.EntryPointInNestedFolder, Path.Join(testInstance.Path, "app", "Program.cs")));
+    }
+
     /// <summary>
     /// When processing fails due to invalid directives, no conversion should be performed
     /// (e.g., the target directory should not be created).

@@ -1515,7 +1515,7 @@ Tool '{1}' (version '{2}') was successfully installed. Entry is added to the man
     <comment>{0} is file path</comment>
   </data>
   <data name="EntryPointInNestedFolder" xml:space="preserve">
-    <value>Other entry-point files cannot be in nested folders: '{0}'</value>
+    <value>Entry-point files cannot be in nested folders: '{0}'</value>
     <comment>{0} is file path</comment>
   </data>
   <data name="ProjectManifest" xml:space="preserve">

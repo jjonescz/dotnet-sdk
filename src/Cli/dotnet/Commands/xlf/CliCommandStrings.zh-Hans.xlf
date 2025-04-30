@@ -1087,8 +1087,8 @@ Make the profile names distinct.</target>
         <note />
       </trans-unit>
       <trans-unit id="EntryPointInNestedFolder">
-        <source>Other entry-point files cannot be in nested folders: '{0}'</source>
-        <target state="new">Other entry-point files cannot be in nested folders: '{0}'</target>
+        <source>Entry-point files cannot be in nested folders: '{0}'</source>
+        <target state="new">Entry-point files cannot be in nested folders: '{0}'</target>
         <note>{0} is file path</note>
       </trans-unit>
       <trans-unit id="Error_restore">
