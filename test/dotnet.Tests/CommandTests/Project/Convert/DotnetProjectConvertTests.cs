@@ -438,12 +438,12 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     public void MultipleFiles_MultipleEntryPoints()
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
-        string program1Content = """Console.WriteLine("1" + Util.GetMessage());""";
+        string program1Content = """Console.WriteLine("1 " + Util.GetMessage());""";
         File.WriteAllText(Path.Join(testInstance.Path, "Program1.cs"), $"""
             #:property Prop1 ValueProgram1
             {program1Content}
             """);
-        string program2Content = """Console.WriteLine("2" + Util.GetMessage());""";
+        string program2Content = """Console.WriteLine("2 " + Util.GetMessage());""";
         File.WriteAllText(Path.Join(testInstance.Path, "Program2.cs"), $"""
             #:property Prop1 ValueProgram2
             {program2Content}
@@ -461,6 +461,20 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             #:property Prop1 ValueUtil
             {utilContent}
             """);
+
+        // Run the file-based programs.
+        string expectedOutput1 = "1 String from Util";
+        string expectedOutput2 = "2 String from Util";
+        new DotnetCommand(Log, "run", "Program1.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut(expectedOutput1);
+        new DotnetCommand(Log, "run", "Program2.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut(expectedOutput2);
 
         // Cannot convert a single entry point, must convert the whole directory.
         new DotnetCommand(Log, "project", "convert", "Program1.cs")
@@ -541,6 +555,18 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
 
         File.ReadAllText(Path.Join(testInstance.Path, "Shared", "Util.cs"))
             .Should().Be(utilContent);
+
+        // Run the converted programs.
+        new DotnetCommand(Log, "run", "--project", "Program1")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut(expectedOutput1);
+        new DotnetCommand(Log, "run", "--project", "Program2")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut(expectedOutput2);
     }
 
     [Fact]
