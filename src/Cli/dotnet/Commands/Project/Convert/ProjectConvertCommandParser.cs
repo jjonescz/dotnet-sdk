@@ -13,7 +13,7 @@ internal sealed class ProjectConvertCommandParser
     public static readonly CliArgument<string> FileOrDirectoryArgument = new(CliCommandStrings.FileOrDirectoryArgumentName)
     {
         Description = CliCommandStrings.FileOrDirectoryArgumentDescription,
-        Arity = ArgumentArity.ZeroOrOne,
+        Arity = ArgumentArity.ExactlyOne,
     };
 
     public static readonly CliOption<bool> ForceOption = new("--force")
