@@ -85,8 +85,8 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
             baseTargetDirectory = sourceDirectory;
         }
 
-        string sharedDirectory;
-        bool needToMoveToSharedDirectory;
+        string? sharedDirectory;
+        bool creatingSharedDirectory;
 
         // If there are multiple entry points and some non-C# or non-entry-point files/dirs, we need a Shared folder.
         Debug.Assert(parsedFiles.Count >= allEntryPoints.Length);
@@ -94,18 +94,19 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
         {
             sharedDirectory = Path.Join(baseTargetDirectory, _sharedDirectoryName);
             actions.Add(() => Directory.CreateDirectory(sharedDirectory));
-            needToMoveToSharedDirectory = true;
+            creatingSharedDirectory = true;
         }
         else
         {
-            sharedDirectory = baseTargetDirectory;
-            needToMoveToSharedDirectory = _outputDirectory != null;
+            // We also need to move other files to the target folder if it's specified.
+            sharedDirectory = _outputDirectory != null ? baseTargetDirectory : null;
+            creatingSharedDirectory = false;
         }
 
         // Move non-C# files and directories.
         if (nonCSharpTopLevelFiles.Length > 0 || topLevelDirs.Length > 0)
         {
-            if (needToMoveToSharedDirectory)
+            if (sharedDirectory != null)
             {
                 actions.Add(() =>
                 {
@@ -137,7 +138,7 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
 
                 string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(parsed.File.Path);
 
-                if (needToMoveToSharedDirectory && string.Equals(fileNameWithoutExtension, _sharedDirectoryName, StringComparison.OrdinalIgnoreCase))
+                if (creatingSharedDirectory && string.Equals(fileNameWithoutExtension, _sharedDirectoryName, StringComparison.OrdinalIgnoreCase))
                 {
                     throw new GracefulException(CliCommandStrings.SharedDirectoryNameConflicts, _sharedDirectoryName);
                 }
@@ -175,10 +176,16 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
                     targetDirectory = Path.Join(sharedDirectory, relativeDirectoryPath);
                     deleteSourceFiles = false;
                 }
-                else
+                else if (sharedDirectory != null)
                 {
                     targetDirectory = sharedDirectory;
-                    deleteSourceFiles = needToMoveToSharedDirectory;
+                    deleteSourceFiles = true;
+                }
+                else
+                {
+                    Debug.Assert(_outputDirectory == null);
+                    targetDirectory = baseTargetDirectory;
+                    deleteSourceFiles = false;
                 }
             }
 

@@ -77,6 +77,26 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     }
 
     [Fact]
+    public void OutputOption_SharedConflictDoesNotMatter()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        Directory.CreateDirectory(Path.Join(testInstance.Path, "MyApp"));
+        File.WriteAllText(Path.Join(testInstance.Path, "Shared.cs"), "Console.WriteLine();");
+
+        new DotnetCommand(Log, "project", "convert", "Shared.cs", "-o", "MyApp1")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass();
+
+        new DirectoryInfo(testInstance.Path).Should().HaveSubtree("""
+            MyApp1/
+            MyApp1/MyApp/
+            MyApp1/Shared.cs
+            MyApp1/Shared.csproj
+            """);
+    }
+
+    [Fact]
     public void OutputOption_DirectoryAlreadyExists()
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
