@@ -67,11 +67,10 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
         string[] topLevelDirs = Directory.GetDirectories(sourceDirectory);
 
         // We create a plan of what to do first. No changes are done here so we don't fail in an intermediate state.
-        // First we need to create Shared folder and copy all existing folders and non-entry-point or non-C# files to it, so that's in preActions.
+        // First we need to create Shared folder and copy all existing folders and non-entry-point or non-C# files to it.
         // Then we convert the C# files (remove directives from them and create csproj files for the entry-point ones).
         // That way we re-create the source directory structure inside the Shared folder and also handle a situation where user has a folder with the same name as one of the entry points
         // (we need to move the folder first to Shared and then convert the entry point which will re-create the folder and copy the converted entry point into it).
-        var preActions = new List<Action>();
         var actions = new List<Action>();
 
         // Determine the base target directory.
@@ -79,7 +78,7 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
         if (_outputDirectory != null)
         {
             baseTargetDirectory = _outputDirectory;
-            preActions.Add(() => Directory.CreateDirectory(baseTargetDirectory));
+            actions.Add(() => Directory.CreateDirectory(baseTargetDirectory));
         }
         else
         {
@@ -94,7 +93,7 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
         if (allEntryPoints.Length > 1 && (nonCSharpTopLevelFiles.Length > 0 || topLevelDirs.Length > 0 || parsedFiles.Count > allEntryPoints.Length))
         {
             sharedDirectory = Path.Join(baseTargetDirectory, _sharedDirectoryName);
-            preActions.Add(() => Directory.CreateDirectory(sharedDirectory));
+            actions.Add(() => Directory.CreateDirectory(sharedDirectory));
             needToMoveToSharedDirectory = true;
         }
         else
@@ -108,7 +107,7 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
         {
             if (needToMoveToSharedDirectory)
             {
-                preActions.Add(() =>
+                actions.Add(() =>
                 {
                     foreach (var dir in topLevelDirs)
                     {
@@ -185,7 +184,7 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
 
             // Remove directives. Write the converted file or move it if no conversion is needed.
             string targetFilePath = GetTargetTopLevelPath(targetDirectory, parsed.File.Path);
-            (parsed.IsEntryPoint ? actions : preActions).Add(() =>
+            actions.Add(() =>
             {
                 if (VirtualProjectBuildingCommand.RemoveDirectivesFromFile(parsed.Directives, parsed.File.Text) is { } convertedEntryPointFileText)
                 {
@@ -206,7 +205,6 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
         }
 
         // Execute actions.
-        preActions.ForEach(static action => action());
         actions.ForEach(static action => action());
 
         return 0;
