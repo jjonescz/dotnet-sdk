@@ -114,8 +114,10 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                 {
                     if (binaryLogger is not null)
                     {
-                        // TODO: Improve error message to mention also csc-only-build scenario.
-                        Reporter.Output.WriteLine(CliCommandStrings.NoBinaryLogBecauseUpToDate.Yellow());
+                        string message = buildLevel == BuildLevel.Csc
+                            ? CliCommandStrings.NoBinaryLogBecauseRunningJustCsc
+                            : CliCommandStrings.NoBinaryLogBecauseUpToDate;
+                        Reporter.Output.WriteLine(message.Yellow());
                     }
 
                     if (buildLevel == BuildLevel.None)
@@ -125,7 +127,12 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
 
                     Debug.Assert(buildLevel == BuildLevel.Csc);
 
+                    MarkBuildStart();
+
                     // TODO: Run csc.exe
+
+                    MarkBuildSuccess(cacheEntry);
+
                     return 0;
                 }
             }

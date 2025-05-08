@@ -938,25 +938,31 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     public void UpToDate()
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
-        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), """
+            Console.WriteLine("Hello v1");
+            """);
 
-        Build(expectedUpToDate: false);
+        // Remove artifacts from possible previous runs of this test.
+        var artifactsDir = VirtualProjectBuildingCommand.GetArtifactsPath(Path.Join(testInstance.Path, "Program.cs"));
+        if (Directory.Exists(artifactsDir)) Directory.Delete(artifactsDir, recursive: true);
 
-        Build(expectedUpToDate: true);
+        Build(BuildLevel.All, expectedOutput: "Hello v1");
 
-        Build(expectedUpToDate: true);
+        Build(BuildLevel.None, expectedOutput: "Hello v1");
+
+        Build(BuildLevel.None, expectedOutput: "Hello v1");
 
         // Change the source file (a rebuild is necessary).
-        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program + " ");
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
 
-        Build(expectedUpToDate: false);
+        Build(BuildLevel.Csc);
 
-        Build(expectedUpToDate: true);
+        Build(BuildLevel.None);
 
         // Change an unrelated source file (no rebuild necessary).
         File.WriteAllText(Path.Join(testInstance.Path, "Program2.cs"), "test");
 
-        Build(expectedUpToDate: true);
+        Build(BuildLevel.None);
 
         // Add an implicit build file (a rebuild is necessary).
         string buildPropsFile = Path.Join(testInstance.Path, "Directory.Build.props");
@@ -968,12 +974,12 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             </Project>
             """);
 
-        Build(expectedUpToDate: false, expectedOutput: """
+        Build(BuildLevel.All, expectedOutput: """
             Hello from Program
             Custom define
             """);
 
-        Build(expectedUpToDate: true, expectedOutput: """
+        Build(BuildLevel.None, expectedOutput: """
             Hello from Program
             Custom define
             """);
@@ -990,7 +996,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             </Project>
             """);
 
-        Build(expectedUpToDate: false);
+        Build(BuildLevel.All);
 
         // Change the imported build file (this is not recognized).
         File.WriteAllText(importedFile, """
@@ -1001,43 +1007,43 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             </Project>
             """);
 
-        Build(expectedUpToDate: true);
+        Build(BuildLevel.None);
 
         // Force rebuild.
-        Build(expectedUpToDate: false, args: ["--no-cache"], expectedOutput: """
+        Build(BuildLevel.All, args: ["--no-cache"], expectedOutput: """
             Hello from Program
             Custom define
             """);
 
         // Remove an implicit build file (a rebuild is necessary).
         File.Delete(buildPropsFile);
-        Build(expectedUpToDate: false);
+        Build(BuildLevel.All);
 
         // Force rebuild.
-        Build(expectedUpToDate: false, args: ["--no-cache"]);
+        Build(BuildLevel.All, args: ["--no-cache"]);
 
-        Build(expectedUpToDate: true);
+        Build(BuildLevel.None);
 
         // Pass argument (no rebuild necessary).
-        Build(expectedUpToDate: true, args: ["--", "test-arg"], expectedOutput: """
+        Build(BuildLevel.None, args: ["--", "test-arg"], expectedOutput: """
             echo args:test-arg
             Hello from Program
             """);
 
         // Change config (a rebuild is necessary).
-        Build(expectedUpToDate: false, args: ["-c", "Release"], expectedOutput: """
+        Build(BuildLevel.All, args: ["-c", "Release"], expectedOutput: """
             Hello from Program
             Release config
             """);
 
         // Keep changed config (no rebuild necessary).
-        Build(expectedUpToDate: true, args: ["-c", "Release"], expectedOutput: """
+        Build(BuildLevel.None, args: ["-c", "Release"], expectedOutput: """
             Hello from Program
             Release config
             """);
 
         // Change config back (a rebuild is necessary).
-        Build(expectedUpToDate: false);
+        Build(BuildLevel.All);
 
         // Build with a failure.
         new DotnetCommand(Log, ["run", "Program.cs", "-p:LangVersion=Invalid"])
@@ -1047,27 +1053,30 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .And.HaveStdOutContaining("error CS1617"); // Invalid option 'Invalid' for /langversion.
 
         // A rebuild is necessary since the last build failed.
-        Build(expectedUpToDate: false);
+        Build(BuildLevel.All);
 
-        void Build(bool expectedUpToDate, ReadOnlySpan<string> args = default, string expectedOutput = "Hello from Program")
+        void Build(BuildLevel level, ReadOnlySpan<string> args = default, string expectedOutput = "Hello from Program")
         {
+            string prefix = level switch
+            {
+                BuildLevel.None => CliCommandStrings.NoBinaryLogBecauseUpToDate + Environment.NewLine,
+                BuildLevel.Csc => CliCommandStrings.NoBinaryLogBecauseRunningJustCsc + Environment.NewLine,
+                BuildLevel.All => string.Empty,
+                _ => throw new ArgumentOutOfRangeException(paramName: nameof(level)),
+            };
+
             new DotnetCommand(Log, ["run", "Program.cs", "-bl", .. args])
                 .WithWorkingDirectory(testInstance.Path)
                 .Execute()
                 .Should().Pass()
-                .And.HaveStdOut(expectedUpToDate
-                    ? $"""
-                        {CliCommandStrings.NoBinaryLogBecauseUpToDate}
-                        {expectedOutput}
-                        """
-                    : expectedOutput);
+                .And.HaveStdOut(prefix + expectedOutput);
 
             var binlogs = new DirectoryInfo(testInstance.Path)
                 .EnumerateFiles("*.binlog", SearchOption.TopDirectoryOnly);
 
             binlogs.Select(f => f.Name)
                 .Should().BeEquivalentTo(
-                    expectedUpToDate
+                    level != BuildLevel.All
                         ? ["msbuild-dotnet-run.binlog"]
                         : ["msbuild.binlog", "msbuild-dotnet-run.binlog"]);
 
