@@ -79,15 +79,24 @@ internal sealed class VirtualProjectBuildingCommand
 
             cacheEntry = ComputeCacheEntry(out _);
         }
-        else if (!NeedsToBuild(out cacheEntry))
+        else if (NeedsToBuild(out cacheEntry) is var buildLevel and not BuildLevel.All)
         {
             if (binaryLogger is not null)
             {
+                // TODO: Improve error message to mention also csc-only-build scenario.
                 Reporter.Output.WriteLine(CliCommandStrings.NoBinaryLogBecauseUpToDate.Yellow());
             }
 
-            PrepareProjectInstance();
+            if (buildLevel == BuildLevel.None)
+            {
+                PrepareProjectInstance();
 
+                return 0;
+            }
+
+            Debug.Assert(buildLevel == BuildLevel.Csc);
+
+            // TODO: Run csc.exe
             return 0;
         }
 
@@ -224,7 +233,7 @@ internal sealed class VirtualProjectBuildingCommand
         return cacheEntry;
     }
 
-    private bool NeedsToBuild(out RunFileBuildCacheEntry cacheEntry)
+    private BuildLevel NeedsToBuild(out RunFileBuildCacheEntry cacheEntry)
     {
         cacheEntry = ComputeCacheEntry(out FileInfo entryPointFileInfo);
 
@@ -236,27 +245,27 @@ internal sealed class VirtualProjectBuildingCommand
         if (!successCacheFile.Exists)
         {
             Reporter.Verbose.WriteLine("Building because cache file does not exist: " + successCacheFile.FullName);
-            return true;
+            return BuildLevel.All;
         }
 
         var startCacheFile = new FileInfo(Path.Join(artifactsDirectory, BuildStartCacheFileName));
         if (!startCacheFile.Exists)
         {
             Reporter.Verbose.WriteLine("Building because start cache file does not exist: " + startCacheFile.FullName);
-            return true;
+            return BuildLevel.All;
         }
 
         if (startCacheFile.LastWriteTimeUtc > successCacheFile.LastWriteTimeUtc)
         {
             Reporter.Verbose.WriteLine("Building because start cache file is newer than success cache file (previous build likely failed): " + startCacheFile.FullName);
-            return true;
+            return BuildLevel.All;
         }
 
         var previousCacheEntry = DeserializeCacheEntry(successCacheFile);
         if (previousCacheEntry is null)
         {
             Reporter.Verbose.WriteLine("Building because previous cache entry could not be deserialized: " + successCacheFile.FullName);
-            return true;
+            return BuildLevel.All;
         }
 
         // Check that properties match.
@@ -266,7 +275,7 @@ internal sealed class VirtualProjectBuildingCommand
             Reporter.Verbose.WriteLine($"""
                 Building because previous global properties count ({previousCacheEntry.GlobalProperties.Count}) does not match current count ({cacheEntry.GlobalProperties.Count}): {successCacheFile.FullName}
                 """);
-            return true;
+            return BuildLevel.All;
         }
 
         foreach (var (key, value) in cacheEntry.GlobalProperties)
@@ -277,28 +286,27 @@ internal sealed class VirtualProjectBuildingCommand
                 Reporter.Verbose.WriteLine($"""
                     Building because previous global property "{key}" ({otherValue}) does not match current ({value}): {successCacheFile.FullName}
                     """);
-                return true;
+                return BuildLevel.All;
             }
         }
 
         DateTime buildTimeUtc = successCacheFile.LastWriteTimeUtc;
 
-        // Check that the source file is up to date.
-        // If it does not exist, we also want to build.
-        if (!entryPointFileInfo.Exists || entryPointFileInfo.LastWriteTimeUtc > buildTimeUtc)
+        // If the source file does not exist, we want to build so proper errors are reported.
+        if (!entryPointFileInfo.Exists)
         {
-            Reporter.Verbose.WriteLine("Building because entry point file is missing or modified: " + entryPointFileInfo.FullName);
-            return true;
+            Reporter.Verbose.WriteLine("Building because entry point file is missing: " + entryPointFileInfo.FullName);
+            return BuildLevel.All;
         }
 
-        // Check that implicit build files are up to date.
+        // Check that implicit build files are not modified.
         foreach (var implicitBuildFilePath in previousCacheEntry.ImplicitBuildFiles.Keys)
         {
             var implicitBuildFileInfo = new FileInfo(implicitBuildFilePath);
             if (!implicitBuildFileInfo.Exists || implicitBuildFileInfo.LastWriteTimeUtc > buildTimeUtc)
             {
                 Reporter.Verbose.WriteLine("Building because implicit build file is missing or modified: " + implicitBuildFileInfo.FullName);
-                return true;
+                return BuildLevel.All;
             }
         }
 
@@ -308,11 +316,18 @@ internal sealed class VirtualProjectBuildingCommand
             if (!previousCacheEntry.ImplicitBuildFiles.ContainsKey(implicitBuildFilePath))
             {
                 Reporter.Verbose.WriteLine("Building because new implicit build file is present: " + implicitBuildFilePath);
-                return true;
+                return BuildLevel.All;
             }
         }
 
-        return false;
+        // Check that the source file is not modified.
+        if (!entryPointFileInfo.Exists || entryPointFileInfo.LastWriteTimeUtc > buildTimeUtc)
+        {
+            Reporter.Verbose.WriteLine("Compiling because entry point file is modified: " + entryPointFileInfo.FullName);
+            return BuildLevel.Csc;
+        }
+
+        return BuildLevel.None;
 
         static RunFileBuildCacheEntry? DeserializeCacheEntry(FileInfo cacheFile)
         {
@@ -962,3 +977,21 @@ internal sealed class RunFileBuildCacheEntry
 
 [JsonSerializable(typeof(RunFileBuildCacheEntry))]
 internal partial class RunFileJsonSerializerContext : JsonSerializerContext;
+
+internal enum BuildLevel
+{
+    /// <summary>
+    /// No build is necessary, build outputs are up to date wrt. inputs.
+    /// </summary>
+    None,
+
+    /// <summary>
+    /// Only C# files are modified, other build inputs are not. Can invoke just the C# compiler.
+    /// </summary>
+    Csc,
+
+    /// <summary>
+    /// Some non-C# build inputs are modified, need to invoke MSBuild.
+    /// </summary>
+    All,
+}
