@@ -1,8 +1,7 @@
 ﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#nullable enable
-
+using System.Buffers;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Security;
@@ -28,7 +27,7 @@ namespace Microsoft.DotNet.Cli.Commands.Run;
 /// <summary>
 /// Used to build a virtual project file in memory to support <c>dotnet run file.cs</c>.
 /// </summary>
-internal sealed class VirtualProjectBuildingCommand
+internal sealed class VirtualProjectBuildingCommand : CommandBase
 {
     /// <summary>
     /// A file put into the artifacts directory when build starts.
@@ -61,46 +60,73 @@ internal sealed class VirtualProjectBuildingCommand
 
     private ImmutableArray<CSharpDirective> _directives;
 
-    public Dictionary<string, string> GlobalProperties { get; } = new(StringComparer.OrdinalIgnoreCase);
-    public required string EntryPointFileFullPath { get; init; }
-
-    public int Execute(string[] binaryLoggerArgs, ILogger consoleLogger, bool noRestore, bool noCache)
+    public VirtualProjectBuildingCommand(
+        string entryPointFileFullPath,
+        string[] msbuildArgs,
+        VerbosityOptions? verbosity,
+        bool interactive)
     {
-        var binaryLogger = GetBinaryLogger(binaryLoggerArgs);
+        Debug.Assert(Path.IsPathFullyQualified(entryPointFileFullPath));
 
-        RunFileBuildCacheEntry cacheEntry;
+        EntryPointFileFullPath = entryPointFileFullPath;
+        GlobalProperties = new(StringComparer.OrdinalIgnoreCase);
+        CommonRunHelpers.AddUserPassedProperties(GlobalProperties, msbuildArgs);
+        BinaryLoggerArgs = msbuildArgs;
+        Verbosity = verbosity ?? RunCommand.GetDefaultVerbosity(interactive: interactive);
+    }
 
-        if (noCache)
+    public string EntryPointFileFullPath { get; }
+    public Dictionary<string, string> GlobalProperties { get; }
+    public string[] BinaryLoggerArgs { get; }
+    public VerbosityOptions Verbosity { get; }
+    public bool NoRestore { get; init; }
+    public bool NoCache { get; init; }
+    public bool NoBuild { get; init; }
+    public bool NoIncremental { get; init; }
+
+    public override int Execute()
+    {
+        Debug.Assert(!(NoRestore && NoBuild));
+
+        var consoleLogger = RunCommand.MakeTerminalLogger(Verbosity);
+        var binaryLogger = GetBinaryLogger(BinaryLoggerArgs);
+
+        RunFileBuildCacheEntry? cacheEntry = null;
+
+        if (!NoBuild)
         {
-            if (noRestore)
+            if (NoCache)
             {
-                throw new GracefulException(CliCommandStrings.InvalidOptionCombination, RunCommandParser.NoCacheOption.Name, RunCommandParser.NoRestoreOption.Name);
+                if (NoRestore)
+                {
+                    throw new GracefulException(CliCommandStrings.InvalidOptionCombination, RunCommandParser.NoCacheOption.Name, RunCommandParser.NoRestoreOption.Name);
+                }
+
+                cacheEntry = ComputeCacheEntry(out _);
             }
-
-            cacheEntry = ComputeCacheEntry(out _);
-        }
-        else if (NeedsToBuild(out cacheEntry) is var buildLevel and not BuildLevel.All)
-        {
-            if (binaryLogger is not null)
+            else if (NeedsToBuild(out cacheEntry) is var buildLevel and not BuildLevel.All)
             {
-                // TODO: Improve error message to mention also csc-only-build scenario.
-                Reporter.Output.WriteLine(CliCommandStrings.NoBinaryLogBecauseUpToDate.Yellow());
-            }
+                if (binaryLogger is not null)
+                {
+                    // TODO: Improve error message to mention also csc-only-build scenario.
+                    Reporter.Output.WriteLine(CliCommandStrings.NoBinaryLogBecauseUpToDate.Yellow());
+                }
 
-            if (buildLevel == BuildLevel.None)
-            {
-                PrepareProjectInstance();
+                if (buildLevel == BuildLevel.None)
+                {
+                    PrepareProjectInstance();
 
+                    return 0;
+                }
+
+                Debug.Assert(buildLevel == BuildLevel.Csc);
+
+                // TODO: Run csc.exe
                 return 0;
             }
 
-            Debug.Assert(buildLevel == BuildLevel.Csc);
-
-            // TODO: Run csc.exe
-            return 0;
+            MarkBuildStart();
         }
-
-        MarkBuildStart();
 
         Dictionary<string, string?> savedEnvironmentVariables = [];
         try
@@ -130,7 +156,7 @@ internal sealed class VirtualProjectBuildingCommand
             // Do a restore first (equivalent to MSBuild's "implicit restore", i.e., `/restore`).
             // See https://github.com/dotnet/msbuild/blob/a1c2e7402ef0abe36bf493e395b04dd2cb1b3540/src/MSBuild/XMake.cs#L1838
             // and https://github.com/dotnet/msbuild/issues/11519.
-            if (!noRestore)
+            if (!NoRestore)
             {
                 var restoreRequest = new BuildRequestData(
                     CreateProjectInstance(projectCollection, addGlobalProperties: static (globalProperties) =>
@@ -149,18 +175,22 @@ internal sealed class VirtualProjectBuildingCommand
             }
 
             // Then do a build.
-            var buildRequest = new BuildRequestData(
-                CreateProjectInstance(projectCollection),
-                targetsToBuild: ["Build"]);
-            var buildResult = BuildManager.DefaultBuildManager.BuildRequest(buildRequest);
-            if (buildResult.OverallResult != BuildResultCode.Success)
+            if (!NoBuild)
             {
-                return 1;
+                var buildRequest = new BuildRequestData(
+                    CreateProjectInstance(projectCollection),
+                    targetsToBuild: [NoIncremental ? "Rebuild" : "Build"]);
+                var buildResult = BuildManager.DefaultBuildManager.BuildRequest(buildRequest);
+                if (buildResult.OverallResult != BuildResultCode.Success)
+                {
+                    return 1;
+                }
+
+                Debug.Assert(cacheEntry != null);
+                MarkBuildSuccess(cacheEntry);
             }
 
             BuildManager.DefaultBuildManager.EndBuild();
-
-            MarkBuildSuccess(cacheEntry);
 
             return 0;
         }
@@ -416,8 +446,10 @@ internal sealed class VirtualProjectBuildingCommand
         }
     }
 
+    private string GetArtifactsPath() => GetArtifactsPath(EntryPointFileFullPath);
+
     // internal for testing
-    internal string GetArtifactsPath()
+    internal static string GetArtifactsPath(string entryPointFileFullPath)
     {
         // We want a location where permissions are expected to be restricted to the current user.
         string directory = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
@@ -425,8 +457,8 @@ internal sealed class VirtualProjectBuildingCommand
             : Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
 
         // Include entry point file name so the directory name is not completely opaque.
-        string fileName = Path.GetFileNameWithoutExtension(EntryPointFileFullPath);
-        string hash = Sha256Hasher.HashWithNormalizedCasing(EntryPointFileFullPath);
+        string fileName = Path.GetFileNameWithoutExtension(entryPointFileFullPath);
+        string hash = Sha256Hasher.HashWithNormalizedCasing(entryPointFileFullPath);
         string directoryName = $"{fileName}-{hash}";
 
         return Path.Join(directory, "dotnet", "runfile", directoryName);
@@ -829,9 +861,11 @@ internal abstract class CSharpDirective
         };
     }
 
-    private static (string, string?) ParseOptionalTwoParts(SourceFile sourceFile, TextSpan span, string directiveKind, string directiveText)
+    private static (string, string?) ParseOptionalTwoParts(SourceFile sourceFile, TextSpan span, string directiveKind, string directiveText, SearchValues<char>? separators = null)
     {
-        var i = directiveText.IndexOf(' ', StringComparison.Ordinal);
+        var i = separators != null
+            ? directiveText.AsSpan().IndexOfAny(separators)
+            : directiveText.IndexOf(' ', StringComparison.Ordinal);
         var firstPart = checkFirstPart(i < 0 ? directiveText : directiveText[..i]);
         var secondPart = i < 0 ? [] : directiveText.AsSpan((i + 1)..).TrimStart();
         if (i < 0 || secondPart.IsWhiteSpace())
@@ -927,6 +961,8 @@ internal abstract class CSharpDirective
     /// </summary>
     public sealed class Package : CSharpDirective
     {
+        private static readonly SearchValues<char> s_separators = SearchValues.Create(' ', '@');
+
         private Package() { }
 
         public required string Name { get; init; }
@@ -934,7 +970,7 @@ internal abstract class CSharpDirective
 
         public static new Package Parse(SourceFile sourceFile, TextSpan span, string directiveKind, string directiveText)
         {
-            var (packageName, packageVersion) = ParseOptionalTwoParts(sourceFile, span, directiveKind, directiveText);
+            var (packageName, packageVersion) = ParseOptionalTwoParts(sourceFile, span, directiveKind, directiveText, s_separators);
 
             return new Package
             {

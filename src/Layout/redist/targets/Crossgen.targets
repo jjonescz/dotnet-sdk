@@ -57,7 +57,7 @@
 
       <RazorToolFiles Include="$(InstallerOutputDirectory)Sdks\Microsoft.NET.Sdk.Razor\tools\**\*" />
 
-      <RemainingFiles Include="$(InstallerOutputDirectory)**\*" Exclude="$(InstallerOutputDirectory)FSharp\FSharp.Build.dll;@(RoslynFiles);@(FSharpFiles)" />
+      <RemainingFiles Include="$(InstallerOutputDirectory)**\*" Exclude="$(InstallerOutputDirectory)FSharp\FSharp.Build.dll;@(RoslynFiles);@(FSharpFiles);$(InstallerOutputDirectory)Roslyn\binfx\**\*" />
 
       <!-- Don't crossgen VB since the usage doesn't justify the size cost for everyone -->
       <RoslynFiles Remove="$(InstallerOutputDirectory)Roslyn\bincore\Microsoft.CodeAnalysis.VisualBasic.dll" />
@@ -194,14 +194,9 @@
     <!-- Move symbols to separate folder, they are not included in the layout but are published separately -->
     <Move SourceFiles="@(PdbsToMove)"
           DestinationFiles="@(PdbsToMove->'$(ArtifactsSymStoreDirectory)/sdk/$(Version)/%(RecursiveDir)%(Filename)%(Extension)')" />
-  </Target>
 
-  <Target Name="ChmodLayout"
-        AfterTargets="CrossgenLayout"
-        Condition=" '$(OSName)' != 'win' ">
-
-    <Exec Command="find $(InstallerOutputDirectory) -type d -exec chmod 755 {} \;" />
-    <Exec Command="find $(InstallerOutputDirectory) -type f -exec chmod 644 {} \;" />
+    <Exec Command="find $(InstallerOutputDirectory) -type d -exec chmod 755 {} \;" Condition="'$(OSName)' != 'win'" />
+    <Exec Command="find $(InstallerOutputDirectory) -type f -exec chmod 644 {} \;" Condition="'$(OSName)' != 'win'" />
   </Target>
 
 </Project>
