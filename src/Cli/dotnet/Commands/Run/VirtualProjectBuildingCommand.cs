@@ -102,30 +102,39 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                     throw new GracefulException(CliCommandStrings.InvalidOptionCombination, RunCommandParser.NoCacheOption.Name, RunCommandParser.NoRestoreOption.Name);
                 }
 
+                PrepareProjectInstance();
+
                 cacheEntry = ComputeCacheEntry(out _);
             }
-            else if (NeedsToBuild(out cacheEntry) is var buildLevel and not BuildLevel.All)
+            else
             {
-                if (binaryLogger is not null)
-                {
-                    // TODO: Improve error message to mention also csc-only-build scenario.
-                    Reporter.Output.WriteLine(CliCommandStrings.NoBinaryLogBecauseUpToDate.Yellow());
-                }
+                PrepareProjectInstance();
 
-                if (buildLevel == BuildLevel.None)
+                if (NeedsToBuild(out cacheEntry) is var buildLevel and not BuildLevel.All)
                 {
-                    PrepareProjectInstance();
+                    if (binaryLogger is not null)
+                    {
+                        // TODO: Improve error message to mention also csc-only-build scenario.
+                        Reporter.Output.WriteLine(CliCommandStrings.NoBinaryLogBecauseUpToDate.Yellow());
+                    }
 
+                    if (buildLevel == BuildLevel.None)
+                    {
+                        return 0;
+                    }
+
+                    Debug.Assert(buildLevel == BuildLevel.Csc);
+
+                    // TODO: Run csc.exe
                     return 0;
                 }
-
-                Debug.Assert(buildLevel == BuildLevel.Csc);
-
-                // TODO: Run csc.exe
-                return 0;
             }
 
             MarkBuildStart();
+        }
+        else
+        {
+            PrepareProjectInstance();
         }
 
         Dictionary<string, string?> savedEnvironmentVariables = [];
@@ -150,8 +159,6 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                 LogTaskInputs = binaryLoggers.Length != 0,
             };
             BuildManager.DefaultBuildManager.BeginBuild(parameters);
-
-            PrepareProjectInstance();
 
             // Do a restore first (equivalent to MSBuild's "implicit restore", i.e., `/restore`).
             // See https://github.com/dotnet/msbuild/blob/a1c2e7402ef0abe36bf493e395b04dd2cb1b3540/src/MSBuild/XMake.cs#L1838
@@ -240,7 +247,13 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
     /// </summary>
     private RunFileBuildCacheEntry ComputeCacheEntry(out FileInfo entryPointFileInfo)
     {
-        var cacheEntry = new RunFileBuildCacheEntry(GlobalProperties);
+        Debug.Assert(!_directives.IsDefault, $"{nameof(PrepareProjectInstance)} should have been called first.");
+
+        var cacheEntry = new RunFileBuildCacheEntry(GlobalProperties)
+        {
+            AnyDirectives = _directives.Any(static d => d is not CSharpDirective.Shebang),
+        };
+
         entryPointFileInfo = new FileInfo(EntryPointFileFullPath);
 
         // Collect current implicit build files.
@@ -354,7 +367,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         if (!entryPointFileInfo.Exists || entryPointFileInfo.LastWriteTimeUtc > buildTimeUtc)
         {
             Reporter.Verbose.WriteLine("Compiling because entry point file is modified: " + entryPointFileInfo.FullName);
-            return BuildLevel.Csc;
+            return (previousCacheEntry.AnyDirectives || cacheEntry.AnyDirectives) ? BuildLevel.All : BuildLevel.Csc;
         }
 
         return BuildLevel.None;
@@ -996,6 +1009,11 @@ internal sealed class RunFileBuildCacheEntry
     [JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
     public Dictionary<string, DateTime> ImplicitBuildFiles { get; }
 
+    /// <summary>
+    /// Whether there are any <see cref="CSharpDirective"/>s recognized by the SDK (i.e., except shebang).
+    /// </summary>
+    public bool AnyDirectives { get; set; } // should be required and init-only but https://github.com/dotnet/runtime/issues/92877
+
     [JsonConstructor]
     public RunFileBuildCacheEntry()
     {
@@ -1022,12 +1040,13 @@ internal enum BuildLevel
     None,
 
     /// <summary>
-    /// Only C# files are modified, other build inputs are not. Can invoke just the C# compiler.
+    /// Only C# files are modified and there are no SDK-recognized <see cref="CSharpDirective"/>s.
+    /// We can invoke just the C# compiler to get up to date.
     /// </summary>
     Csc,
 
     /// <summary>
-    /// Some non-C# build inputs are modified, need to invoke MSBuild.
+    /// We need to invoke MSBuild to get up to date.
     /// </summary>
     All,
 }
