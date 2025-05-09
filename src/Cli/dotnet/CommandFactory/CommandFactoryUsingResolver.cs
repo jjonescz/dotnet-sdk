@@ -111,6 +111,6 @@ public static class CommandFactoryUsingResolver
             StartInfo = psi
         };
 
-        return new Command(_process);
+        return new Command(_process, customEnvironmentVariables: commandSpec.EnvironmentVariables);
     }
 }

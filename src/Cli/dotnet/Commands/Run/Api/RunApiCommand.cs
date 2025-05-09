@@ -118,7 +118,7 @@ internal abstract class RunApiInput
                 ExecutablePath = targetCommand.CommandName,
                 CommandLineArguments = targetCommand.CommandArgs,
                 WorkingDirectory = targetCommand.StartInfo.WorkingDirectory,
-                EnvironmentVariables = targetCommand.StartInfo.Environment,
+                EnvironmentVariables = targetCommand.CustomEnvironmentVariables ?? ReadOnlyDictionary<string, string?>.Empty,
             };
         }
     }
@@ -154,8 +154,8 @@ internal abstract class RunApiOutput
     {
         public required string ExecutablePath { get; init; }
         public required string CommandLineArguments { get; init; }
-        public required string WorkingDirectory { get; init; }
-        public required IDictionary<string, string> EnvironmentVariables { get; init; }
+        public required string? WorkingDirectory { get; init; }
+        public required IReadOnlyDictionary<string, string?> EnvironmentVariables { get; init; }
     }
 }
 
