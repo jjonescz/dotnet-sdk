@@ -129,11 +129,15 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
 
                     MarkBuildStart();
 
-                    // TODO: Run csc.exe
+                    // Run csc.dll
+                    int result = new CSharpCompilerCommand { EntryPointFileFullPath = EntryPointFileFullPath }.Execute();
 
-                    MarkBuildSuccess(cacheEntry);
+                    if (result == 0)
+                    {
+                        MarkBuildSuccess(cacheEntry);
+                    }
 
-                    return 0;
+                    return result;
                 }
             }
 
