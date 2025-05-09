@@ -87,7 +87,7 @@ internal abstract class RunApiInput
             var buildCommand = new VirtualProjectBuildingCommand(
                 entryPointFileFullPath: EntryPointFileFullPath,
                 msbuildArgs: [],
-                verbosity: null,
+                verbosity: VerbosityOptions.quiet,
                 interactive: false)
             {
                 CustomArtifactsPath = ArtifactsPath,
@@ -104,7 +104,7 @@ internal abstract class RunApiInput
                 noRestore: false,
                 noCache: false,
                 interactive: false,
-                verbosity: null,
+                verbosity: VerbosityOptions.quiet,
                 restoreArgs: [],
                 args: [EntryPointFileFullPath],
                 environmentVariables: ReadOnlyDictionary<string, string>.Empty);
