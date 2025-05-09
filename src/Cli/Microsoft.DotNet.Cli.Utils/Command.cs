@@ -179,6 +179,8 @@ public class Command(Process? process, bool trimTrailingNewlines = false) : ICom
 
     public string CommandArgs => _process.StartInfo.Arguments;
 
+    public ProcessStartInfo StartInfo => _process.StartInfo;
+
     public ICommand SetCommandArgs(string commandArgs)
     {
         _process.StartInfo.Arguments = commandArgs;
