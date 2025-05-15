@@ -1,8 +1,10 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using Basic.CompilerLog.Util;
 using Microsoft.DotNet.Cli.Commands;
 using Microsoft.DotNet.Cli.Commands.Run;
+using Microsoft.DotNet.Cli.Utils;
 
 namespace Microsoft.DotNet.Cli.Run.Tests;
 
@@ -932,6 +934,141 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
                 Description:
                   Sample app for System.CommandLine
                 """);
+    }
+
+    /// <summary>
+    /// Verifies that arguments provided to <c>csc.exe</c> are the same as
+    /// <c>dotnet build</c> would use for a simple <c>dotnet new console</c>.
+    /// </summary>
+    [Fact]
+    public void CscArguments()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+
+        // Create a project-based program.
+        new DotnetCommand(Log, "new", "console")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass();
+
+        // Build the project based program.
+        new DotnetCommand(Log, "build", "-bl", "-p:UseArtifactsOutput=true")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass();
+
+        // Find the csc args used by the build.
+        var projectBasedCall = findCompilerCall(Path.Join(testInstance.Path, "msbuild.binlog"));
+        var projectBasedCallArgs = projectBasedCall.GetArguments();
+        var projectBasedCallArgsString = ArgumentEscaper.EscapeAndConcatenateArgArrayForProcessStart(projectBasedCallArgs);
+
+        const string artifactsPath = $"artifacts/obj/{nameof(CscArguments)}";
+
+        // Print code that can be copy-pasted to fix up the arguments.
+        var actualArgs = new List<string>();
+        Log.WriteLine("Arguments should be:");
+        Log.WriteLine("[");
+        Log.WriteLine(nameof(CSharpCompilerCommand.s_cscPath) + ",");
+        foreach (var arg in projectBasedCallArgs)
+        {
+            // We don't need to generate a ref assembly.
+            if (arg.StartsWith("/refout", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            // Ignore source link.
+            if (arg.StartsWith("/sourcelink", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            bool needsInterpolation = false;
+
+            // Normalize slashes in paths.
+            string rewritten = arg.Replace('\\', '/');
+
+            // Remove quotes.
+            rewritten = rewritten.Replace("\"", "");
+
+            string actual = rewritten;
+
+            // Use variable SDK path.
+            string sdkPath = CSharpCompilerCommand.s_sdkPath.Replace('\\', '/');
+            if (rewritten.Contains(sdkPath, StringComparison.OrdinalIgnoreCase))
+            {
+                rewritten = rewritten.Replace(sdkPath, "{" + nameof(CSharpCompilerCommand.s_sdkPath) + "}", StringComparison.OrdinalIgnoreCase);
+                needsInterpolation = true;
+            }
+
+            // Use variable intermediate dir path.
+            const string objPath = $"{artifactsPath}/debug";
+            if (rewritten.Contains(objPath, StringComparison.OrdinalIgnoreCase))
+            {
+                rewritten = rewritten.Replace(objPath, "{intermediateDir}", StringComparison.OrdinalIgnoreCase);
+                needsInterpolation = true;
+            }
+
+            // Use variable program name.
+            if (rewritten.Contains(nameof(CscArguments), StringComparison.OrdinalIgnoreCase))
+            {
+                rewritten = rewritten.Replace(nameof(CscArguments), "{fileNameWithoutExtension}", StringComparison.OrdinalIgnoreCase);
+                needsInterpolation = true;
+            }
+
+            // Use variable file name.
+            const string fileName = "Program.cs";
+            if (rewritten.Contains(fileName, StringComparison.OrdinalIgnoreCase))
+            {
+                rewritten = rewritten.Replace(fileName, "{" + nameof(CSharpCompilerCommand.EntryPointFileFullPath) + "}", StringComparison.OrdinalIgnoreCase);
+                needsInterpolation = true;
+            }
+
+            // Ignore `/analyzerconfig` which is not variable (so it comes from the machine or sdk repo).
+            if (!needsInterpolation && arg.StartsWith("/analyzerconfig", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string prefix = needsInterpolation ? "$" : string.Empty;
+
+            Log.WriteLine($"""
+                {prefix}"{rewritten}",
+                """);
+
+            actualArgs.Add(actual);
+        }
+        Log.WriteLine("]");
+
+        // Re-create a file-based program in the same directory.
+        //Directory.Delete(testInstance.Path, recursive: true);
+        //Directory.CreateDirectory(testInstance.Path);
+        //File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), """
+        //    Console.WriteLine("Test");
+        //    """);
+
+        // Construct csc args for a file-based program.
+        var fileBasedCall = new CSharpCompilerCommand()
+        {
+            EntryPointFileFullPath = Path.Join(testInstance.Path, "Program.cs"),
+            ArtifactsPath = artifactsPath,
+        };
+        var fileBasedCallArgs = fileBasedCall.CreateArguments();
+        var fileBasedCallArgsString = ArgumentEscaper.EscapeAndConcatenateArgArrayForProcessStart(fileBasedCallArgs);
+
+        // Check that project-based and file-based csc args are equivalent.
+        var normalizedFileBasedArgs = fileBasedCallArgs.Select(a => a.Replace('\\', '/'));
+        Log.WriteLine("File-based vs project-based args:" + Environment.NewLine +
+            string.Join(Environment.NewLine, normalizedFileBasedArgs
+                .Zip(actualArgs)
+                .Select(p => $"{p.First}\t{p.Second}")));
+        normalizedFileBasedArgs.Should().BeEquivalentTo(actualArgs);
+
+        static CompilerCall findCompilerCall(string binaryLogPath)
+        {
+            using var reader = BinaryLogReader.Create(binaryLogPath);
+            return reader.ReadAllCompilerCalls().Should().ContainSingle().Subject;
+        }
     }
 
     [Fact]
