@@ -15,22 +15,25 @@ internal sealed class CSharpCompilerCommand
     internal static readonly string s_cscPath = Path.Combine(s_sdkPath, "Roslyn", "bincore", "csc.dll");
 
     public required string EntryPointFileFullPath { get; init; }
-    public string? ArtifactsPath { get; init; }
+    public required string ArtifactsPath { get; init; }
 
     public int Execute()
     {
-        return new DotNetCommandFactory().Create("exec", [s_cscPath, .. CreateArguments()]).Execute().ExitCode;
+        // Write .rsp file.
+        var rsp = Path.Join(ArtifactsPath, "csc.rsp");
+        File.WriteAllLines(rsp, CreateArguments());
+
+        return new DotNetCommandFactory().Create("exec", [s_cscPath, $"@{rsp}"]).Execute().ExitCode;
     }
 
     // internal for testing
     internal ImmutableArray<string> CreateArguments()
     {
-        string artifactsPath = ArtifactsPath ?? VirtualProjectBuildingCommand.GetArtifactsPath(EntryPointFileFullPath);
         string fileDirectory = Path.GetDirectoryName(EntryPointFileFullPath)!;
         string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(EntryPointFileFullPath);
 
         // Create intermediate files if they don't exist yet.
-        string intermediateDir = Path.Join(artifactsPath, "obj", "debug");
+        string intermediateDir = Path.Join(ArtifactsPath, "obj", "debug");
         Directory.CreateDirectory(intermediateDir);
 
         string assemblyAttributes = Path.Join(intermediateDir, ".NETCoreApp,Version=v10.0.AssemblyAttributes.cs");

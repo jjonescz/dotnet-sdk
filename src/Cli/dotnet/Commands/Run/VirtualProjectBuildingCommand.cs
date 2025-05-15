@@ -130,7 +130,12 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                     MarkBuildStart();
 
                     // Run csc.dll
-                    int result = new CSharpCompilerCommand { EntryPointFileFullPath = EntryPointFileFullPath }.Execute();
+                    int result = new CSharpCompilerCommand
+                    {
+                        EntryPointFileFullPath = EntryPointFileFullPath,
+                        ArtifactsPath = GetArtifactsPath(),
+                    }
+                    .Execute();
 
                     if (result == 0)
                     {
