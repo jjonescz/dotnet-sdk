@@ -1085,23 +1085,23 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         var artifactsDir = VirtualProjectBuildingCommand.GetArtifactsPath(Path.Join(testInstance.Path, "Program.cs"));
         if (Directory.Exists(artifactsDir)) Directory.Delete(artifactsDir, recursive: true);
 
-        Build(BuildLevel.All, expectedOutput: "Hello v1");
+        Build(testInstance, BuildLevel.All, expectedOutput: "Hello v1");
 
-        Build(BuildLevel.None, expectedOutput: "Hello v1");
+        Build(testInstance, BuildLevel.None, expectedOutput: "Hello v1");
 
-        Build(BuildLevel.None, expectedOutput: "Hello v1");
+        Build(testInstance, BuildLevel.None, expectedOutput: "Hello v1");
 
         // Change the source file (a rebuild is necessary).
         File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
 
-        Build(BuildLevel.Csc);
+        Build(testInstance, BuildLevel.Csc);
 
-        Build(BuildLevel.None);
+        Build(testInstance, BuildLevel.None);
 
         // Change an unrelated source file (no rebuild necessary).
         File.WriteAllText(Path.Join(testInstance.Path, "Program2.cs"), "test");
 
-        Build(BuildLevel.None);
+        Build(testInstance, BuildLevel.None);
 
         // Add an implicit build file (a rebuild is necessary).
         string buildPropsFile = Path.Join(testInstance.Path, "Directory.Build.props");
@@ -1113,12 +1113,12 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             </Project>
             """);
 
-        Build(BuildLevel.All, expectedOutput: """
+        Build(testInstance, BuildLevel.All, expectedOutput: """
             Hello from Program
             Custom define
             """);
 
-        Build(BuildLevel.None, expectedOutput: """
+        Build(testInstance, BuildLevel.None, expectedOutput: """
             Hello from Program
             Custom define
             """);
@@ -1135,7 +1135,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             </Project>
             """);
 
-        Build(BuildLevel.All);
+        Build(testInstance, BuildLevel.All);
 
         // Change the imported build file (this is not recognized).
         File.WriteAllText(importedFile, """
@@ -1146,43 +1146,43 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             </Project>
             """);
 
-        Build(BuildLevel.None);
+        Build(testInstance, BuildLevel.None);
 
         // Force rebuild.
-        Build(BuildLevel.All, args: ["--no-cache"], expectedOutput: """
+        Build(testInstance, BuildLevel.All, args: ["--no-cache"], expectedOutput: """
             Hello from Program
             Custom define
             """);
 
         // Remove an implicit build file (a rebuild is necessary).
         File.Delete(buildPropsFile);
-        Build(BuildLevel.All);
+        Build(testInstance, BuildLevel.All);
 
         // Force rebuild.
-        Build(BuildLevel.All, args: ["--no-cache"]);
+        Build(testInstance, BuildLevel.All, args: ["--no-cache"]);
 
-        Build(BuildLevel.None);
+        Build(testInstance, BuildLevel.None);
 
         // Pass argument (no rebuild necessary).
-        Build(BuildLevel.None, args: ["--", "test-arg"], expectedOutput: """
+        Build(testInstance, BuildLevel.None, args: ["--", "test-arg"], expectedOutput: """
             echo args:test-arg
             Hello from Program
             """);
 
         // Change config (a rebuild is necessary).
-        Build(BuildLevel.All, args: ["-c", "Release"], expectedOutput: """
+        Build(testInstance, BuildLevel.All, args: ["-c", "Release"], expectedOutput: """
             Hello from Program
             Release config
             """);
 
         // Keep changed config (no rebuild necessary).
-        Build(BuildLevel.None, args: ["-c", "Release"], expectedOutput: """
+        Build(testInstance, BuildLevel.None, args: ["-c", "Release"], expectedOutput: """
             Hello from Program
             Release config
             """);
 
         // Change config back (a rebuild is necessary).
-        Build(BuildLevel.All);
+        Build(testInstance, BuildLevel.All);
 
         // Build with a failure.
         new DotnetCommand(Log, ["run", "Program.cs", "-p:LangVersion=Invalid"])
@@ -1192,37 +1192,37 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .And.HaveStdOutContaining("error CS1617"); // Invalid option 'Invalid' for /langversion.
 
         // A rebuild is necessary since the last build failed.
-        Build(BuildLevel.All);
+        Build(testInstance, BuildLevel.All);
+    }
 
-        void Build(BuildLevel level, ReadOnlySpan<string> args = default, string expectedOutput = "Hello from Program")
+    private void Build(TestDirectory testInstance, BuildLevel level, ReadOnlySpan<string> args = default, string expectedOutput = "Hello from Program")
+    {
+        string prefix = level switch
         {
-            string prefix = level switch
-            {
-                BuildLevel.None => CliCommandStrings.NoBinaryLogBecauseUpToDate + Environment.NewLine,
-                BuildLevel.Csc => CliCommandStrings.NoBinaryLogBecauseRunningJustCsc + Environment.NewLine,
-                BuildLevel.All => string.Empty,
-                _ => throw new ArgumentOutOfRangeException(paramName: nameof(level)),
-            };
+            BuildLevel.None => CliCommandStrings.NoBinaryLogBecauseUpToDate + Environment.NewLine,
+            BuildLevel.Csc => CliCommandStrings.NoBinaryLogBecauseRunningJustCsc + Environment.NewLine,
+            BuildLevel.All => string.Empty,
+            _ => throw new ArgumentOutOfRangeException(paramName: nameof(level)),
+        };
 
-            new DotnetCommand(Log, ["run", "Program.cs", "-bl", .. args])
-                .WithWorkingDirectory(testInstance.Path)
-                .Execute()
-                .Should().Pass()
-                .And.HaveStdOut(prefix + expectedOutput);
+        new DotnetCommand(Log, ["run", "Program.cs", "-bl", .. args])
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut(prefix + expectedOutput);
 
-            var binlogs = new DirectoryInfo(testInstance.Path)
-                .EnumerateFiles("*.binlog", SearchOption.TopDirectoryOnly);
+        var binlogs = new DirectoryInfo(testInstance.Path)
+            .EnumerateFiles("*.binlog", SearchOption.TopDirectoryOnly);
 
-            binlogs.Select(f => f.Name)
-                .Should().BeEquivalentTo(
-                    level != BuildLevel.All
-                        ? ["msbuild-dotnet-run.binlog"]
-                        : ["msbuild.binlog", "msbuild-dotnet-run.binlog"]);
+        binlogs.Select(f => f.Name)
+            .Should().BeEquivalentTo(
+                level != BuildLevel.All
+                    ? ["msbuild-dotnet-run.binlog"]
+                    : ["msbuild.binlog", "msbuild-dotnet-run.binlog"]);
 
-            foreach (var binlog in binlogs)
-            {
-                binlog.Delete();
-            }
+        foreach (var binlog in binlogs)
+        {
+            binlog.Delete();
         }
     }
 
@@ -1243,6 +1243,31 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .Execute()
             .Should().Fail()
             .And.HaveStdErrContaining(string.Format(CliCommandStrings.InvalidOptionCombination, RunCommandParser.NoCacheOption.Name, RunCommandParser.NoRestoreOption.Name));
+    }
+
+    [Fact]
+    public void CscOnly()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), """
+            Console.WriteLine("v1");
+            """);
+
+        // Remove artifacts from possible previous runs of this test.
+        var artifactsDir = VirtualProjectBuildingCommand.GetArtifactsPath(Path.Join(testInstance.Path, "Program.cs"));
+        if (Directory.Exists(artifactsDir)) Directory.Delete(artifactsDir, recursive: true);
+
+        // First is full build because cache file does not exist.
+        // TODO: This should go away.
+        Build(testInstance, BuildLevel.All, expectedOutput: "v1");
+
+        Build(testInstance, BuildLevel.None, expectedOutput: "v1");
+
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), """
+            Console.WriteLine("v2");
+            """);
+
+        Build(testInstance, BuildLevel.Csc, expectedOutput: "v2");
     }
 
     private static string ToJson(string s) => JsonSerializer.Serialize(s);
