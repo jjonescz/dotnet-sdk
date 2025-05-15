@@ -40,8 +40,19 @@ internal sealed class CSharpCompilerCommand
         var rsp = Path.Join(ArtifactsPath, "csc.rsp");
         File.WriteAllLines(rsp, CreateArguments().Select(EscapeSingleArg));
 
-        return new DotNetCommandFactory().Create("exec", [s_cscPath, "/noconfig", "/nologo", $"@{EscapeSingleArg(rsp)}"])
-            .Execute().ExitCode;
+        // Load csc.dll (this is much faster than starting a process, especially on Windows).
+        var csc = Assembly.LoadFile(s_cscPath);
+
+        // Find entry point.
+        if (csc.EntryPoint is not { } entryPoint)
+        {
+            Console.Error.WriteLine("csc entry point not found");
+            return 1;
+        }
+
+        // Invoke entry point.
+        string[] args = ["/noconfig", "/nologo", $"@{EscapeSingleArg(rsp)}"];
+        return entryPoint.Invoke(null, [args]) is int exitCode ? exitCode : 0;
 
         static string EscapeSingleArg(string arg)
         {
