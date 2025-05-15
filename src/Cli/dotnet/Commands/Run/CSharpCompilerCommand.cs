@@ -1,8 +1,11 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Buffers;
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Reflection;
+using Microsoft.DotNet.Cli.Utils;
 
 namespace Microsoft.DotNet.Cli.Commands.Run;
 
@@ -11,6 +14,20 @@ namespace Microsoft.DotNet.Cli.Commands.Run;
 /// </summary>
 internal sealed class CSharpCompilerCommand
 {
+    private static readonly SearchValues<char> s_additionalShouldSurroundWithQuotes = SearchValues.Create('=', ',');
+    private static readonly ImmutableArray<string> s_pathOptions =
+    [
+        "reference:",
+        "analyzer:",
+        "additionalfile:",
+        "analyzerconfig:",
+        "embed:",
+        "resource:",
+        "linkresource:",
+        "ruleset:",
+        "keyfile:",
+        "link:",
+    ];
     internal static readonly string s_sdkPath = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!;
     internal static readonly string s_cscPath = Path.Combine(s_sdkPath, "Roslyn", "bincore", "csc.dll");
 
@@ -21,22 +38,67 @@ internal sealed class CSharpCompilerCommand
     {
         // Write .rsp file.
         var rsp = Path.Join(ArtifactsPath, "csc.rsp");
-        File.WriteAllLines(rsp, CreateArguments());
+        File.WriteAllLines(rsp, CreateArguments().Select(EscapeSingleArg));
 
-        return new DotNetCommandFactory().Create("exec", [s_cscPath, $"@{rsp}"]).Execute().ExitCode;
+        return new DotNetCommandFactory().Create("exec", [s_cscPath, "/noconfig", "/nologo", $"@{EscapeSingleArg(rsp)}"])
+            .Execute().ExitCode;
+
+        static string EscapeSingleArg(string arg)
+        {
+            if (IsPathOption(arg, out var colonIndex))
+            {
+                return arg[..(colonIndex + 1)] + EscapeCore(arg[(colonIndex + 1)..]);
+            }
+
+            return EscapeCore(arg);
+        }
+
+        static string EscapeCore(string arg)
+        {
+            return ArgumentEscaper.EscapeSingleArg(arg, additionalShouldSurroundWithQuotes: static (string arg) =>
+            {
+                return arg.ContainsAny(s_additionalShouldSurroundWithQuotes);
+            });
+        }
+
+        static bool IsPathOption(string arg, out int colonIndex)
+        {
+            if (!arg.StartsWith('/'))
+            {
+                colonIndex = -1;
+                return false;
+            }
+
+            var span = arg.AsSpan(start: 1);
+            foreach (var optionName in s_pathOptions)
+            {
+                Debug.Assert(!optionName.StartsWith('/') && optionName.EndsWith(':'));
+
+                if (span.StartsWith(optionName, StringComparison.OrdinalIgnoreCase))
+                {
+                    colonIndex = optionName.Length;
+                    return true;
+                }
+            }
+
+            colonIndex = -1;
+            return false;
+        }
     }
 
     // internal for testing
-    internal ImmutableArray<string> CreateArguments()
+    internal IEnumerable<string> CreateArguments()
     {
         string fileDirectory = Path.GetDirectoryName(EntryPointFileFullPath)!;
         string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(EntryPointFileFullPath);
 
         // Create intermediate files if they don't exist yet.
-        string intermediateDir = Path.Join(ArtifactsPath, "obj", "debug");
-        Directory.CreateDirectory(intermediateDir);
+        string objDir = Path.Join(ArtifactsPath, "obj", "debug");
+        Directory.CreateDirectory(objDir);
+        string binDir = Path.Join(ArtifactsPath, "bin", "debug");
+        Directory.CreateDirectory(binDir);
 
-        string assemblyAttributes = Path.Join(intermediateDir, ".NETCoreApp,Version=v10.0.AssemblyAttributes.cs");
+        string assemblyAttributes = Path.Join(objDir, ".NETCoreApp,Version=v10.0.AssemblyAttributes.cs");
         if (!File.Exists(assemblyAttributes))
         {
             File.WriteAllText(assemblyAttributes, /* lang=C#-test */ """
@@ -48,7 +110,7 @@ internal sealed class CSharpCompilerCommand
                 """);
         }
 
-        string globalUsings = Path.Join(intermediateDir, $"{fileNameWithoutExtension}.GlobalUsings.g.cs");
+        string globalUsings = Path.Join(objDir, $"{fileNameWithoutExtension}.GlobalUsings.g.cs");
         if (!File.Exists(globalUsings))
         {
             File.WriteAllText(globalUsings, /* lang=C#-test */ """
@@ -64,10 +126,10 @@ internal sealed class CSharpCompilerCommand
                 """);
         }
 
-        string assemblyInfo = Path.Join(intermediateDir, $"{fileNameWithoutExtension}.AssemblyInfo.cs");
+        string assemblyInfo = Path.Join(objDir, $"{fileNameWithoutExtension}.AssemblyInfo.cs");
         if (!File.Exists(assemblyInfo))
         {
-            File.WriteAllText(assemblyInfo, $"""
+            File.WriteAllText(assemblyInfo, /* lang=C#-test */ $"""
                 // <autogenerated />
                 using System;
                 using System.Reflection;
@@ -83,7 +145,7 @@ internal sealed class CSharpCompilerCommand
                 """);
         }
 
-        string editorconfig = Path.Join(intermediateDir, $"{fileNameWithoutExtension}.GeneratedMSBuildEditorConfig.editorconfig");
+        string editorconfig = Path.Join(objDir, $"{fileNameWithoutExtension}.GeneratedMSBuildEditorConfig.editorconfig");
         if (!File.Exists(editorconfig))
         {
             File.WriteAllText(editorconfig, $"""
@@ -110,7 +172,6 @@ internal sealed class CSharpCompilerCommand
 
         // Use test `RunFileTests.CscArguments` to regenerate these.
         return [
-            "/noconfig",
             "/unsafe-",
             "/checked-",
             "/nowarn:NU1507,1701,1702",
@@ -122,200 +183,200 @@ internal sealed class CSharpCompilerCommand
             "/preferreduilang:en-US",
             "/highentropyva+",
             "/nullable:enable",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/Microsoft.CSharp.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/Microsoft.VisualBasic.Core.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/Microsoft.VisualBasic.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/Microsoft.Win32.Primitives.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/Microsoft.Win32.Registry.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/mscorlib.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/netstandard.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.AppContext.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Buffers.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Collections.Concurrent.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Collections.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Collections.Immutable.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Collections.NonGeneric.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Collections.Specialized.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.ComponentModel.Annotations.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.ComponentModel.DataAnnotations.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.ComponentModel.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.ComponentModel.EventBasedAsync.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.ComponentModel.Primitives.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.ComponentModel.TypeConverter.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Configuration.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Console.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Core.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Data.Common.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Data.DataSetExtensions.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Data.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Diagnostics.Contracts.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Diagnostics.Debug.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Diagnostics.DiagnosticSource.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Diagnostics.FileVersionInfo.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Diagnostics.Process.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Diagnostics.StackTrace.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Diagnostics.TextWriterTraceListener.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Diagnostics.Tools.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Diagnostics.TraceSource.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Diagnostics.Tracing.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Drawing.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Drawing.Primitives.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Dynamic.Runtime.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Formats.Asn1.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Formats.Tar.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Globalization.Calendars.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Globalization.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Globalization.Extensions.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.IO.Compression.Brotli.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.IO.Compression.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.IO.Compression.FileSystem.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.IO.Compression.ZipFile.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.IO.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.IO.FileSystem.AccessControl.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.IO.FileSystem.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.IO.FileSystem.DriveInfo.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.IO.FileSystem.Primitives.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.IO.FileSystem.Watcher.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.IO.IsolatedStorage.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.IO.MemoryMappedFiles.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.IO.Pipelines.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.IO.Pipes.AccessControl.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.IO.Pipes.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.IO.UnmanagedMemoryStream.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Linq.AsyncEnumerable.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Linq.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Linq.Expressions.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Linq.Parallel.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Linq.Queryable.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Memory.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.Http.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.Http.Json.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.HttpListener.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.Mail.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.NameResolution.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.NetworkInformation.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.Ping.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.Primitives.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.Quic.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.Requests.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.Security.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.ServerSentEvents.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.ServicePoint.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.Sockets.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.WebClient.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.WebHeaderCollection.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.WebProxy.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.WebSockets.Client.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.WebSockets.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Numerics.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Numerics.Vectors.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.ObjectModel.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Reflection.DispatchProxy.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Reflection.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Reflection.Emit.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Reflection.Emit.ILGeneration.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Reflection.Emit.Lightweight.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Reflection.Extensions.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Reflection.Metadata.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Reflection.Primitives.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Reflection.TypeExtensions.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Resources.Reader.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Resources.ResourceManager.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Resources.Writer.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Runtime.CompilerServices.Unsafe.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Runtime.CompilerServices.VisualC.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Runtime.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Runtime.Extensions.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Runtime.Handles.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Runtime.InteropServices.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Runtime.InteropServices.JavaScript.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Runtime.InteropServices.RuntimeInformation.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Runtime.Intrinsics.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Runtime.Loader.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Runtime.Numerics.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Runtime.Serialization.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Runtime.Serialization.Formatters.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Runtime.Serialization.Json.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Runtime.Serialization.Primitives.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Runtime.Serialization.Xml.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Security.AccessControl.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Security.Claims.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Security.Cryptography.Algorithms.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Security.Cryptography.Cng.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Security.Cryptography.Csp.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Security.Cryptography.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Security.Cryptography.Encoding.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Security.Cryptography.OpenSsl.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Security.Cryptography.Primitives.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Security.Cryptography.X509Certificates.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Security.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Security.Principal.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Security.Principal.Windows.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Security.SecureString.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.ServiceModel.Web.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.ServiceProcess.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Text.Encoding.CodePages.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Text.Encoding.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Text.Encoding.Extensions.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Text.Encodings.Web.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Text.Json.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Text.RegularExpressions.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Threading.Channels.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Threading.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Threading.Overlapped.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Threading.Tasks.Dataflow.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Threading.Tasks.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Threading.Tasks.Extensions.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Threading.Tasks.Parallel.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Threading.Thread.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Threading.ThreadPool.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Threading.Timer.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Transactions.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Transactions.Local.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.ValueTuple.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Web.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Web.HttpUtility.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Windows.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Xml.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Xml.Linq.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Xml.ReaderWriter.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Xml.Serialization.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Xml.XDocument.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Xml.XmlDocument.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Xml.XmlSerializer.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Xml.XPath.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Xml.XPath.XDocument.dll",
-            $"/reference:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/WindowsBase.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/Microsoft.CSharp.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/Microsoft.VisualBasic.Core.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/Microsoft.VisualBasic.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/Microsoft.Win32.Primitives.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/Microsoft.Win32.Registry.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/mscorlib.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/netstandard.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.AppContext.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Buffers.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Collections.Concurrent.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Collections.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Collections.Immutable.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Collections.NonGeneric.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Collections.Specialized.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.ComponentModel.Annotations.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.ComponentModel.DataAnnotations.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.ComponentModel.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.ComponentModel.EventBasedAsync.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.ComponentModel.Primitives.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.ComponentModel.TypeConverter.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Configuration.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Console.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Core.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Data.Common.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Data.DataSetExtensions.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Data.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Diagnostics.Contracts.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Diagnostics.Debug.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Diagnostics.DiagnosticSource.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Diagnostics.FileVersionInfo.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Diagnostics.Process.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Diagnostics.StackTrace.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Diagnostics.TextWriterTraceListener.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Diagnostics.Tools.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Diagnostics.TraceSource.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Diagnostics.Tracing.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Drawing.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Drawing.Primitives.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Dynamic.Runtime.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Formats.Asn1.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Formats.Tar.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Globalization.Calendars.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Globalization.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Globalization.Extensions.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.IO.Compression.Brotli.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.IO.Compression.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.IO.Compression.FileSystem.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.IO.Compression.ZipFile.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.IO.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.IO.FileSystem.AccessControl.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.IO.FileSystem.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.IO.FileSystem.DriveInfo.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.IO.FileSystem.Primitives.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.IO.FileSystem.Watcher.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.IO.IsolatedStorage.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.IO.MemoryMappedFiles.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.IO.Pipelines.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.IO.Pipes.AccessControl.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.IO.Pipes.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.IO.UnmanagedMemoryStream.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Linq.AsyncEnumerable.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Linq.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Linq.Expressions.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Linq.Parallel.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Linq.Queryable.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Memory.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.Http.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.Http.Json.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.HttpListener.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.Mail.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.NameResolution.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.NetworkInformation.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.Ping.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.Primitives.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.Quic.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.Requests.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.Security.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.ServerSentEvents.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.ServicePoint.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.Sockets.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.WebClient.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.WebHeaderCollection.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.WebProxy.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.WebSockets.Client.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Net.WebSockets.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Numerics.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Numerics.Vectors.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.ObjectModel.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Reflection.DispatchProxy.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Reflection.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Reflection.Emit.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Reflection.Emit.ILGeneration.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Reflection.Emit.Lightweight.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Reflection.Extensions.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Reflection.Metadata.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Reflection.Primitives.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Reflection.TypeExtensions.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Resources.Reader.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Resources.ResourceManager.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Resources.Writer.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Runtime.CompilerServices.Unsafe.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Runtime.CompilerServices.VisualC.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Runtime.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Runtime.Extensions.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Runtime.Handles.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Runtime.InteropServices.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Runtime.InteropServices.JavaScript.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Runtime.InteropServices.RuntimeInformation.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Runtime.Intrinsics.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Runtime.Loader.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Runtime.Numerics.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Runtime.Serialization.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Runtime.Serialization.Formatters.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Runtime.Serialization.Json.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Runtime.Serialization.Primitives.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Runtime.Serialization.Xml.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Security.AccessControl.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Security.Claims.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Security.Cryptography.Algorithms.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Security.Cryptography.Cng.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Security.Cryptography.Csp.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Security.Cryptography.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Security.Cryptography.Encoding.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Security.Cryptography.OpenSsl.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Security.Cryptography.Primitives.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Security.Cryptography.X509Certificates.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Security.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Security.Principal.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Security.Principal.Windows.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Security.SecureString.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.ServiceModel.Web.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.ServiceProcess.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Text.Encoding.CodePages.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Text.Encoding.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Text.Encoding.Extensions.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Text.Encodings.Web.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Text.Json.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Text.RegularExpressions.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Threading.Channels.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Threading.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Threading.Overlapped.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Threading.Tasks.Dataflow.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Threading.Tasks.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Threading.Tasks.Extensions.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Threading.Tasks.Parallel.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Threading.Thread.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Threading.ThreadPool.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Threading.Timer.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Transactions.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Transactions.Local.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.ValueTuple.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Web.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Web.HttpUtility.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Windows.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Xml.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Xml.Linq.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Xml.ReaderWriter.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Xml.Serialization.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Xml.XDocument.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Xml.XmlDocument.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Xml.XmlSerializer.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Xml.XPath.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/System.Xml.XPath.XDocument.dll",
+            $"/reference:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/ref/net10.0/WindowsBase.dll",
             "/debug+",
             "/debug:portable",
             "/filealign:512",
             "/optimize-",
-            $"/out:{intermediateDir}/{fileNameWithoutExtension}.dll",
+            $"/out:{binDir}/{fileNameWithoutExtension}.dll",
             "/target:exe",
             "/warnaserror-",
             "/utf8output",
             "/deterministic+",
             "/langversion:13.0",
             $"/embed:{EntryPointFileFullPath}",
-            $"/embed:{intermediateDir}/{fileNameWithoutExtension}.GlobalUsings.g.cs",
-            $"/embed:{intermediateDir}/.NETCoreApp,Version=v10.0.AssemblyAttributes.cs",
-            $"/embed:{intermediateDir}/{fileNameWithoutExtension}.AssemblyInfo.cs",
-            $"/analyzerconfig:{s_sdkPath}/dotnet/sdk/10.0.100-dev/Sdks/Microsoft.NET.Sdk/codestyle/cs/build/config/analysislevelstyle_default.globalconfig",
-            $"/analyzerconfig:{intermediateDir}/{fileNameWithoutExtension}.GeneratedMSBuildEditorConfig.editorconfig",
-            $"/analyzer:{s_sdkPath}/dotnet/sdk/10.0.100-dev/Sdks/Microsoft.NET.Sdk/targets/../analyzers/Microsoft.CodeAnalysis.CSharp.NetAnalyzers.dll",
-            $"/analyzer:{s_sdkPath}/dotnet/sdk/10.0.100-dev/Sdks/Microsoft.NET.Sdk/targets/../analyzers/Microsoft.CodeAnalysis.NetAnalyzers.dll",
-            $"/analyzer:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/analyzers/dotnet/cs/Microsoft.Interop.ComInterfaceGenerator.dll",
-            $"/analyzer:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/analyzers/dotnet/cs/Microsoft.Interop.JavaScript.JSImportGenerator.dll",
-            $"/analyzer:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/analyzers/dotnet/cs/Microsoft.Interop.LibraryImportGenerator.dll",
-            $"/analyzer:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/analyzers/dotnet/cs/Microsoft.Interop.SourceGeneration.dll",
-            $"/analyzer:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/analyzers/dotnet/cs/System.Text.Json.SourceGeneration.dll",
-            $"/analyzer:{s_sdkPath}/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/analyzers/dotnet/cs/System.Text.RegularExpressions.Generator.dll",
-            $"{EntryPointFileFullPath}",
-            $"{intermediateDir}/{fileNameWithoutExtension}.GlobalUsings.g.cs",
-            $"{intermediateDir}/.NETCoreApp,Version=v10.0.AssemblyAttributes.cs",
-            $"{intermediateDir}/{fileNameWithoutExtension}.AssemblyInfo.cs",
+            $"/embed:{objDir}/{fileNameWithoutExtension}.GlobalUsings.g.cs",
+            $"/embed:{objDir}/.NETCoreApp,Version=v10.0.AssemblyAttributes.cs",
+            $"/embed:{objDir}/{fileNameWithoutExtension}.AssemblyInfo.cs",
+            $"/analyzerconfig:{s_sdkPath}/Sdks/Microsoft.NET.Sdk/codestyle/cs/build/config/analysislevelstyle_default.globalconfig",
+            $"/analyzerconfig:{objDir}/{fileNameWithoutExtension}.GeneratedMSBuildEditorConfig.editorconfig",
+            $"/analyzer:{s_sdkPath}/Sdks/Microsoft.NET.Sdk/targets/../analyzers/Microsoft.CodeAnalysis.CSharp.NetAnalyzers.dll",
+            $"/analyzer:{s_sdkPath}/Sdks/Microsoft.NET.Sdk/targets/../analyzers/Microsoft.CodeAnalysis.NetAnalyzers.dll",
+            $"/analyzer:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/analyzers/dotnet/cs/Microsoft.Interop.ComInterfaceGenerator.dll",
+            $"/analyzer:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/analyzers/dotnet/cs/Microsoft.Interop.JavaScript.JSImportGenerator.dll",
+            $"/analyzer:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/analyzers/dotnet/cs/Microsoft.Interop.LibraryImportGenerator.dll",
+            $"/analyzer:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/analyzers/dotnet/cs/Microsoft.Interop.SourceGeneration.dll",
+            $"/analyzer:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/analyzers/dotnet/cs/System.Text.Json.SourceGeneration.dll",
+            $"/analyzer:{s_sdkPath}/../../packs/Microsoft.NETCore.App.Ref/10.0.0-preview.5.25257.101/analyzers/dotnet/cs/System.Text.RegularExpressions.Generator.dll",
+            EntryPointFileFullPath,
+            $"{objDir}/{fileNameWithoutExtension}.GlobalUsings.g.cs",
+            $"{objDir}/.NETCoreApp,Version=v10.0.AssemblyAttributes.cs",
+            $"{objDir}/{fileNameWithoutExtension}.AssemblyInfo.cs",
             "/warnaserror+:NU1605,SYSLIB0011",
         ];
     }
