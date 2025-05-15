@@ -15,6 +15,7 @@ namespace Microsoft.DotNet.Cli.Commands.Run;
 internal sealed class CSharpCompilerCommand
 {
     private static readonly SearchValues<char> s_additionalShouldSurroundWithQuotes = SearchValues.Create('=', ',');
+
     private static readonly ImmutableArray<string> s_pathOptions =
     [
         "reference:",
@@ -28,8 +29,11 @@ internal sealed class CSharpCompilerCommand
         "keyfile:",
         "link:",
     ];
+
     internal static readonly string s_sdkPath = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!;
-    internal static readonly string s_cscPath = Path.Combine(s_sdkPath, "Roslyn", "bincore", "csc.dll");
+
+    private static readonly string s_buildTasksPath = Path.Combine(s_sdkPath, "Roslyn", "Microsoft.Build.Tasks.CodeAnalysis.dll");
+    private static readonly string s_clientDirectory = Path.Combine(s_sdkPath, "Roslyn", "bincore");
 
     public required string EntryPointFileFullPath { get; init; }
     public required string ArtifactsPath { get; init; }
@@ -40,19 +44,59 @@ internal sealed class CSharpCompilerCommand
         var rsp = Path.Join(ArtifactsPath, "csc.rsp");
         File.WriteAllLines(rsp, CreateArguments().Select(EscapeSingleArg));
 
-        // Load csc.dll (this is much faster than starting a process, especially on Windows).
-        var csc = Assembly.LoadFile(s_cscPath);
+        // Load build tasks dll and use it to send a compiler server request
+        // (this is much faster than starting a csc.dll process, especially on Windows).
+        var buildTasks = Assembly.LoadFile(s_buildTasksPath);
+        var buildServerConnection = buildTasks.GetType("Microsoft.CodeAnalysis.CommandLine.BuildServerConnection")!;
 
-        // Find entry point.
-        if (csc.EntryPoint is not { } entryPoint)
-        {
-            Console.Error.WriteLine("csc entry point not found");
-            return 1;
-        }
+        // Construct csc args.
+        List<string> args = ["/noconfig", "/nologo", $"@{EscapeSingleArg(rsp)}"];
 
-        // Invoke entry point.
-        string[] args = ["/noconfig", "/nologo", $"@{EscapeSingleArg(rsp)}"];
-        return entryPoint.Invoke(null, [args]) is int exitCode ? exitCode : 0;
+        // Create a request for the compiler server.
+        var buildRequest = buildServerConnection
+            .GetMethod("CreateBuildRequest", BindingFlags.Static | BindingFlags.NonPublic)!
+            .Invoke(null,
+            [
+                /* requestId */ EntryPointFileFullPath,
+                /* language (C#) */ 0x44532521,
+                /* args */ args,
+                /* workingDirectory */ Environment.CurrentDirectory,
+                /* tempDirectory */ Path.GetTempPath(),
+                /* keepAlive */ null,
+                /* libDirectory */ null,
+            ])!;
+
+        // Get pipe name.
+        var pipeName = buildServerConnection
+            .GetMethod("GetPipeName", BindingFlags.Static | BindingFlags.NonPublic, [typeof(string)])!
+            .Invoke(null, [s_clientDirectory])!;
+
+        // Create logger.
+        var logger = Activator.CreateInstance(buildTasks.GetType("Microsoft.CodeAnalysis.CommandLine.CompilerServerLogger")!,
+            [
+                /* identifier */ $"dotnet run file {Environment.ProcessId}",
+                /* loggingFilePath */ null,
+            ])!;
+
+        // Send the request.
+        var responseTask = (Task)buildServerConnection
+            .GetMethods(BindingFlags.Static | BindingFlags.NonPublic)!
+            .Single(static m => m.Name == "RunServerBuildRequestAsync" && m.GetParameters().Length == 5)
+            .Invoke(null,
+            [
+                /* buildRequest */ buildRequest,
+                /* pipeName */ pipeName,
+                /* clientDirectory */ s_clientDirectory,
+                /* logger */ logger,
+                /* cancellationToken */ null,
+            ])!;
+
+        // TODO: Handle the response.
+        responseTask.Wait();
+        var result = responseTask.GetType().GetProperty("Result")!.GetValue(responseTask)!;
+        var reason = result.GetType().GetField("Reason")?.GetValue(result)!;
+        Reporter.Verbose.WriteLine($"Got result: {result.GetType()}: {reason}");
+        return 0;
 
         static string EscapeSingleArg(string arg)
         {

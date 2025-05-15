@@ -970,7 +970,6 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         var actualArgs = new List<string>();
         Log.WriteLine("Arguments should be:");
         Log.WriteLine("[");
-        Log.WriteLine(nameof(CSharpCompilerCommand.s_cscPath) + ",");
         foreach (var arg in projectBasedCallArgs)
         {
             // We don't need to generate a ref assembly.
