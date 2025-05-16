@@ -120,6 +120,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         }
 
         Dictionary<string, string?> savedEnvironmentVariables = [];
+        ProjectCollection? projectCollection = null;
         try
         {
             // Set environment variables.
@@ -131,7 +132,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
 
             // Set up MSBuild.
             ReadOnlySpan<ILogger> binaryLoggers = binaryLogger is null ? [] : [binaryLogger];
-            var projectCollection = new ProjectCollection(
+            projectCollection = new ProjectCollection(
                 GlobalProperties,
                 [.. binaryLoggers, consoleLogger],
                 ToolsetDefinitionLocations.Default);
@@ -197,8 +198,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                 Environment.SetEnvironmentVariable(key, value);
             }
 
-            binaryLogger?.Shutdown();
-            consoleLogger.Shutdown();
+            projectCollection?.Dispose();
         }
 
         static ILogger? GetBinaryLogger(string[] args)
@@ -418,6 +418,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
 
         return ProjectInstance.FromProjectRootElement(projectRoot, new ProjectOptions
         {
+            ProjectCollection = projectCollection,
             GlobalProperties = globalProperties,
         });
 
