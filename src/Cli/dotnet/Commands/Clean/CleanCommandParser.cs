@@ -56,8 +56,16 @@ internal static class CleanCommandParser
         command.Options.Add(NoLogoOption);
         command.Options.Add(CommonOptions.DisableBuildServersOption);
 
+        command.Subcommands.Add(ConstructCleanFileBasedProgramArtifactsSubcommand());
+
         command.SetAction(CleanCommand.Run);
 
+        return command;
+    }
+
+    private static Command ConstructCleanFileBasedProgramArtifactsSubcommand()
+    {
+        var command = new Command("file-based-program-artifacts");
         return command;
     }
 }
