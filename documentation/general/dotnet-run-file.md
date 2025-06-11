@@ -86,6 +86,10 @@ other files in the target directory or its subdirectories are included in the co
 For example, other `.cs` files but also `.resx` (embedded resources).
 Similarly, implicit build files like `Directory.Build.props` or `Directory.Packages.props` are used during the build.
 
+> [!CAUTION]
+> Support for multiple files has been postponed to .NET 11.
+> In .NET 10, only the single file passed as the argument to `dotnet run file.cs` is part of the compilation.
+
 ### Nested files
 
 If there are nested project files like
