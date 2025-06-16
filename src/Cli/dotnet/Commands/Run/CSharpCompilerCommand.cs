@@ -5,6 +5,7 @@ using System.Buffers;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Reflection;
+using Microsoft.CodeAnalysis.CommandLine;
 using Microsoft.DotNet.Cli.Utils;
 
 namespace Microsoft.DotNet.Cli.Commands.Run;
@@ -44,59 +45,49 @@ internal sealed class CSharpCompilerCommand
         var rsp = Path.Join(ArtifactsPath, "csc.rsp");
         File.WriteAllLines(rsp, CreateArguments().Select(EscapeSingleArg));
 
-        // Load build tasks dll and use it to send a compiler server request
+        // Create a request for the compiler server
         // (this is much faster than starting a csc.dll process, especially on Windows).
-        var buildTasks = Assembly.LoadFile(s_buildTasksPath);
-        var buildServerConnection = buildTasks.GetType("Microsoft.CodeAnalysis.CommandLine.BuildServerConnection")!;
-
-        // Construct csc args.
-        List<string> args = ["/noconfig", "/nologo", $"@{EscapeSingleArg(rsp)}"];
-
-        // Create a request for the compiler server.
-        var buildRequest = buildServerConnection
-            .GetMethod("CreateBuildRequest", BindingFlags.Static | BindingFlags.NonPublic)!
-            .Invoke(null,
-            [
-                /* requestId */ EntryPointFileFullPath,
-                /* language (C#) */ 0x44532521,
-                /* args */ args,
-                /* workingDirectory */ Environment.CurrentDirectory,
-                /* tempDirectory */ Path.GetTempPath(),
-                /* keepAlive */ null,
-                /* libDirectory */ null,
-            ])!;
+        var buildRequest = BuildServerConnection.CreateBuildRequest(
+            requestId: EntryPointFileFullPath,
+            language: RequestLanguage.CSharpCompile,
+            arguments: ["/noconfig", "/nologo", $"@{EscapeSingleArg(rsp)}"],
+            workingDirectory: Environment.CurrentDirectory,
+            tempDirectory: Path.GetTempPath(),
+            keepAlive: null,
+            libDirectory: null);
 
         // Get pipe name.
-        var pipeName = buildServerConnection
-            .GetMethod("GetPipeName", BindingFlags.Static | BindingFlags.NonPublic, [typeof(string)])!
-            .Invoke(null, [s_clientDirectory])!;
+        var pipeName = BuildServerConnection.GetPipeName(clientDirectory: s_clientDirectory);
 
         // Create logger.
-        var logger = Activator.CreateInstance(buildTasks.GetType("Microsoft.CodeAnalysis.CommandLine.CompilerServerLogger")!,
-            [
-                /* identifier */ $"dotnet run file {Environment.ProcessId}",
-                /* loggingFilePath */ null,
-            ])!;
+        var logger = new CompilerServerLogger(
+            identifier: $"dotnet run file {Environment.ProcessId}",
+            loggingFilePath: null);
 
         // Send the request.
-        var responseTask = (Task)buildServerConnection
-            .GetMethods(BindingFlags.Static | BindingFlags.NonPublic)!
-            .Single(static m => m.Name == "RunServerBuildRequestAsync" && m.GetParameters().Length == 5)
-            .Invoke(null,
-            [
-                /* buildRequest */ buildRequest,
-                /* pipeName */ pipeName,
-                /* clientDirectory */ s_clientDirectory,
-                /* logger */ logger,
-                /* cancellationToken */ null,
-            ])!;
+        var responseTask = BuildServerConnection.RunServerBuildRequestAsync(
+            buildRequest,
+            pipeName: pipeName,
+            clientDirectory: s_clientDirectory,
+            logger,
+            cancellationToken: default);
 
-        // TODO: Handle the response.
-        responseTask.Wait();
-        var result = responseTask.GetType().GetProperty("Result")!.GetValue(responseTask)!;
-        var reason = result.GetType().GetField("Reason")?.GetValue(result)!;
-        Reporter.Verbose.WriteLine($"Got result: {result.GetType()}: {reason}");
-        return 0;
+        // Handle the response.
+        var response = responseTask.Result;
+        switch (response)
+        {
+            case null:
+                Reporter.Error.WriteLine("Could not launch the compiler server.");
+                return 1;
+
+            case CompletedBuildResponse completed:
+                Reporter.Verbose.WriteLine($"Compiler server processed compilation: {completed.Output}");
+                return completed.ReturnCode;
+
+            default:
+                Reporter.Error.WriteLine($"Compiler server returned unexpected response: {response.GetType().Name}");
+                return 1;
+        }
 
         static string EscapeSingleArg(string arg)
         {
