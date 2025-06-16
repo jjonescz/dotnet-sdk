@@ -15,7 +15,6 @@ namespace Microsoft.DotNet.Watch
     {
         public readonly IncrementalMSBuildWorkspace Workspace;
         public readonly EnvironmentOptions EnvironmentOptions;
-        private readonly GlobalOptions _options;
         private readonly IReporter _reporter;
         private readonly WatchHotReloadService _hotReloadService;
 
@@ -41,11 +40,10 @@ namespace Microsoft.DotNet.Watch
 
         private bool _isDisposed;
 
-        public CompilationHandler(IReporter reporter, EnvironmentOptions environmentOptions, GlobalOptions options, CancellationToken shutdownCancellationToken)
+        public CompilationHandler(IReporter reporter, EnvironmentOptions environmentOptions, CancellationToken shutdownCancellationToken)
         {
             _reporter = reporter;
             EnvironmentOptions = environmentOptions;
-            _options = options;
             Workspace = new IncrementalMSBuildWorkspace(reporter);
             _hotReloadService = new WatchHotReloadService(Workspace.CurrentSolution.Services, () => ValueTask.FromResult(GetAggregateCapabilities()));
             _shutdownCancellationToken = shutdownCancellationToken;
@@ -102,18 +100,10 @@ namespace Microsoft.DotNet.Watch
             _reporter.Report(MessageDescriptor.HotReloadSessionStarted);
         }
 
-        private static DeltaApplier CreateDeltaApplier(HotReloadProfile profile, ProjectGraphNode project, BrowserRefreshServer? browserRefreshServer, IReporter processReporter)
-            => profile switch
-            {
-                HotReloadProfile.BlazorWebAssembly => new BlazorWebAssemblyDeltaApplier(processReporter, browserRefreshServer!, project),
-                HotReloadProfile.BlazorHosted => new BlazorWebAssemblyHostedDeltaApplier(processReporter, browserRefreshServer!, project),
-                _ => new DefaultDeltaApplier(processReporter),
-            };
-
         public async Task<RunningProject?> TrackRunningProjectAsync(
             ProjectGraphNode projectNode,
             ProjectOptions projectOptions,
-            HotReloadProfile profile,
+            HotReloadAppModel appModel,
             string namedPipeName,
             BrowserRefreshServer? browserRefreshServer,
             ProcessSpec processSpec,
@@ -124,7 +114,13 @@ namespace Microsoft.DotNet.Watch
         {
             var projectPath = projectNode.ProjectInstance.FullPath;
 
-            var deltaApplier = CreateDeltaApplier(profile, projectNode, browserRefreshServer, processReporter);
+            var deltaApplier = appModel.CreateDeltaApplier(browserRefreshServer, processReporter);
+            if (deltaApplier == null)
+            {
+                // error already reported
+                return null;
+            }
+
             var processExitedSource = new CancellationTokenSource();
             var processCommunicationCancellationSource = CancellationTokenSource.CreateLinkedTokenSource(processExitedSource.Token, cancellationToken);
 
@@ -251,6 +247,7 @@ namespace Microsoft.DotNet.Watch
         }
 
         public async ValueTask<(ImmutableDictionary<ProjectId, string> projectsToRebuild, ImmutableArray<RunningProject> terminatedProjects)> HandleManagedCodeChangesAsync(
+            bool autoRestart,
             Func<IEnumerable<string>, CancellationToken, Task> restartPrompt,
             CancellationToken cancellationToken)
         {
@@ -261,8 +258,8 @@ namespace Microsoft.DotNet.Watch
                (from project in currentSolution.Projects
                 let runningProject = GetCorrespondingRunningProject(project, runningProjects)
                 where runningProject != null
-                let autoRestart = _options.NonInteractive || runningProject.ProjectNode.IsAutoRestartEnabled()
-                select (project.Id, info: new WatchHotReloadService.RunningProjectInfo() { RestartWhenChangesHaveNoEffect = autoRestart }))
+                let autoRestartProject = autoRestart || runningProject.ProjectNode.IsAutoRestartEnabled()
+                select (project.Id, info: new WatchHotReloadService.RunningProjectInfo() { RestartWhenChangesHaveNoEffect = autoRestartProject }))
                 .ToImmutableDictionary(e => e.Id, e => e.info);
 
             var updates = await _hotReloadService.GetUpdatesAsync(currentSolution, runningProjectInfos, cancellationToken);
@@ -276,41 +273,43 @@ namespace Microsoft.DotNet.Watch
                 return (ImmutableDictionary<ProjectId, string>.Empty, []);
             }
 
-            ImmutableDictionary<string, ImmutableArray<RunningProject>> projectsToUpdate;
-            lock (_runningProjectsAndUpdatesGuard)
+            if (updates.ProjectUpdates.Any())
             {
-                // Adding the updates makes sure that all new processes receive them before they are added to running processes.
-                _previousUpdates = _previousUpdates.AddRange(updates.ProjectUpdates);
-
-                // Capture the set of processes that do not have the currently calculated deltas yet.
-                projectsToUpdate = _runningProjects;
-            }
-
-            // Apply changes to all running projects, even if they do not have a static project dependency on any project that changed.
-            // The process may load any of the binaries using MEF or some other runtime dependency loader.
-
-            await ForEachProjectAsync(projectsToUpdate, async (runningProject, cancellationToken) =>
-            {
-                try
+                ImmutableDictionary<string, ImmutableArray<RunningProject>> projectsToUpdate;
+                lock (_runningProjectsAndUpdatesGuard)
                 {
-                    using var processCommunicationCancellationSource = CancellationTokenSource.CreateLinkedTokenSource(runningProject.ProcessExitedSource.Token, cancellationToken);
-                    var applySucceded = await runningProject.DeltaApplier.ApplyManagedCodeUpdates(updates.ProjectUpdates, processCommunicationCancellationSource.Token) != ApplyStatus.Failed;
-                    if (applySucceded)
+                    // Adding the updates makes sure that all new processes receive them before they are added to running processes.
+                    _previousUpdates = _previousUpdates.AddRange(updates.ProjectUpdates);
+
+                    // Capture the set of processes that do not have the currently calculated deltas yet.
+                    projectsToUpdate = _runningProjects;
+                }
+
+                // Apply changes to all running projects, even if they do not have a static project dependency on any project that changed.
+                // The process may load any of the binaries using MEF or some other runtime dependency loader.
+
+                await ForEachProjectAsync(projectsToUpdate, async (runningProject, cancellationToken) =>
+                {
+                    try
                     {
-                        runningProject.Reporter.Report(MessageDescriptor.HotReloadSucceeded);
-                        if (runningProject.BrowserRefreshServer is { } server)
+                        using var processCommunicationCancellationSource = CancellationTokenSource.CreateLinkedTokenSource(runningProject.ProcessExitedSource.Token, cancellationToken);
+                        var applySucceded = await runningProject.DeltaApplier.ApplyManagedCodeUpdates(updates.ProjectUpdates, processCommunicationCancellationSource.Token) != ApplyStatus.Failed;
+                        if (applySucceded)
                         {
-                            runningProject.Reporter.Verbose("Refreshing browser.");
-                            await server.RefreshBrowserAsync(cancellationToken);
+                            runningProject.Reporter.Report(MessageDescriptor.HotReloadSucceeded);
+                            if (runningProject.BrowserRefreshServer is { } server)
+                            {
+                                runningProject.Reporter.Verbose("Refreshing browser.");
+                                await server.RefreshBrowserAsync(cancellationToken);
+                            }
                         }
                     }
-                }
-                catch (OperationCanceledException) when (runningProject.ProcessExitedSource.Token.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-                {
-                    runningProject.Reporter.Verbose("Hot reload canceled because the process exited.", emoji: "🔥");
-                }
-            }, cancellationToken);
-
+                    catch (OperationCanceledException) when (runningProject.ProcessExitedSource.Token.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                    {
+                        runningProject.Reporter.Verbose("Hot reload canceled because the process exited.", emoji: "🔥");
+                    }
+                }, cancellationToken);
+            }
 
             if (updates.ProjectsToRestart.IsEmpty)
             {
@@ -416,11 +415,15 @@ namespace Microsoft.DotNet.Watch
                 // Rude edits in projects that caused restart of a project that can be restarted automatically
                 // will be reported only as verbose output.
                 var projectsRestartedDueToRudeEdits = updates.ProjectsToRestart
-                    .Where(e => runningProjectInfos.TryGetValue(e.Key, out var info) && info.RestartWhenChangesHaveNoEffect)
+                    .Where(e => IsAutoRestartEnabled(e.Key))
                     .SelectMany(e => e.Value)
                     .ToHashSet();
 
-                var projectsRebuiltDueToRudeEdits = updates.ProjectsToRebuild.ToHashSet();
+                // Project with rude edit that doesn't impact running project is only listed in ProjectsToRebuild.
+                // Such projects are always auto-rebuilt whether or not there is any project to be restarted that needs a confirmation.
+                var projectsRebuiltDueToRudeEdits = updates.ProjectsToRebuild
+                    .Where(p => !updates.ProjectsToRestart.ContainsKey(p))
+                    .ToHashSet();
 
                 foreach (var (projectId, diagnostics) in updates.RudeEdits)
                 {
@@ -436,6 +439,9 @@ namespace Microsoft.DotNet.Watch
                     }
                 }
             }
+
+            bool IsAutoRestartEnabled(ProjectId id)
+                => runningProjectInfos.TryGetValue(id, out var info) && info.RestartWhenChangesHaveNoEffect;
 
             void ReportDiagnostic(Diagnostic diagnostic, MessageDescriptor descriptor, string prefix = "")
             {
