@@ -1566,11 +1566,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         var artifactsDir = VirtualProjectBuildingCommand.GetArtifactsPath(Path.Join(testInstance.Path, "Program.cs"));
         if (Directory.Exists(artifactsDir)) Directory.Delete(artifactsDir, recursive: true);
 
-        // First is full build because cache file does not exist.
-        // TODO: This should go away.
-        Build(testInstance, BuildLevel.All, expectedOutput: "v1");
-
-        Build(testInstance, BuildLevel.None, expectedOutput: "v1");
+        Build(testInstance, BuildLevel.Csc, expectedOutput: "v1");
 
         File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), """
             Console.WriteLine("v2");

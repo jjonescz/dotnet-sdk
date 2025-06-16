@@ -41,21 +41,25 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
     /// </summary>
     private const string BuildSuccessCacheFileName = "build-success.cache";
 
-    private static readonly ImmutableArray<string> s_implicitBuildFileNames =
+    /// <summary>
+    /// <c>MSBuildFile</c> is <see langword="true"/> if the presence of the implicit build file (even if there are no <see cref="CSharpDirective"/>s)
+    /// implies that CSC is not enough and MSBuild is needed to build the project, i.e., the file alone can affect MSBuild props or targets.
+    /// </summary>
+    private static readonly ImmutableArray<(string Name, bool MSBuildFile)> s_implicitBuildFiles =
     [
-        "global.json",
+        ("global.json", false),
 
         // All these casings are recognized on case-sensitive platforms:
         // https://github.com/NuGet/NuGet.Client/blob/ab6b96fd9ba07ed3bf629ee389799ca4fb9a20fb/src/NuGet.Core/NuGet.Configuration/Settings/Settings.cs#L32-L37
-        "nuget.config",
-        "NuGet.config",
-        "NuGet.Config",
+        ("nuget.config", false),
+        ("NuGet.config", false),
+        ("NuGet.Config", false),
 
-        "Directory.Build.props",
-        "Directory.Build.targets",
-        "Directory.Packages.props",
-        "Directory.Build.rsp",
-        "MSBuild.rsp",
+        ("Directory.Build.props", true),
+        ("Directory.Build.targets", true),
+        ("Directory.Packages.props", true),
+        ("Directory.Build.rsp", true),
+        ("MSBuild.rsp", true),
     ];
 
     internal static readonly string TargetOverrides = """
@@ -151,26 +155,28 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
             {
                 PrepareProjectInstance();
 
-                if (NeedsToBuild(out cacheEntry) is var buildLevel and not BuildLevel.All)
+                var buildLevel = GetBuildLevel(out cacheEntry);
+
+                if (buildLevel is BuildLevel.None)
                 {
                     if (binaryLogger is not null)
                     {
-                        string message = buildLevel == BuildLevel.Csc
-                            ? CliCommandStrings.NoBinaryLogBecauseRunningJustCsc
-                            : CliCommandStrings.NoBinaryLogBecauseUpToDate;
-                        Reporter.Output.WriteLine(message.Yellow());
+                        Reporter.Output.WriteLine(CliCommandStrings.NoBinaryLogBecauseUpToDate.Yellow());
                     }
 
-                    if (buildLevel == BuildLevel.None)
+                    return 0;
+                }
+
+                if (buildLevel is BuildLevel.Csc)
+                {
+                    if (binaryLogger is not null)
                     {
-                        return 0;
+                        Reporter.Output.WriteLine(CliCommandStrings.NoBinaryLogBecauseRunningJustCsc.Yellow());
                     }
-
-                    Debug.Assert(buildLevel == BuildLevel.Csc);
 
                     MarkBuildStart();
 
-                    // Run csc.dll
+                    // Execute CSC.
                     int result = new CSharpCompilerCommand
                     {
                         EntryPointFileFullPath = EntryPointFileFullPath,
@@ -317,13 +323,18 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         DirectoryInfo? directory = entryPointFileInfo.Directory;
         while (directory != null)
         {
-            foreach (var implicitBuildFileName in s_implicitBuildFileNames)
+            foreach (var implicitBuildFile in s_implicitBuildFiles)
             {
-                string implicitBuildFilePath = Path.Join(directory.FullName, implicitBuildFileName);
+                string implicitBuildFilePath = Path.Join(directory.FullName, implicitBuildFile.Name);
                 var implicitBuildFileInfo = new FileInfo(implicitBuildFilePath);
                 if (implicitBuildFileInfo.Exists)
                 {
                     cacheEntry.ImplicitBuildFiles.Add(implicitBuildFilePath, implicitBuildFileInfo.LastWriteTimeUtc);
+
+                    if (implicitBuildFile.MSBuildFile && cacheEntry.ExampleMSBuildFile is null)
+                    {
+                        cacheEntry.ExampleMSBuildFile = implicitBuildFilePath;
+                    }
                 }
             }
 
@@ -333,7 +344,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         return cacheEntry;
     }
 
-    private BuildLevel NeedsToBuild(out RunFileBuildCacheEntry cacheEntry)
+    private bool NeedsToBuild(out RunFileBuildCacheEntry cacheEntry)
     {
         cacheEntry = ComputeCacheEntry(out FileInfo entryPointFileInfo);
 
@@ -345,27 +356,27 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         if (!successCacheFile.Exists)
         {
             Reporter.Verbose.WriteLine("Building because cache file does not exist: " + successCacheFile.FullName);
-            return BuildLevel.All;
+            return true;
         }
 
         var startCacheFile = new FileInfo(Path.Join(artifactsDirectory, BuildStartCacheFileName));
         if (!startCacheFile.Exists)
         {
             Reporter.Verbose.WriteLine("Building because start cache file does not exist: " + startCacheFile.FullName);
-            return BuildLevel.All;
+            return true;
         }
 
         if (startCacheFile.LastWriteTimeUtc > successCacheFile.LastWriteTimeUtc)
         {
             Reporter.Verbose.WriteLine("Building because start cache file is newer than success cache file (previous build likely failed): " + startCacheFile.FullName);
-            return BuildLevel.All;
+            return true;
         }
 
         var previousCacheEntry = DeserializeCacheEntry(successCacheFile);
         if (previousCacheEntry is null)
         {
             Reporter.Verbose.WriteLine("Building because previous cache entry could not be deserialized: " + successCacheFile.FullName);
-            return BuildLevel.All;
+            return true;
         }
 
         // Check that properties match.
@@ -375,7 +386,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
             Reporter.Verbose.WriteLine($"""
                 Building because previous global properties count ({previousCacheEntry.GlobalProperties.Count}) does not match current count ({cacheEntry.GlobalProperties.Count}): {successCacheFile.FullName}
                 """);
-            return BuildLevel.All;
+            return true;
         }
 
         foreach (var (key, value) in cacheEntry.GlobalProperties)
@@ -386,7 +397,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                 Reporter.Verbose.WriteLine($"""
                     Building because previous global property "{key}" ({otherValue}) does not match current ({value}): {successCacheFile.FullName}
                     """);
-                return BuildLevel.All;
+                return true;
             }
         }
 
@@ -396,7 +407,14 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         if (!entryPointFileInfo.Exists)
         {
             Reporter.Verbose.WriteLine("Building because entry point file is missing: " + entryPointFileInfo.FullName);
-            return BuildLevel.All;
+            return true;
+        }
+
+        // Check that the source file is not modified.
+        if (entryPointFileInfo.LastWriteTimeUtc > buildTimeUtc)
+        {
+            Reporter.Verbose.WriteLine("Compiling because entry point file is modified: " + entryPointFileInfo.FullName);
+            return true;
         }
 
         // Check that implicit build files are not modified.
@@ -406,7 +424,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
             if (!implicitBuildFileInfo.Exists || implicitBuildFileInfo.LastWriteTimeUtc > buildTimeUtc)
             {
                 Reporter.Verbose.WriteLine("Building because implicit build file is missing or modified: " + implicitBuildFileInfo.FullName);
-                return BuildLevel.All;
+                return true;
             }
         }
 
@@ -416,18 +434,11 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
             if (!previousCacheEntry.ImplicitBuildFiles.ContainsKey(implicitBuildFilePath))
             {
                 Reporter.Verbose.WriteLine("Building because new implicit build file is present: " + implicitBuildFilePath);
-                return BuildLevel.All;
+                return true;
             }
         }
 
-        // Check that the source file is not modified.
-        if (!entryPointFileInfo.Exists || entryPointFileInfo.LastWriteTimeUtc > buildTimeUtc)
-        {
-            Reporter.Verbose.WriteLine("Compiling because entry point file is modified: " + entryPointFileInfo.FullName);
-            return (previousCacheEntry.AnyDirectives || cacheEntry.AnyDirectives) ? BuildLevel.All : BuildLevel.Csc;
-        }
-
-        return BuildLevel.None;
+        return false;
 
         static RunFileBuildCacheEntry? DeserializeCacheEntry(FileInfo cacheFile)
         {
@@ -442,6 +453,38 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                 return null;
             }
         }
+    }
+
+    private BuildLevel GetBuildLevel(out RunFileBuildCacheEntry cacheEntry)
+    {
+        if (!NeedsToBuild(out cacheEntry))
+        {
+            return BuildLevel.None;
+        }
+
+        // Determine whether we can use CSC only or need to use MSBuild.
+        if (cacheEntry.AnyDirectives)
+        {
+            Reporter.Verbose.WriteLine("Using MSBuild because there are directives in the source file.");
+            return BuildLevel.All;
+        }
+
+        // TODO: Need to exclude default global properties.
+        //if (cacheEntry.GlobalProperties.Count > 0)
+        //{
+        //    var example = cacheEntry.GlobalProperties.First();
+        //    Reporter.Verbose.WriteLine($"Using MSBuild because there are global properties, for example '{example.Key}={example.Value}'.");
+        //    return BuildLevel.All;
+        //}
+
+        if (cacheEntry.ExampleMSBuildFile is { } exampleMSBuildFile)
+        {
+            Reporter.Verbose.WriteLine($"Using MSBuild because there are implicit build files, for example '{exampleMSBuildFile}'.");
+            return BuildLevel.All;
+        }
+
+        Reporter.Verbose.WriteLine("Skipping MSBuild and using CSC only.");
+        return BuildLevel.Csc;
     }
 
     private void MarkBuildStart()
@@ -1288,6 +1331,9 @@ internal sealed class RunFileBuildCacheEntry
     /// Whether there are any <see cref="CSharpDirective"/>s recognized by the SDK (i.e., except shebang).
     /// </summary>
     public bool AnyDirectives { get; set; } // should be required and init-only but https://github.com/dotnet/runtime/issues/92877
+
+    [JsonIgnore]
+    public string? ExampleMSBuildFile { get; set; }
 
     [JsonConstructor]
     public RunFileBuildCacheEntry()
