@@ -5,7 +5,9 @@ using System.Buffers;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Reflection;
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CommandLine;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.DotNet.Cli.Utils;
 
 namespace Microsoft.DotNet.Cli.Commands.Run;
@@ -33,7 +35,6 @@ internal sealed class CSharpCompilerCommand
 
     internal static readonly string s_sdkPath = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!;
 
-    private static readonly string s_buildTasksPath = Path.Combine(s_sdkPath, "Roslyn", "Microsoft.Build.Tasks.CodeAnalysis.dll");
     private static readonly string s_clientDirectory = Path.Combine(s_sdkPath, "Roslyn", "bincore");
 
     public required string EntryPointFileFullPath { get; init; }
@@ -54,7 +55,8 @@ internal sealed class CSharpCompilerCommand
             workingDirectory: Environment.CurrentDirectory,
             tempDirectory: Path.GetTempPath(),
             keepAlive: null,
-            libDirectory: null);
+            libDirectory: null,
+            compilerHash: GetCompilerCommitHash());
 
         // Get pipe name.
         var pipeName = BuildServerConnection.GetPipeName(clientDirectory: s_clientDirectory);
@@ -76,13 +78,17 @@ internal sealed class CSharpCompilerCommand
         var response = responseTask.Result;
         switch (response)
         {
-            case null:
-                Reporter.Error.WriteLine("Could not launch the compiler server.");
-                return 1;
-
             case CompletedBuildResponse completed:
                 Reporter.Verbose.WriteLine($"Compiler server processed compilation: {completed.Output}");
                 return completed.ReturnCode;
+
+            case IncorrectHashBuildResponse:
+                Reporter.Error.WriteLine("Compiler server reports a different hash version than the SDK.");
+                return 1;
+
+            case null:
+                Reporter.Error.WriteLine("Could not launch the compiler server.");
+                return 1;
 
             default:
                 Reporter.Error.WriteLine($"Compiler server returned unexpected response: {response.GetType().Name}");
@@ -129,6 +135,16 @@ internal sealed class CSharpCompilerCommand
 
             colonIndex = -1;
             return false;
+        }
+
+        static string GetCompilerCommitHash()
+        {
+            return typeof(CSharpCompilation).Assembly.GetCustomAttributesData()
+                .FirstOrDefault(attr => attr.AttributeType.FullName == "Microsoft.CodeAnalysis.CommitHashAttribute")?
+                .ConstructorArguments
+                .FirstOrDefault()
+                .Value as string
+                ?? throw new InvalidOperationException("Could not find compiler commit hash in the assembly attributes.");
         }
     }
 
