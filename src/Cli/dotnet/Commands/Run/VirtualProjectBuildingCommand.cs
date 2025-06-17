@@ -62,6 +62,8 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         ("MSBuild.rsp", true),
     ];
 
+    public const string TargetFrameworkVersion = "10.0";
+
     internal static readonly string TargetOverrides = """
           <!--
             Override targets which don't work with project files that are not present on disk.
@@ -672,7 +674,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         writer.WriteLine($"""
               <PropertyGroup>
                 <OutputType>Exe</OutputType>
-                <TargetFramework>net10.0</TargetFramework>
+                <TargetFramework>net{TargetFrameworkVersion}</TargetFramework>
                 <ImplicitUsings>enable</ImplicitUsings>
                 <Nullable>enable</Nullable>
                 <PublishAot>true</PublishAot>

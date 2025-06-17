@@ -1619,6 +1619,53 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .And.HaveStdErrContaining(CliCommandStrings.RunCommandException);
     }
 
+    /// <summary>
+    /// Checks that the <c>DOTNET_ROOT</c> env var is set the same in csc mode as in msbuild mode.
+    /// </summary>
+    [Fact]
+    public void CscOnly_DotNetRoot()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory(baseDirectory: s_outOfTreeBaseDirectory);
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), """
+            foreach (var entry in Environment.GetEnvironmentVariables(EnvironmentVariableTarget.Process)
+                .Cast<System.Collections.DictionaryEntry>()
+                .Where(e => ((string)e.Key).StartsWith("DOTNET_ROOT")))
+            {
+                Console.WriteLine($"{entry.Key}={entry.Value}");
+            }
+            """);
+
+        var expectedDotNetRoot = TestContext.Current.ToolsetUnderTest.DotNetRoot;
+
+        var cscResult = new DotnetCommand(Log, "run", "Program.cs", "-bl")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute();
+
+        cscResult.Should().Pass()
+            .And.HaveStdOutContaining(CliCommandStrings.NoBinaryLogBecauseRunningJustCsc)
+            .And.HaveStdOutContaining("DOTNET_ROOT");
+
+        // Add an implicit build file to force use of msbuild instead of csc.
+        File.WriteAllText(Path.Join(testInstance.Path, "Directory.Build.props"), "<Project />");
+
+        var msbuildResult = new DotnetCommand(Log, "run", "Program.cs", "-bl")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute();
+
+        msbuildResult.Should().Pass()
+            .And.NotHaveStdOutContaining(CliCommandStrings.NoBinaryLogBecauseRunningJustCsc)
+            .And.HaveStdOutContaining("DOTNET_ROOT");
+
+        // The set of DOTNET_ROOT env vars should be the same in both cases.
+        var cscVars = cscResult.StdOut!
+            .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+            .Where(line => line.StartsWith("DOTNET_ROOT"));
+        var msbuildVars = msbuildResult.StdOut!
+            .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+            .Where(line => line.StartsWith("DOTNET_ROOT"));
+        cscVars.Should().BeEquivalentTo(msbuildVars);
+    }
+
     private static string ToJson(string s) => JsonSerializer.Serialize(s);
 
     /// <summary>

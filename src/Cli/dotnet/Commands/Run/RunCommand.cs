@@ -370,16 +370,25 @@ public class RunCommand
             var command = CommandFactoryUsingResolver.Create(commandSpec)
                 .WorkingDirectory(runProperties.RunWorkingDirectory);
 
-            var rootVariableName = EnvironmentVariableNames.TryGetDotNetRootVariableName(
+            SetRootVariableName(
+                command,
                 project.GetPropertyValue("RuntimeIdentifier"),
                 project.GetPropertyValue("DefaultAppHostRuntimeIdentifier"),
                 project.GetPropertyValue("TargetFrameworkVersion"));
 
+            return command;
+        }
+
+        static void SetRootVariableName(ICommand command, string runtimeIdentifier, string defaultAppHostRuntimeIdentifier, string targetFrameworkVersion)
+        {
+            var rootVariableName = EnvironmentVariableNames.TryGetDotNetRootVariableName(
+                runtimeIdentifier,
+                defaultAppHostRuntimeIdentifier,
+                targetFrameworkVersion);
             if (rootVariableName != null && Environment.GetEnvironmentVariable(rootVariableName) == null)
             {
                 command.EnvironmentVariable(rootVariableName, Path.GetDirectoryName(new Muxer().MuxerPath));
             }
-            return command;
         }
 
         static ICommand CreateCommandForCscBuiltProgram(string entryPointFileFullPath)
@@ -389,6 +398,13 @@ public class RunCommand
             var commandSpec = new CommandSpec(path: exePath, args: null);
             var command = CommandFactoryUsingResolver.Create(commandSpec)
                 .WorkingDirectory(Path.GetDirectoryName(entryPointFileFullPath));
+
+            SetRootVariableName(
+                command,
+                runtimeIdentifier: RuntimeInformation.RuntimeIdentifier,
+                defaultAppHostRuntimeIdentifier: RuntimeInformation.RuntimeIdentifier,
+                targetFrameworkVersion: $"v{VirtualProjectBuildingCommand.TargetFrameworkVersion}");
+
             return command;
         }
 
