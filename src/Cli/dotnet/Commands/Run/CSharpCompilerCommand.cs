@@ -9,6 +9,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CommandLine;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.DotNet.Cli.Utils;
+using Microsoft.NET.HostModel.AppHost;
 
 namespace Microsoft.DotNet.Cli.Commands.Run;
 
@@ -74,26 +75,8 @@ internal sealed class CSharpCompilerCommand
             logger,
             cancellationToken: default);
 
-        // Handle the response.
-        var response = responseTask.Result;
-        switch (response)
-        {
-            case CompletedBuildResponse completed:
-                Reporter.Verbose.WriteLine($"Compiler server processed compilation: {completed.Output}");
-                return completed.ReturnCode;
-
-            case IncorrectHashBuildResponse:
-                Reporter.Error.WriteLine("Compiler server reports a different hash version than the SDK.");
-                return 1;
-
-            case null:
-                Reporter.Error.WriteLine("Could not launch the compiler server.");
-                return 1;
-
-            default:
-                Reporter.Error.WriteLine($"Compiler server returned unexpected response: {response.GetType().Name}");
-                return 1;
-        }
+        // Process the response.
+        return ProcessBuildResponse(responseTask.Result);
 
         static string EscapeSingleArg(string arg)
         {
@@ -146,6 +129,28 @@ internal sealed class CSharpCompilerCommand
                 .Value as string
                 ?? throw new InvalidOperationException("Could not find compiler commit hash in the assembly attributes.");
         }
+
+        static int ProcessBuildResponse(BuildResponse response)
+        {
+            switch (response)
+            {
+                case CompletedBuildResponse completed:
+                    Reporter.Verbose.WriteLine($"Compiler server processed compilation: {completed.Output}");
+                    return completed.ReturnCode;
+
+                case IncorrectHashBuildResponse:
+                    Reporter.Error.WriteLine("Compiler server reports a different hash version than the SDK.");
+                    return 1;
+
+                case null:
+                    Reporter.Error.WriteLine("Could not launch the compiler server.");
+                    return 1;
+
+                default:
+                    Reporter.Error.WriteLine($"Compiler server returned unexpected response: {response.GetType().Name}");
+                    return 1;
+            }
+        }
     }
 
     // internal for testing
@@ -153,6 +158,9 @@ internal sealed class CSharpCompilerCommand
     {
         string fileDirectory = Path.GetDirectoryName(EntryPointFileFullPath)!;
         string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(EntryPointFileFullPath);
+
+        // TODO: The version should be also automatically updated like the csc args are.
+        string runtimeVersion = "10.0.0-preview.5.25257.101";
 
         // Create intermediate files if they don't exist yet.
         string objDir = Path.Join(ArtifactsPath, "obj", "debug");
@@ -228,6 +236,37 @@ internal sealed class CSharpCompilerCommand
                 build_property.EnableGeneratedComInterfaceComImportInterop = 
                 build_property.EffectiveAnalysisLevelStyle = 10.0
                 build_property.EnableCodeStyleSeverity = 
+
+                """);
+        }
+
+        var apphostTarget = Path.Join(binDir, $"{fileNameWithoutExtension}{FileNameSuffixes.CurrentPlatform.Exe}");
+        if (!File.Exists(apphostTarget))
+        {
+            var rid = RuntimeInformation.RuntimeIdentifier;
+            var apphostSource = Path.Join(s_sdkPath, "..", "..", "packs", $"Microsoft.NETCore.App.Host.{rid}", runtimeVersion, "runtimes", rid, "native", $"apphost{FileNameSuffixes.CurrentPlatform.Exe}");
+            HostWriter.CreateAppHost(
+                appHostSourceFilePath: apphostSource,
+                appHostDestinationFilePath: apphostTarget,
+                appBinaryFilePath: $"{fileNameWithoutExtension}.dll");
+        }
+
+        var runtimeConfig = Path.Join(binDir, $"{fileNameWithoutExtension}{FileNameSuffixes.RuntimeConfigJson}");
+        if (!File.Exists(runtimeConfig))
+        {
+            File.WriteAllText(runtimeConfig, """
+                {
+                  "runtimeOptions": {
+                    "tfm": "net10.0",
+                    "framework": {
+                      "name": "Microsoft.NETCore.App",
+                      "version": "10.0.0-preview.5.25257.101"
+                    },
+                    "configProperties": {
+                      "System.Runtime.Serialization.EnableUnsafeBinaryFormatterSerialization": false
+                    }
+                  }
+                }
 
                 """);
         }
