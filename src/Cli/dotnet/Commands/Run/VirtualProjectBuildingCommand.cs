@@ -1,7 +1,6 @@
 ﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Buffers;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Security;
@@ -45,6 +44,9 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
     /// <c>MSBuildFile</c> is <see langword="true"/> if the presence of the implicit build file (even if there are no <see cref="CSharpDirective"/>s)
     /// implies that CSC is not enough and MSBuild is needed to build the project, i.e., the file alone can affect MSBuild props or targets.
     /// </summary>
+    /// <remarks>
+    /// For example, the simple programs our CSC optimized path handles do not need NuGet restore, hence we can ignore NuGet config files.
+    /// </remarks>
     private static readonly ImmutableArray<(string Name, bool MSBuildFile)> s_implicitBuildFiles =
     [
         ("global.json", false),
@@ -60,6 +62,17 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         ("Directory.Packages.props", true),
         ("Directory.Build.rsp", true),
         ("MSBuild.rsp", true),
+    ];
+
+    /// <summary>
+    /// For purposes of determining whether CSC is enough to build as opposed to full MSBuild,
+    /// we can ignore properties that do not affect the build on their own.
+    /// See also the <c>MSBuildFile</c> flag in <see cref="s_implicitBuildFiles"/>.
+    /// </summary>
+    private static readonly IEnumerable<string> s_ignorableProperties =
+    [
+        // This is set by default by `dotnet run`, so it must be ignored otherwise the CSC optimization would not kick in by default.
+        "NuGetInteractive",
     ];
 
     public const string TargetFrameworkVersion = "10.0";
@@ -475,13 +488,12 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
             return BuildLevel.All;
         }
 
-        // TODO: Need to exclude default global properties.
-        //if (cacheEntry.GlobalProperties.Count > 0)
-        //{
-        //    var example = cacheEntry.GlobalProperties.First();
-        //    Reporter.Verbose.WriteLine($"Using MSBuild because there are global properties, for example '{example.Key}={example.Value}'.");
-        //    return BuildLevel.All;
-        //}
+        if (cacheEntry.GlobalProperties.Keys.Except(s_ignorableProperties, cacheEntry.GlobalProperties.Comparer).Any())
+        {
+            var example = cacheEntry.GlobalProperties.First();
+            Reporter.Verbose.WriteLine($"Using MSBuild because there are global properties, for example '{example.Key}={example.Value}'.");
+            return BuildLevel.All;
+        }
 
         if (cacheEntry.ExampleMSBuildFile is { } exampleMSBuildFile)
         {

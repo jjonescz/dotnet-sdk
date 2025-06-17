@@ -1581,9 +1581,18 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
 
         File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), """
             Console.WriteLine("v2");
+            #if !DEBUG
+            Console.WriteLine("Release config");
+            #endif
             """);
 
         Build(testInstance, BuildLevel.Csc, expectedOutput: "v2");
+
+        // Customizing a property forces MSBuild to be used.
+        Build(testInstance, BuildLevel.All, args: ["-c", "Release"], expectedOutput: """
+            v2
+            Release config
+            """);
     }
 
     [Fact]
