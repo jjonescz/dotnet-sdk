@@ -1397,7 +1397,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     [Fact]
     public void UpToDate()
     {
-        var testInstance = _testAssetsManager.CreateTestDirectory();
+        var testInstance = _testAssetsManager.CreateTestDirectory(baseDirectory: s_outOfTreeBaseDirectory);
         File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), """
             Console.WriteLine("Hello v1");
             """);
@@ -1406,7 +1406,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         var artifactsDir = VirtualProjectBuildingCommand.GetArtifactsPath(Path.Join(testInstance.Path, "Program.cs"));
         if (Directory.Exists(artifactsDir)) Directory.Delete(artifactsDir, recursive: true);
 
-        Build(testInstance, BuildLevel.All, expectedOutput: "Hello v1");
+        Build(testInstance, BuildLevel.Csc, expectedOutput: "Hello v1");
 
         Build(testInstance, BuildLevel.None, expectedOutput: "Hello v1");
 
@@ -1477,7 +1477,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
 
         // Remove an implicit build file (a rebuild is necessary).
         File.Delete(buildPropsFile);
-        Build(testInstance, BuildLevel.All);
+        Build(testInstance, BuildLevel.Csc);
 
         // Force rebuild.
         Build(testInstance, BuildLevel.All, args: ["--no-cache"]);
@@ -1503,7 +1503,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             """);
 
         // Change config back (a rebuild is necessary).
-        Build(testInstance, BuildLevel.All);
+        Build(testInstance, BuildLevel.Csc);
 
         // Build with a failure.
         new DotnetCommand(Log, ["run", "Program.cs", "-p:LangVersion=Invalid"])
@@ -1513,7 +1513,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .And.HaveStdOutContaining("error CS1617"); // Invalid option 'Invalid' for /langversion.
 
         // A rebuild is necessary since the last build failed.
-        Build(testInstance, BuildLevel.All);
+        Build(testInstance, BuildLevel.Csc);
     }
 
     private void Build(TestDirectory testInstance, BuildLevel level, ReadOnlySpan<string> args = default, string expectedOutput = "Hello from Program")
