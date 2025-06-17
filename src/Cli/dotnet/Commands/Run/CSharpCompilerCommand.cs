@@ -135,7 +135,8 @@ internal sealed class CSharpCompilerCommand
             switch (response)
             {
                 case CompletedBuildResponse completed:
-                    Reporter.Verbose.WriteLine($"Compiler server processed compilation: {completed.Output}");
+                    Reporter.Verbose.WriteLine("Compiler server processed compilation");
+                    Reporter.Output.WriteLine(completed.Output);
                     return completed.ReturnCode;
 
                 case IncorrectHashBuildResponse:
