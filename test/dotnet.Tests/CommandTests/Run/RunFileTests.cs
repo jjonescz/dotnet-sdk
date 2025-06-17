@@ -74,6 +74,12 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         }
         """;
 
+    /// <summary>
+    /// Used when we need an out-of-tree base test directory to avoid having implicit build files
+    /// like Directory.Build.props in scope and negating the optimizations we want to test.
+    /// </summary>
+    private static readonly string s_outOfTreeBaseDirectory = Path.Join(Path.GetTempPath(), "dotnetSdkTests");
+
     private static bool HasCaseInsensitiveFileSystem
     {
         get
@@ -1557,7 +1563,8 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     [Fact]
     public void CscOnly()
     {
-        var testInstance = _testAssetsManager.CreateTestDirectory();
+        var testInstance = _testAssetsManager.CreateTestDirectory(baseDirectory: s_outOfTreeBaseDirectory);
+
         File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), """
             Console.WriteLine("v1");
             """);
