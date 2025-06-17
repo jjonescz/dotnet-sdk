@@ -1537,9 +1537,13 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
 
         binlogs.Select(f => f.Name)
             .Should().BeEquivalentTo(
-                level != BuildLevel.All
-                    ? ["msbuild-dotnet-run.binlog"]
-                    : ["msbuild.binlog", "msbuild-dotnet-run.binlog"]);
+                level switch
+                {
+                    BuildLevel.Csc => [],
+                    BuildLevel.None => ["msbuild-dotnet-run.binlog"],
+                    BuildLevel.All => ["msbuild.binlog", "msbuild-dotnet-run.binlog"],
+                    _ => throw new ArgumentOutOfRangeException(paramName: nameof(level), message: level.ToString()),
+                });
 
         foreach (var binlog in binlogs)
         {

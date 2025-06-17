@@ -134,6 +134,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
     public bool NoCache { get; init; }
     public bool NoBuild { get; init; }
     public string BuildTarget { get; init; } = "Build";
+    public BuildLevel LastBuildLevel { get; private set; } = BuildLevel.None;
 
     public override int Execute()
     {
@@ -150,12 +151,14 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                 PrepareProjectInstance();
 
                 cacheEntry = ComputeCacheEntry(out _);
+                LastBuildLevel = BuildLevel.All;
             }
             else
             {
                 PrepareProjectInstance();
 
                 var buildLevel = GetBuildLevel(out cacheEntry);
+                LastBuildLevel = buildLevel;
 
                 if (buildLevel is BuildLevel.None)
                 {
@@ -198,6 +201,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         else
         {
             PrepareProjectInstance();
+            LastBuildLevel = BuildLevel.None;
         }
 
         Dictionary<string, string?> savedEnvironmentVariables = [];

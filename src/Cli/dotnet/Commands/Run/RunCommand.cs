@@ -252,8 +252,8 @@ public class RunCommand
         if (EntryPointFileFullPath is not null)
         {
             var command = CreateVirtualCommand();
-            projectFactory = command.CreateProjectInstance;
             buildResult = command.Execute();
+            projectFactory = command.LastBuildLevel is BuildLevel.Csc ? null : command.CreateProjectInstance;
         }
         else
         {
@@ -310,6 +310,14 @@ public class RunCommand
 
     internal ICommand GetTargetCommand(Func<ProjectCollection, ProjectInstance>? projectFactory)
     {
+        if (projectFactory is null && ProjectFileFullPath is null)
+        {
+            // If we are running a file-based app and projectFactory is null, it means csc was used instead of full msbuild.
+            // So we can skip project evaluation to continue the optimized path.
+            Debug.Assert(EntryPointFileFullPath is not null);
+            return CreateCommandForCscBuiltProgram(EntryPointFileFullPath);
+        }
+
         FacadeLogger? logger = LoggerUtility.DetermineBinlogger(RestoreArgs, "dotnet-run");
         var project = EvaluateProject(ProjectFileFullPath, projectFactory, RestoreArgs, logger);
         ValidatePreconditions(project);
@@ -371,6 +379,16 @@ public class RunCommand
             {
                 command.EnvironmentVariable(rootVariableName, Path.GetDirectoryName(new Muxer().MuxerPath));
             }
+            return command;
+        }
+
+        static ICommand CreateCommandForCscBuiltProgram(string entryPointFileFullPath)
+        {
+            var artifactsPath = VirtualProjectBuildingCommand.GetArtifactsPath(entryPointFileFullPath);
+            var exePath = Path.Join(artifactsPath, "bin", "debug", Path.GetFileNameWithoutExtension(entryPointFileFullPath) + FileNameSuffixes.CurrentPlatform.Exe);
+            var commandSpec = new CommandSpec(path: exePath, args: null);
+            var command = CommandFactoryUsingResolver.Create(commandSpec)
+                .WorkingDirectory(Path.GetDirectoryName(entryPointFileFullPath));
             return command;
         }
 
