@@ -200,6 +200,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                     {
                         EntryPointFileFullPath = EntryPointFileFullPath,
                         ArtifactsPath = ArtifactsPath,
+                        PreviouslyUsedCsc = CanUseCsc(cache.PreviousEntry, Reporter.NullReporter),
                     }
                     .Execute();
 
@@ -497,30 +498,42 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
             return BuildLevel.None;
         }
 
-        var cacheEntry = cache.CurrentEntry;
+        return CanUseCsc(cache.CurrentEntry, Reporter.Verbose)
+            ? BuildLevel.Csc
+            : BuildLevel.All;
+    }
 
-        // Determine whether we can use CSC only or need to use MSBuild.
+    /// <summary>
+    /// Determines whether we can use CSC only or need to use MSBuild.
+    /// </summary>
+    private static bool CanUseCsc(RunFileBuildCacheEntry? cacheEntry, IReporter reporter)
+    {
+        if (cacheEntry is null)
+        {
+            return false;
+        }
+
         if (cacheEntry.AnyDirectives)
         {
-            Reporter.Verbose.WriteLine("Using MSBuild because there are directives in the source file.");
-            return BuildLevel.All;
+            reporter.WriteLine("Using MSBuild because there are directives in the source file.");
+            return false;
         }
 
         if (cacheEntry.GlobalProperties.Keys.Except(s_ignorableProperties, cacheEntry.GlobalProperties.Comparer).Any())
         {
             var example = cacheEntry.GlobalProperties.First();
-            Reporter.Verbose.WriteLine($"Using MSBuild because there are global properties, for example '{example.Key}={example.Value}'.");
-            return BuildLevel.All;
+            reporter.WriteLine($"Using MSBuild because there are global properties, for example '{example.Key}={example.Value}'.");
+            return false;
         }
 
         if (cacheEntry.ExampleMSBuildFile is { } exampleMSBuildFile)
         {
-            Reporter.Verbose.WriteLine($"Using MSBuild because there are implicit build files, for example '{exampleMSBuildFile}'.");
-            return BuildLevel.All;
+            reporter.WriteLine($"Using MSBuild because there are implicit build files, for example '{exampleMSBuildFile}'.");
+            return false;
         }
 
-        Reporter.Verbose.WriteLine("Skipping MSBuild and using CSC only.");
-        return BuildLevel.Csc;
+        reporter.WriteLine("Skipping MSBuild and using CSC only.");
+        return true;
     }
 
     private void MarkBuildStart()
