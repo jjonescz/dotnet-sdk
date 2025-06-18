@@ -1017,10 +1017,10 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .Should().Be(actualMode, artifactsDir);
     }
 
-    [Fact]
-    public void LaunchProfile()
+    [Theory, CombinatorialData]
+    public void LaunchProfile(bool cscOnly)
     {
-        var testInstance = _testAssetsManager.CreateTestDirectory();
+        var testInstance = _testAssetsManager.CreateTestDirectory(baseDirectory: cscOnly ? s_outOfTreeBaseDirectory : null);
         File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program + """
 
             Console.WriteLine($"Message: '{Environment.GetEnvironmentVariable("Message")}'");
@@ -1028,29 +1028,35 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         Directory.CreateDirectory(Path.Join(testInstance.Path, "Properties"));
         File.WriteAllText(Path.Join(testInstance.Path, "Properties", "launchSettings.json"), s_launchSettings);
 
-        new DotnetCommand(Log, "run", "--no-launch-profile", "Program.cs")
-            .WithWorkingDirectory(testInstance.Path)
-            .Execute()
-            .Should().Pass()
-            .And.HaveStdOut("""
-                Hello from Program
-                Message: ''
-                """);
+        var prefix = cscOnly
+            ? CliCommandStrings.NoBinaryLogBecauseRunningJustCsc + Environment.NewLine
+            : string.Empty;
 
-        new DotnetCommand(Log, "run", "Program.cs")
+        new DotnetCommand(Log, "run", "-bl", "Program.cs")
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Pass()
-            .And.HaveStdOutContaining("""
+            .And.HaveStdOutContaining(prefix + """
                 Hello from Program
                 Message: 'TestProfileMessage1'
                 """);
 
-        new DotnetCommand(Log, "run", "-lp", "TestProfile2", "Program.cs")
+        prefix = CliCommandStrings.NoBinaryLogBecauseUpToDate + Environment.NewLine;
+
+        new DotnetCommand(Log, "run", "-bl", "--no-launch-profile", "Program.cs")
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Pass()
-            .And.HaveStdOutContaining("""
+            .And.HaveStdOut(prefix + """
+                Hello from Program
+                Message: ''
+                """);
+
+        new DotnetCommand(Log, "run", "-bl", "-lp", "TestProfile2", "Program.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOutContaining(prefix + """
                 Hello from Program
                 Message: 'TestProfileMessage2'
                 """);
