@@ -566,6 +566,37 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .And.HaveStdOutContaining("error CS5001:"); // Program does not contain a static 'Main' method suitable for an entry point
     }
 
+    [Fact]
+    public void CompilationDiagnostics()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), """
+            string x = null;
+            Console.WriteLine("ran" + x);
+            """);
+
+        new DotnetCommand(Log, "run", "Program.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            // warning CS8600: Converting null literal or possible null value to non-nullable type.
+            .And.HaveStdOutContaining("warning CS8600")
+            .And.HaveStdOutContaining("ran");
+
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), """
+            Console.Write
+            """);
+
+        new DotnetCommand(Log, "run", "Program.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            // error CS1002: ; expected
+            .And.HaveStdOutContaining("error CS1002")
+            .And.HaveStdErrContaining(CliCommandStrings.RunCommandException);
+    }
+
     /// <summary>
     /// Implicit build files have an effect.
     /// </summary>
