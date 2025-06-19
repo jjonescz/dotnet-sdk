@@ -201,7 +201,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                         EntryPointFileFullPath = EntryPointFileFullPath,
                         ArtifactsPath = ArtifactsPath,
                         // We can reuse auxiliary files if we previously built using csc.
-                        CanReuseAuxiliaryFiles = CanUseCsc(cache.PreviousEntry, Reporter.NullReporter),
+                        CanReuseAuxiliaryFiles = cache.PreviousEntry?.BuildLevel is BuildLevel.Csc,
                     }
                     .Execute();
 
@@ -499,42 +499,30 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
             return BuildLevel.None;
         }
 
-        return CanUseCsc(cache.CurrentEntry, Reporter.Verbose)
-            ? BuildLevel.Csc
-            : BuildLevel.All;
-    }
-
-    /// <summary>
-    /// Determines whether we can use CSC only or need to use MSBuild.
-    /// </summary>
-    private static bool CanUseCsc(RunFileBuildCacheEntry? cacheEntry, IReporter reporter)
-    {
-        if (cacheEntry is null)
-        {
-            return false;
-        }
+        // Determine whether we can use CSC only or need to use MSBuild.
+        var cacheEntry = cache.CurrentEntry;
 
         if (cacheEntry.AnyDirectives)
         {
-            reporter.WriteLine("Using MSBuild because there are directives in the source file.");
-            return false;
+            Reporter.Verbose.WriteLine("Using MSBuild because there are directives in the source file.");
+            return BuildLevel.All;
         }
 
         if (cacheEntry.GlobalProperties.Keys.Except(s_ignorableProperties, cacheEntry.GlobalProperties.Comparer).Any())
         {
             var example = cacheEntry.GlobalProperties.First();
-            reporter.WriteLine($"Using MSBuild because there are global properties, for example '{example.Key}={example.Value}'.");
-            return false;
+            Reporter.Verbose.WriteLine($"Using MSBuild because there are global properties, for example '{example.Key}={example.Value}'.");
+            return BuildLevel.All;
         }
 
         if (cacheEntry.ExampleMSBuildFile is { } exampleMSBuildFile)
         {
-            reporter.WriteLine($"Using MSBuild because there are implicit build files, for example '{exampleMSBuildFile}'.");
-            return false;
+            Reporter.Verbose.WriteLine($"Using MSBuild because there are implicit build files, for example '{exampleMSBuildFile}'.");
+            return BuildLevel.All;
         }
 
-        reporter.WriteLine("Skipping MSBuild and using CSC only.");
-        return true;
+        Reporter.Verbose.WriteLine("Skipping MSBuild and using CSC only.");
+        return BuildLevel.Csc;
     }
 
     private void MarkBuildStart()
@@ -558,6 +546,9 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
 
     private void MarkBuildSuccess(CacheInfo cache)
     {
+        Debug.Assert(LastBuildLevel != BuildLevel.None);
+        cache.CurrentEntry.BuildLevel = LastBuildLevel;
+
         string successCacheFile = Path.Join(ArtifactsPath, BuildSuccessCacheFileName);
         using var stream = File.Open(successCacheFile, FileMode.Create, FileAccess.Write, FileShare.None);
         JsonSerializer.Serialize(stream, cache.CurrentEntry, RunFileJsonSerializerContext.Default.RunFileBuildCacheEntry);
@@ -1384,6 +1375,8 @@ internal sealed class RunFileBuildCacheEntry
     /// Whether there are any <see cref="CSharpDirective"/>s recognized by the SDK (i.e., except shebang).
     /// </summary>
     public bool AnyDirectives { get; set; } // should be required and init-only but https://github.com/dotnet/runtime/issues/92877
+
+    public BuildLevel BuildLevel { get; set; }
 
     [JsonIgnore]
     public string? ExampleMSBuildFile { get; set; }
