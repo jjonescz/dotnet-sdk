@@ -1992,21 +1992,29 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
                 """);
     }
 
-    [Fact]
-    public void EntryPointFilePath()
+    [Theory, CombinatorialData]
+    public void EntryPointFilePath(bool cscOnly)
     {
-        var testInstance = _testAssetsManager.CreateTestDirectory();
+        var testInstance = _testAssetsManager.CreateTestDirectory(baseDirectory: cscOnly ? s_outOfTreeBaseDirectory : null);
         var filePath = Path.Join(testInstance.Path, "Program.cs");
         File.WriteAllText(filePath, """"
             var entryPointFilePath = AppContext.GetData("EntryPointFilePath") as string;
             Console.WriteLine($"""EntryPointFilePath: {entryPointFilePath}""");
             """");
 
-        new DotnetCommand(Log, "run", "Program.cs")
+        // Remove artifacts from possible previous runs of this test.
+        var artifactsDir = VirtualProjectBuildingCommand.GetArtifactsPath(filePath);
+        if (Directory.Exists(artifactsDir)) Directory.Delete(artifactsDir, recursive: true);
+
+        var prefix = cscOnly
+            ? CliCommandStrings.NoBinaryLogBecauseRunningJustCsc + Environment.NewLine
+            : string.Empty;
+
+        new DotnetCommand(Log, "run", "-bl", "Program.cs")
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Pass()
-            .And.HaveStdOut($"EntryPointFilePath: {filePath}");
+            .And.HaveStdOut(prefix + $"EntryPointFilePath: {filePath}");
     }
 
     [Fact]

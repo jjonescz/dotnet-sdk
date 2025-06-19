@@ -5,6 +5,7 @@ using System.Buffers;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Reflection;
+using System.Text.Json;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CommandLine;
 using Microsoft.CodeAnalysis.CSharp;
@@ -119,7 +120,7 @@ internal sealed class CSharpCompilerCommand
             ? "CSC auxiliary files can be reused."
             : "CSC auxiliary files can NOT be reused.");
 
-        string fileDirectory = Path.GetDirectoryName(EntryPointFileFullPath)!;
+        string fileDirectory = Path.GetDirectoryName(EntryPointFileFullPath) ?? string.Empty;
         string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(EntryPointFileFullPath);
 
         // TODO: The version should be also automatically updated like the csc args are.
@@ -216,7 +217,7 @@ internal sealed class CSharpCompilerCommand
         var runtimeConfig = Path.Join(binDir, $"{fileNameWithoutExtension}{FileNameSuffixes.RuntimeConfigJson}");
         if (ShouldEmit(runtimeConfig))
         {
-            File.WriteAllText(runtimeConfig, """
+            File.WriteAllText(runtimeConfig, $$"""
                 {
                     "runtimeOptions": {
                         "tfm": "net10.0",
@@ -225,7 +226,8 @@ internal sealed class CSharpCompilerCommand
                             "version": "10.0.0-preview.6.25302.104"
                         },
                         "configProperties": {
-                            "System.Runtime.Serialization.EnableUnsafeBinaryFormatterSerialization": false
+                            "EntryPointFilePath": {{JsonSerializer.Serialize(EntryPointFileFullPath)}},
+                            "EntryPointFileDirectoryPath": {{JsonSerializer.Serialize(fileDirectory)}}
                         }
                     }
                 }
