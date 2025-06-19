@@ -40,24 +40,19 @@ internal sealed class CSharpCompilerCommand
 
     public required string EntryPointFileFullPath { get; init; }
     public required string ArtifactsPath { get; init; }
-    public required bool PreviouslyUsedCsc { get; init; }
+    public required bool CanReuseAuxiliaryFiles { get; init; }
 
     public int Execute()
     {
         // Write .rsp file and other intermediate build outputs.
-        // We can skip this if cache tells us we previously built using csc.
-        var rsp = Path.Join(ArtifactsPath, "csc.rsp");
-        if (!PreviouslyUsedCsc || !File.Exists(rsp))
-        {
-            File.WriteAllLines(rsp, CreateArguments().Select(EscapeSingleArg));
-        }
+        PrepareAuxiliaryFiles(out string rspPath);
 
         // Create a request for the compiler server
         // (this is much faster than starting a csc.dll process, especially on Windows).
         var buildRequest = BuildServerConnection.CreateBuildRequest(
             requestId: EntryPointFileFullPath,
             language: RequestLanguage.CSharpCompile,
-            arguments: ["/noconfig", "/nologo", $"@{EscapeSingleArg(rsp)}"],
+            arguments: ["/noconfig", "/nologo", $"@{EscapeSingleArg(rspPath)}"],
             workingDirectory: Environment.CurrentDirectory,
             tempDirectory: Path.GetTempPath(),
             keepAlive: null,
@@ -83,48 +78,6 @@ internal sealed class CSharpCompilerCommand
         // Process the response.
         return ProcessBuildResponse(responseTask.Result);
 
-        static string EscapeSingleArg(string arg)
-        {
-            if (IsPathOption(arg, out var colonIndex))
-            {
-                return arg[..(colonIndex + 1)] + EscapeCore(arg[(colonIndex + 1)..]);
-            }
-
-            return EscapeCore(arg);
-        }
-
-        static string EscapeCore(string arg)
-        {
-            return ArgumentEscaper.EscapeSingleArg(arg, additionalShouldSurroundWithQuotes: static (string arg) =>
-            {
-                return arg.ContainsAny(s_additionalShouldSurroundWithQuotes);
-            });
-        }
-
-        static bool IsPathOption(string arg, out int colonIndex)
-        {
-            if (!arg.StartsWith('/'))
-            {
-                colonIndex = -1;
-                return false;
-            }
-
-            var span = arg.AsSpan(start: 1);
-            foreach (var optionName in s_pathOptions)
-            {
-                Debug.Assert(!optionName.StartsWith('/') && optionName.EndsWith(':'));
-
-                if (span.StartsWith(optionName, StringComparison.OrdinalIgnoreCase))
-                {
-                    colonIndex = optionName.Length;
-                    return true;
-                }
-            }
-
-            colonIndex = -1;
-            return false;
-        }
-
         static string GetCompilerCommitHash()
         {
             return typeof(CSharpCompilation).Assembly.GetCustomAttributesData()
@@ -140,7 +93,7 @@ internal sealed class CSharpCompilerCommand
             switch (response)
             {
                 case CompletedBuildResponse completed:
-                    Reporter.Verbose.WriteLine("Compiler server processed compilation");
+                    Reporter.Verbose.WriteLine("Compiler server processed compilation.");
                     Reporter.Output.Write(completed.Output);
                     return completed.ReturnCode;
 
@@ -160,9 +113,18 @@ internal sealed class CSharpCompilerCommand
     }
 
     // internal for testing
-    internal IEnumerable<string> CreateArguments()
+    internal void PrepareAuxiliaryFiles(out string rspPath)
     {
-        var fileTimestamp = File.GetLastWriteTimeUtc(EntryPointFileFullPath);
+        rspPath = Path.Join(ArtifactsPath, "csc.rsp");
+
+        if (CanReuseAuxiliaryFiles && File.Exists(rspPath))
+        {
+            Reporter.Verbose.WriteLine("Reusing existing CSC auxiliary files.");
+            return;
+        }
+
+        Reporter.Verbose.WriteLine("Creating CSC auxiliary files.");
+
         string fileDirectory = Path.GetDirectoryName(EntryPointFileFullPath)!;
         string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(EntryPointFileFullPath);
 
@@ -247,21 +209,22 @@ internal sealed class CSharpCompilerCommand
         File.WriteAllText(runtimeConfig, """
             {
                 "runtimeOptions": {
-                "tfm": "net10.0",
-                "framework": {
-                    "name": "Microsoft.NETCore.App",
-                    "version": "10.0.0-preview.6.25302.104"
-                },
-                "configProperties": {
-                    "System.Runtime.Serialization.EnableUnsafeBinaryFormatterSerialization": false
-                }
+                    "tfm": "net10.0",
+                    "framework": {
+                        "name": "Microsoft.NETCore.App",
+                        "version": "10.0.0-preview.6.25302.104"
+                    },
+                    "configProperties": {
+                        "System.Runtime.Serialization.EnableUnsafeBinaryFormatterSerialization": false
+                    }
                 }
             }
 
             """);
 
         // Use test `RunFileTests.CscArguments` to regenerate these.
-        return [
+        IEnumerable<string> args =
+        [
             "/unsafe-",
             "/checked-",
             "/nowarn:NU1507,1701,1702",
@@ -469,5 +432,49 @@ internal sealed class CSharpCompilerCommand
             $"{objDir}/{fileNameWithoutExtension}.AssemblyInfo.cs",
             "/warnaserror+:NU1605,SYSLIB0011",
         ];
+
+        File.WriteAllLines(rspPath, args.Select(EscapeSingleArg));
+    }
+
+    private static string EscapeSingleArg(string arg)
+    {
+        if (IsPathOption(arg, out var colonIndex))
+        {
+            return arg[..(colonIndex + 1)] + EscapeCore(arg[(colonIndex + 1)..]);
+        }
+
+        return EscapeCore(arg);
+
+        static string EscapeCore(string arg)
+        {
+            return ArgumentEscaper.EscapeSingleArg(arg, additionalShouldSurroundWithQuotes: static (string arg) =>
+            {
+                return arg.ContainsAny(s_additionalShouldSurroundWithQuotes);
+            });
+        }
+
+        static bool IsPathOption(string arg, out int colonIndex)
+        {
+            if (!arg.StartsWith('/'))
+            {
+                colonIndex = -1;
+                return false;
+            }
+
+            var span = arg.AsSpan(start: 1);
+            foreach (var optionName in s_pathOptions)
+            {
+                Debug.Assert(!optionName.StartsWith('/') && optionName.EndsWith(':'));
+
+                if (span.StartsWith(optionName, StringComparison.OrdinalIgnoreCase))
+                {
+                    colonIndex = optionName.Length;
+                    return true;
+                }
+            }
+
+            colonIndex = -1;
+            return false;
+        }
     }
 }

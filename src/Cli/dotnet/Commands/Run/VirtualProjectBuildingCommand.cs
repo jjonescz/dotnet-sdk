@@ -200,7 +200,8 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                     {
                         EntryPointFileFullPath = EntryPointFileFullPath,
                         ArtifactsPath = ArtifactsPath,
-                        PreviouslyUsedCsc = CanUseCsc(cache.PreviousEntry, Reporter.NullReporter),
+                        // We can reuse auxiliary files if we previously built using csc.
+                        CanReuseAuxiliaryFiles = CanUseCsc(cache.PreviousEntry, Reporter.NullReporter),
                     }
                     .Execute();
 

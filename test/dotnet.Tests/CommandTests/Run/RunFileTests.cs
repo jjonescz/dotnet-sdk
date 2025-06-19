@@ -1381,10 +1381,11 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         {
             EntryPointFileFullPath = Path.Join(testInstance.Path, "Program.cs"),
             ArtifactsPath = artifactsPath,
-            PreviouslyUsedCsc = false,
+            CanReuseAuxiliaryFiles = false,
         };
-        var fileBasedCallArgs = fileBasedCall.CreateArguments();
-        var fileBasedCallArgsString = ArgumentEscaper.EscapeAndConcatenateArgArrayForProcessStart(fileBasedCallArgs);
+        fileBasedCall.PrepareAuxiliaryFiles(out string rspPath);
+        var fileBasedCallArgs = File.ReadAllLines(rspPath);
+        var fileBasedCallArgsString = string.Join(' ', fileBasedCallArgs);
 
         // Check that project-based and file-based csc args are equivalent.
         var normalizedFileBasedArgs = fileBasedCallArgs.Select(a => a.Replace('\\', '/'));
