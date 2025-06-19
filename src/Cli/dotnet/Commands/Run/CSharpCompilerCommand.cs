@@ -15,7 +15,7 @@ using Microsoft.NET.HostModel.AppHost;
 namespace Microsoft.DotNet.Cli.Commands.Run;
 
 /// <summary>
-/// Used to invoke C# compiler to support <c>dotnet run file.cs</c>.
+/// Used to invoke C# compiler in some optimized paths of <c>dotnet run file.cs</c>.
 /// </summary>
 internal sealed class CSharpCompilerCommand
 {
