@@ -1267,7 +1267,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     }
 
     /// <summary>
-    /// Verifies that msbuild-based runs are equivalent to csc-only runs.
+    /// Verifies that msbuild-based runs use CSC args equivalent to csc-only runs.
     /// Can regenerate CSC arguments template in <see cref="CSharpCompilerCommand"/>.
     /// </summary>
     [Fact]
@@ -1291,9 +1291,9 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .And.HaveStdOut($"Hello from {programName}");
 
         // Find the csc args used by the build.
-        var projectBasedCall = findCompilerCall(Path.Join(testInstance.Path, "msbuild.binlog"));
-        var projectBasedCallArgs = projectBasedCall.GetArguments();
-        var projectBasedCallArgsString = ArgumentEscaper.EscapeAndConcatenateArgArrayForProcessStart(projectBasedCallArgs);
+        var msbuildCall = findCompilerCall(Path.Join(testInstance.Path, "msbuild.binlog"));
+        var msbuildCallArgs = msbuildCall.GetArguments();
+        var msbuildCallArgsString = ArgumentEscaper.EscapeAndConcatenateArgArrayForProcessStart(msbuildCallArgs);
 
         // Generate argument template code.
         string sdkPath = NormalizePath(TestContext.Current.ToolsetUnderTest.SdkFolderUnderTest);
@@ -1302,7 +1302,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         string artifactsDirNormalized = NormalizePath(artifactsDir);
         string objPath = $"{artifactsDirNormalized}/obj/debug";
         string entryPointPathNormalized = NormalizePath(entryPointPath);
-        var actualArgs = new List<string>();
+        var msbuildArgsToVerify = new List<string>();
         var code = new StringBuilder();
         code.AppendLine($$"""
             // Licensed to the .NET Foundation under one or more agreements.
@@ -1321,7 +1321,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
                     return
                     [
             """);
-        foreach (var arg in projectBasedCallArgs)
+        foreach (var arg in msbuildCallArgs)
         {
             // This option needs to be passed on the command line, not in an RSP file.
             if (arg is "/noconfig")
@@ -1347,9 +1347,9 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             string rewritten = NormalizePath(arg);
 
             // Remove quotes.
-            rewritten = rewritten.Replace("\"", "");
+            rewritten = RemoveQuotes(rewritten);
 
-            string actual = rewritten;
+            string msbuildArgToVerify = rewritten;
 
             // Use variable SDK path.
             if (rewritten.Contains(sdkPath, StringComparison.OrdinalIgnoreCase))
@@ -1376,9 +1376,13 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             if (rewritten.Contains(objPath, StringComparison.OrdinalIgnoreCase))
             {
                 // We want to emit the resulting DLL directly into the bin folder.
-                string replacement = arg.StartsWith("/out", StringComparison.Ordinal)
-                    ? "{binDir}"
-                    : "{objDir}";
+                bool isOut = arg.StartsWith("/out", StringComparison.Ordinal);
+                string replacement = isOut ? "{binDir}" : "{objDir}";
+
+                if (isOut)
+                {
+                    msbuildArgToVerify = msbuildArgToVerify.Replace("/obj/", "/bin/", StringComparison.OrdinalIgnoreCase);
+                }
 
                 rewritten = rewritten.Replace(objPath, replacement, StringComparison.OrdinalIgnoreCase);
                 needsInterpolation = true;
@@ -1417,7 +1421,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
                             {prefix}"{rewritten}",
                 """);
 
-            actualArgs.Add(actual);
+            msbuildArgsToVerify.Add(msbuildArgToVerify);
         }
         code.AppendLine("""
                     ];
@@ -1461,16 +1465,17 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
 
         // Read args from csc.rsp file.
         var rspFilePath = Path.Join(artifactsDir, "csc.rsp");
-        var fileBasedCallArgs = File.ReadAllLines(rspFilePath);
-        var fileBasedCallArgsString = string.Join(' ', fileBasedCallArgs);
+        var cscOnlyCallArgs = File.ReadAllLines(rspFilePath);
+        var cscOnlyCallArgsString = string.Join(' ', cscOnlyCallArgs);
 
-        // Check that project-based and file-based csc args are equivalent.
-        var normalizedFileBasedArgs = fileBasedCallArgs.Select(NormalizePath);
-        Log.WriteLine("File-based vs project-based args:" + Environment.NewLine +
-            string.Join(Environment.NewLine, normalizedFileBasedArgs
-                .Zip(actualArgs)
+        // Check that csc args between MSBuild run and CSC-only run are equivalent.
+        var normalizedCscOnlyArgs = cscOnlyCallArgs
+            .Select(static a => NormalizePath(RemoveQuotes(a)));
+        Log.WriteLine("CSC-only vs MSBuild args:" + Environment.NewLine +
+            string.Join(Environment.NewLine, normalizedCscOnlyArgs
+                .Zip(msbuildArgsToVerify)
                 .Select(p => $"{p.First}\t{p.Second}")));
-        normalizedFileBasedArgs.Should().BeEquivalentTo(actualArgs);
+        normalizedCscOnlyArgs.Should().Equal(msbuildArgsToVerify);
 
         static CompilerCall findCompilerCall(string binaryLogPath)
         {
@@ -1482,6 +1487,93 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         {
             return PathUtility.GetPathWithForwardSlashes(path);
         }
+
+        static string RemoveQuotes(string arg)
+        {
+            return arg.Replace("\"", string.Empty);
+        }
+    }
+
+    /// <summary>
+    /// Verifies that csc-only runs emit auxiliary files equivalent to msbuild-based runs.
+    /// </summary>
+    [Theory]
+    [InlineData("Program.cs")]
+    [InlineData("test.cs")]
+    [InlineData("noext")]
+    public void CscVsMSBuild(string fileName)
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory(baseDirectory: s_outOfTreeBaseDirectory);
+        string entryPointPath = Path.Join(testInstance.Path, fileName);
+        File.WriteAllText(entryPointPath, s_program);
+
+        string programName = Path.GetFileNameWithoutExtension(fileName);
+
+        // Remove artifacts from possible previous runs of this test.
+        var artifactsDir = VirtualProjectBuildingCommand.GetArtifactsPath(entryPointPath);
+        if (Directory.Exists(artifactsDir)) Directory.Delete(artifactsDir, recursive: true);
+        var artifactsBackupDir = Path.ChangeExtension(artifactsDir, ".bak");
+        if (Directory.Exists(artifactsBackupDir)) Directory.Delete(artifactsBackupDir, recursive: true);
+
+        // Build using CSC.
+        new DotnetCommand(Log, "run", fileName, "-bl")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut($"""
+                {CliCommandStrings.NoBinaryLogBecauseRunningJustCsc}
+                Hello from {programName}
+                """);
+
+        // Backup the artifacts directory.
+        Directory.Move(artifactsDir, artifactsBackupDir);
+
+        // Build using MSBuild.
+        new DotnetCommand(Log, "run", fileName, "-bl", "--no-cache")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut($"Hello from {programName}");
+
+        // Check that files generated by MSBuild and CSC-only runs are equivalent.
+        var cscOnlyFiles = Directory.EnumerateFiles(artifactsBackupDir, "*", SearchOption.AllDirectories)
+            .Where(f =>
+                Path.GetDirectoryName(f) != artifactsBackupDir && // exclude top-level marker files
+                Path.GetFileName(f) != programName && // binary on unix
+                Path.GetExtension(f) is not (".dll" or ".exe" or ".pdb")); // other binaries
+        bool hasErrors = false;
+        foreach (var cscOnlyFile in cscOnlyFiles)
+        {
+            var relativePath = Path.GetRelativePath(relativeTo: artifactsBackupDir, path: cscOnlyFile);
+            var msbuildFile = Path.Join(artifactsDir, relativePath);
+
+            if (!File.Exists(msbuildFile))
+            {
+                throw new InvalidOperationException($"File exists in CSC-only run but not in MSBuild run: {cscOnlyFile}");
+            }
+
+            var cscOnlyFileBytes = File.ReadAllBytes(cscOnlyFile);
+            var msbuildFileBytes = File.ReadAllBytes(msbuildFile);
+            if (!cscOnlyFileBytes.SequenceEqual(msbuildFileBytes))
+            {
+                Log.WriteLine($"File differs between MSBuild and CSC-only runs: {cscOnlyFile}");
+                const int limit = 3_000;
+                if (cscOnlyFileBytes.Length < limit && msbuildFileBytes.Length < limit)
+                {
+                    Log.WriteLine("MSBuild file content:");
+                    Log.WriteLine(Encoding.UTF8.GetString(msbuildFileBytes));
+                    Log.WriteLine("CSC-only file content:");
+                    Log.WriteLine(Encoding.UTF8.GetString(cscOnlyFileBytes));
+                }
+                else
+                {
+                    Log.WriteLine($"MSBuild file size: {msbuildFileBytes.Length} bytes");
+                    Log.WriteLine($"CSC-only file size: {cscOnlyFileBytes.Length} bytes");
+                }
+                hasErrors = true;
+            }
+        }
+        hasErrors.Should().BeFalse();
     }
 
     [Fact]
