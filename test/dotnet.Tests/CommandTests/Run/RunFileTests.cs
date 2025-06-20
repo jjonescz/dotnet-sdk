@@ -1267,39 +1267,52 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     }
 
     /// <summary>
-    /// Verifies that arguments provided to <c>csc.exe</c> are the same as
-    /// <c>dotnet build</c> would use for a simple <c>dotnet new console</c>.
+    /// Verifies that msbuild-based runs are equivalent to csc-only runs.
+    /// Can regenerate CSC arguments template in <see cref="CSharpCompilerCommand"/>.
     /// </summary>
     [Fact]
     public void CscArguments()
     {
-        var testInstance = _testAssetsManager.CreateTestDirectory();
+        var testInstance = _testAssetsManager.CreateTestDirectory(baseDirectory: s_outOfTreeBaseDirectory);
+        const string programName = "TestProgram";
+        const string fileName = $"{programName}.cs";
+        string entryPointPath = Path.Join(testInstance.Path, fileName);
+        File.WriteAllText(entryPointPath, s_program);
 
-        // Create a project-based program.
-        new DotnetCommand(Log, "new", "console")
+        // Remove artifacts from possible previous runs of this test.
+        var artifactsDir = VirtualProjectBuildingCommand.GetArtifactsPath(entryPointPath);
+        if (Directory.Exists(artifactsDir)) Directory.Delete(artifactsDir, recursive: true);
+
+        // Build using MSBuild.
+        new DotnetCommand(Log, "run", fileName, "-bl", "--no-cache")
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
-            .Should().Pass();
-
-        // Build the project based program.
-        new DotnetCommand(Log, "build", "-bl", "-p:UseArtifactsOutput=true")
-            .WithWorkingDirectory(testInstance.Path)
-            .Execute()
-            .Should().Pass();
+            .Should().Pass()
+            .And.HaveStdOut($"Hello from {programName}");
 
         // Find the csc args used by the build.
         var projectBasedCall = findCompilerCall(Path.Join(testInstance.Path, "msbuild.binlog"));
         var projectBasedCallArgs = projectBasedCall.GetArguments();
         var projectBasedCallArgsString = ArgumentEscaper.EscapeAndConcatenateArgArrayForProcessStart(projectBasedCallArgs);
 
-        const string artifactsPath = $"artifacts/obj/{nameof(CscArguments)}";
-
         // Print code that can be copy-pasted to fix up the arguments.
+        string sdkPath = NormalizePath(TestContext.Current.ToolsetUnderTest.SdkFolderUnderTest);
+        string dotNetRootPath = NormalizePath(TestContext.Current.ToolsetUnderTest.DotNetRoot);
+        string nuGetCachePath = NormalizePath(TestContext.Current.NuGetCachePath!);
+        string artifactsDirNormalized = NormalizePath(artifactsDir);
+        string objPath = $"{artifactsDirNormalized}/obj/debug";
+        string entryPointPathNormalized = NormalizePath(entryPointPath);
         var actualArgs = new List<string>();
         Log.WriteLine("Arguments should be:");
         Log.WriteLine("[");
         foreach (var arg in projectBasedCallArgs)
         {
+            // This option needs to be passed on the command line, not in an RSP file.
+            if (arg is "/noconfig")
+            {
+                continue;
+            }
+
             // We don't need to generate a ref assembly.
             if (arg.StartsWith("/refout", StringComparison.Ordinal))
             {
@@ -1315,7 +1328,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             bool needsInterpolation = false;
 
             // Normalize slashes in paths.
-            string rewritten = arg.Replace('\\', '/');
+            string rewritten = NormalizePath(arg);
 
             // Remove quotes.
             rewritten = rewritten.Replace("\"", "");
@@ -1323,33 +1336,56 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             string actual = rewritten;
 
             // Use variable SDK path.
-            string sdkPath = CSharpCompilerCommand.s_sdkPath.Replace('\\', '/');
             if (rewritten.Contains(sdkPath, StringComparison.OrdinalIgnoreCase))
             {
-                rewritten = rewritten.Replace(sdkPath, "{" + nameof(CSharpCompilerCommand.s_sdkPath) + "}", StringComparison.OrdinalIgnoreCase);
+                rewritten = rewritten.Replace(sdkPath, "{SdkPath}", StringComparison.OrdinalIgnoreCase);
+                needsInterpolation = true;
+            }
+
+            // Use variable .NET root path.
+            if (rewritten.Contains(dotNetRootPath, StringComparison.OrdinalIgnoreCase))
+            {
+                rewritten = rewritten.Replace(dotNetRootPath, "{DotNetRootPath}", StringComparison.OrdinalIgnoreCase);
+                needsInterpolation = true;
+            }
+
+            // Use variable NuGet cache path.
+            if (rewritten.Contains(nuGetCachePath, StringComparison.OrdinalIgnoreCase))
+            {
+                rewritten = rewritten.Replace(nuGetCachePath, "{NuGetCachePath}", StringComparison.OrdinalIgnoreCase);
                 needsInterpolation = true;
             }
 
             // Use variable intermediate dir path.
-            const string objPath = $"{artifactsPath}/debug";
             if (rewritten.Contains(objPath, StringComparison.OrdinalIgnoreCase))
             {
-                rewritten = rewritten.Replace(objPath, "{intermediateDir}", StringComparison.OrdinalIgnoreCase);
-                needsInterpolation = true;
-            }
+                // We want to emit the resulting DLL directly into the bin folder.
+                string replacement = arg.StartsWith("/out", StringComparison.Ordinal)
+                    ? "{binDir}"
+                    : "{objDir}";
 
-            // Use variable program name.
-            if (rewritten.Contains(nameof(CscArguments), StringComparison.OrdinalIgnoreCase))
-            {
-                rewritten = rewritten.Replace(nameof(CscArguments), "{fileNameWithoutExtension}", StringComparison.OrdinalIgnoreCase);
+                rewritten = rewritten.Replace(objPath, replacement, StringComparison.OrdinalIgnoreCase);
                 needsInterpolation = true;
             }
 
             // Use variable file name.
-            const string fileName = "Program.cs";
-            if (rewritten.Contains(fileName, StringComparison.OrdinalIgnoreCase))
+            if (rewritten.Contains(entryPointPathNormalized, StringComparison.OrdinalIgnoreCase))
             {
-                rewritten = rewritten.Replace(fileName, "{" + nameof(CSharpCompilerCommand.EntryPointFileFullPath) + "}", StringComparison.OrdinalIgnoreCase);
+                rewritten = rewritten.Replace(entryPointPathNormalized, "{" + nameof(CSharpCompilerCommand.EntryPointFileFullPath) + "}", StringComparison.OrdinalIgnoreCase);
+                needsInterpolation = true;
+            }
+
+            // Use variable program name.
+            if (rewritten.Contains(programName, StringComparison.OrdinalIgnoreCase))
+            {
+                rewritten = rewritten.Replace(programName, "{fileNameWithoutExtension}", StringComparison.OrdinalIgnoreCase);
+                needsInterpolation = true;
+            }
+
+            // Use variable runtime version.
+            if (rewritten.Contains(CSharpCompilerCommand.RuntimeVersion, StringComparison.OrdinalIgnoreCase))
+            {
+                rewritten = rewritten.Replace(CSharpCompilerCommand.RuntimeVersion, "{" + nameof(CSharpCompilerCommand.RuntimeVersion) + "}", StringComparison.OrdinalIgnoreCase);
                 needsInterpolation = true;
             }
 
@@ -1369,26 +1405,24 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         }
         Log.WriteLine("]");
 
-        // Re-create a file-based program in the same directory.
-        //Directory.Delete(testInstance.Path, recursive: true);
-        //Directory.CreateDirectory(testInstance.Path);
-        //File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), """
-        //    Console.WriteLine("Test");
-        //    """);
+        // Build using CSC.
+        Directory.Delete(artifactsDir, recursive: true);
+        new DotnetCommand(Log, "run", fileName, "-bl")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut($"""
+                {CliCommandStrings.NoBinaryLogBecauseRunningJustCsc}
+                Hello from {programName}
+                """);
 
-        // Construct csc args for a file-based program.
-        var fileBasedCall = new CSharpCompilerCommand()
-        {
-            EntryPointFileFullPath = Path.Join(testInstance.Path, "Program.cs"),
-            ArtifactsPath = artifactsPath,
-            CanReuseAuxiliaryFiles = false,
-        };
-        fileBasedCall.PrepareAuxiliaryFiles(out string rspPath);
-        var fileBasedCallArgs = File.ReadAllLines(rspPath);
+        // Read args from csc.rsp file.
+        var rspFilePath = Path.Join(artifactsDir, "csc.rsp");
+        var fileBasedCallArgs = File.ReadAllLines(rspFilePath);
         var fileBasedCallArgsString = string.Join(' ', fileBasedCallArgs);
 
         // Check that project-based and file-based csc args are equivalent.
-        var normalizedFileBasedArgs = fileBasedCallArgs.Select(a => a.Replace('\\', '/'));
+        var normalizedFileBasedArgs = fileBasedCallArgs.Select(NormalizePath);
         Log.WriteLine("File-based vs project-based args:" + Environment.NewLine +
             string.Join(Environment.NewLine, normalizedFileBasedArgs
                 .Zip(actualArgs)
@@ -1399,6 +1433,11 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         {
             using var reader = BinaryLogReader.Create(binaryLogPath);
             return reader.ReadAllCompilerCalls().Should().ContainSingle().Subject;
+        }
+
+        static string NormalizePath(string path)
+        {
+            return PathUtility.GetPathWithForwardSlashes(path);
         }
     }
 
