@@ -1549,7 +1549,10 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     {
         var testInstance = _testAssetsManager.CreateTestDirectory(baseDirectory: s_outOfTreeBaseDirectory);
         string entryPointPath = Path.Join(testInstance.Path, fileName);
-        File.WriteAllText(entryPointPath, s_program);
+        File.WriteAllText(entryPointPath, $"""
+            #!/test
+            {s_program}
+            """);
 
         string programName = Path.GetFileNameWithoutExtension(fileName);
 
