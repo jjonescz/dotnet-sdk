@@ -10,6 +10,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CommandLine;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.DotNet.Cli.Utils;
+using Microsoft.DotNet.Cli.Utils.Extensions;
 using Microsoft.NET.HostModel.AppHost;
 using NuGet.Configuration;
 
@@ -47,7 +48,10 @@ internal sealed partial class CSharpCompilerCommand
     public required string ArtifactsPath { get; init; }
     public required bool CanReuseAuxiliaryFiles { get; init; }
 
-    public int Execute()
+    /// <param name="fallbackToNormalBuild">
+    /// Whether the returned error code should not cause the build to fail but instead fallback to full MSBuild.
+    /// </param>
+    public int Execute(out bool fallbackToNormalBuild)
     {
         // Write .rsp file and other intermediate build outputs.
         PrepareAuxiliaryFiles(out string rspPath);
@@ -81,7 +85,7 @@ internal sealed partial class CSharpCompilerCommand
             cancellationToken: default);
 
         // Process the response.
-        return ProcessBuildResponse(responseTask.Result);
+        return ProcessBuildResponse(responseTask.Result, out fallbackToNormalBuild);
 
         static string GetCompilerCommitHash()
         {
@@ -93,25 +97,29 @@ internal sealed partial class CSharpCompilerCommand
                 ?? throw new InvalidOperationException("Could not find compiler commit hash in the assembly attributes.");
         }
 
-        static int ProcessBuildResponse(BuildResponse response)
+        static int ProcessBuildResponse(BuildResponse response, out bool fallbackToNormalBuild)
         {
             switch (response)
             {
                 case CompletedBuildResponse completed:
                     Reporter.Verbose.WriteLine("Compiler server processed compilation.");
                     Reporter.Output.Write(completed.Output);
+                    fallbackToNormalBuild = false;
                     return completed.ReturnCode;
 
                 case IncorrectHashBuildResponse:
-                    Reporter.Error.WriteLine("Compiler server reports a different hash version than the SDK.");
+                    Reporter.Output.WriteLine("Warning: Compiler server reports a different hash version than the SDK.".Yellow());
+                    fallbackToNormalBuild = true;
                     return 1;
 
                 case null:
-                    Reporter.Error.WriteLine("Could not launch the compiler server.");
+                    Reporter.Error.WriteLine("Warning: Could not launch the compiler server.".Yellow());
+                    fallbackToNormalBuild = true;
                     return 1;
 
                 default:
-                    Reporter.Error.WriteLine($"Compiler server returned unexpected response: {response.GetType().Name}");
+                    Reporter.Error.WriteLine($"Warning: Compiler server returned unexpected response: {response.GetType().Name}".Yellow());
+                    fallbackToNormalBuild = true;
                     return 1;
             }
         }

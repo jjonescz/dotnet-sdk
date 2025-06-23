@@ -203,14 +203,18 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                         // We can reuse auxiliary files if we previously built using csc.
                         CanReuseAuxiliaryFiles = cache.PreviousEntry?.BuildLevel is BuildLevel.Csc,
                     }
-                    .Execute();
+                    .Execute(out bool fallbackToNormalBuild);
 
                     if (result == 0)
                     {
+                        Debug.Assert(!fallbackToNormalBuild);
                         MarkBuildSuccess(cache);
                     }
 
-                    return result;
+                    if (!fallbackToNormalBuild)
+                    {
+                        return result;
+                    }
                 }
             }
 
