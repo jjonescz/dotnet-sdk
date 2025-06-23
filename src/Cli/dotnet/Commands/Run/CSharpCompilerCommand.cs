@@ -315,29 +315,29 @@ internal sealed partial class CSharpCompilerCommand
                 return arg.ContainsAny(s_additionalShouldSurroundWithQuotes);
             });
         }
+    }
 
-        static bool IsPathOption(string arg, out int colonIndex)
+    public static bool IsPathOption(string arg, out int colonIndex)
+    {
+        if (!arg.StartsWith('/'))
         {
-            if (!arg.StartsWith('/'))
-            {
-                colonIndex = -1;
-                return false;
-            }
-
-            var span = arg.AsSpan(start: 1);
-            foreach (var optionName in s_pathOptions)
-            {
-                Debug.Assert(!optionName.StartsWith('/') && optionName.EndsWith(':'));
-
-                if (span.StartsWith(optionName, StringComparison.OrdinalIgnoreCase))
-                {
-                    colonIndex = optionName.Length;
-                    return true;
-                }
-            }
-
             colonIndex = -1;
             return false;
         }
+
+        var span = arg.AsSpan(start: 1);
+        foreach (var optionName in s_pathOptions)
+        {
+            Debug.Assert(!optionName.StartsWith('/') && optionName.EndsWith(':'));
+
+            if (span.StartsWith(optionName, StringComparison.OrdinalIgnoreCase))
+            {
+                colonIndex = optionName.Length;
+                return true;
+            }
+        }
+
+        colonIndex = -1;
+        return false;
     }
 }

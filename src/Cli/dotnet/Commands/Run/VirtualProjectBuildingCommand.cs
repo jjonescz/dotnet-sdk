@@ -521,6 +521,15 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
             return BuildLevel.All;
         }
 
+        foreach (var filePath in CSharpCompilerCommand.GetNuGetPackageFilePaths())
+        {
+            if (!File.Exists(filePath))
+            {
+                Reporter.Verbose.WriteLine($"Using MSBuild because NuGet package file does not exist: {filePath}");
+                return BuildLevel.All;
+            }
+        }
+
         Reporter.Verbose.WriteLine("Skipping MSBuild and using CSC only.");
         return BuildLevel.Csc;
     }
