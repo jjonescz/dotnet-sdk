@@ -201,7 +201,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                         EntryPointFileFullPath = EntryPointFileFullPath,
                         ArtifactsPath = ArtifactsPath,
                         // We can reuse auxiliary files if we previously built using csc.
-                        CanReuseAuxiliaryFiles = cache.PreviousEntry?.BuildLevel is BuildLevel.Csc,
+                        CanReuseAuxiliaryFiles = cache.CanReuseAuxiliaryFiles && cache.PreviousEntry?.BuildLevel is BuildLevel.Csc,
                     }
                     .Execute(out bool fallbackToNormalBuild);
 
@@ -335,6 +335,11 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         public required FileInfo EntryPointFile { get; init; }
         public RunFileBuildCacheEntry? PreviousEntry { get; set; }
         public required RunFileBuildCacheEntry CurrentEntry { get; init; }
+
+        /// <summary>
+        /// We cannot reuse auxiliary files like <c>csc.rsp</c> for example when SDK version changes.
+        /// </summary>
+        public bool CanReuseAuxiliaryFiles { get; set; } = true;
     }
 
     /// <summary>
@@ -351,6 +356,8 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         var cacheEntry = new RunFileBuildCacheEntry(GlobalProperties)
         {
             AnyDirectives = _directives.Any(static d => d is not CSharpDirective.Shebang),
+            SdkVersion = Product.Version,
+            RuntimeVersion = CSharpCompilerCommand.RuntimeVersion,
         };
 
         var entryPointFile = new FileInfo(EntryPointFileFullPath);
@@ -413,12 +420,33 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         var previousCacheEntry = DeserializeCacheEntry(successCacheFile);
         if (previousCacheEntry is null)
         {
+            cache.CanReuseAuxiliaryFiles = false;
             Reporter.Verbose.WriteLine("Building because previous cache entry could not be deserialized: " + successCacheFile.FullName);
             return true;
         }
 
         cache.PreviousEntry = previousCacheEntry;
         var cacheEntry = cache.CurrentEntry;
+
+        // Check that versions match.
+
+        if (previousCacheEntry.SdkVersion != cacheEntry.SdkVersion)
+        {
+            cache.CanReuseAuxiliaryFiles = false;
+            Reporter.Verbose.WriteLine($"""
+                Building because previous SDK version ({previousCacheEntry.SdkVersion}) does not match current ({cacheEntry.SdkVersion}): {successCacheFile.FullName}
+                """);
+            return true;
+        }
+
+        if (previousCacheEntry.RuntimeVersion != cacheEntry.RuntimeVersion)
+        {
+            cache.CanReuseAuxiliaryFiles = false;
+            Reporter.Verbose.WriteLine($"""
+                Building because previous runtime version ({previousCacheEntry.RuntimeVersion}) does not match current ({cacheEntry.RuntimeVersion}): {successCacheFile.FullName}
+                """);
+            return true;
+        }
 
         // Check that properties match.
 
@@ -1390,6 +1418,10 @@ internal sealed class RunFileBuildCacheEntry
     public bool AnyDirectives { get; set; } // should be required and init-only but https://github.com/dotnet/runtime/issues/92877
 
     public BuildLevel BuildLevel { get; set; }
+
+    public string? SdkVersion { get; set; } // should be required and init-only but https://github.com/dotnet/runtime/issues/92877
+
+    public string? RuntimeVersion { get; set; } // should be required and init-only but https://github.com/dotnet/runtime/issues/92877
 
     [JsonIgnore]
     public string? ExampleMSBuildFile { get; set; }
