@@ -1446,11 +1446,6 @@ Rozróżnij nazwy profilów.</target>
         <target state="translated">Określony plik musi istnieć i mieć rozszerzenie pliku „.cs”: „{0}”</target>
         <note>{Locked=".cs"}</note>
       </trans-unit>
-      <trans-unit id="InvalidOptionCombination">
-        <source>Cannot combine option '{0}' and '{1}'.</source>
-        <target state="translated">Nie można połączyć opcji „{0}” i „{1}”.</target>
-        <note>{0} and {1} are option names like '--no-build'.</note>
-      </trans-unit>
       <trans-unit id="InvalidOptionForStdin">
         <source>Cannot specify option '{0}' when also using '-' to read the file from standard input.</source>
         <target state="translated">Nie można określić opcji „{0}” przy jednoczesnym używaniu znaku „-” do odczytu pliku ze standardowych danych wejściowych.</target>

@@ -1446,11 +1446,6 @@ Lütfen profil adlarını değiştirin.</target>
         <target state="translated">Belirtilen dosya mevcut olmalıdır ve uzantısı '.cs' olmalıdır: '{0}'</target>
         <note>{Locked=".cs"}</note>
       </trans-unit>
-      <trans-unit id="InvalidOptionCombination">
-        <source>Cannot combine option '{0}' and '{1}'.</source>
-        <target state="translated">Seçenek '{0}' ve '{1}' birleştirilemez.</target>
-        <note>{0} and {1} are option names like '--no-build'.</note>
-      </trans-unit>
       <trans-unit id="InvalidOptionForStdin">
         <source>Cannot specify option '{0}' when also using '-' to read the file from standard input.</source>
         <target state="new">Cannot specify option '{0}' when also using '-' to read the file from standard input.</target>

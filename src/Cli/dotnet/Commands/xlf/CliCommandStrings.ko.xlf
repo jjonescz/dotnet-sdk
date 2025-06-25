@@ -1446,11 +1446,6 @@ Make the profile names distinct.</source>
         <target state="translated">지정한 파일이 존재해야 하며 '.cs' 파일 확장명이 있어야 합니다. '{0}'.</target>
         <note>{Locked=".cs"}</note>
       </trans-unit>
-      <trans-unit id="InvalidOptionCombination">
-        <source>Cannot combine option '{0}' and '{1}'.</source>
-        <target state="translated">옵션 '{0}'와(과) '{1}'을(를) 결합할 수 없습니다.</target>
-        <note>{0} and {1} are option names like '--no-build'.</note>
-      </trans-unit>
       <trans-unit id="InvalidOptionForStdin">
         <source>Cannot specify option '{0}' when also using '-' to read the file from standard input.</source>
         <target state="translated">'-'를 사용하여 표준 입력에서 파일을 읽는 경우에도 '{0}' 옵션을 지정할 수 없습니다.</target>

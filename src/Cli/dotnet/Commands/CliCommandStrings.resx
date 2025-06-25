@@ -1531,10 +1531,6 @@ Tool '{1}' (version '{2}') was successfully installed. Entry is added to the man
     <value>Duplicate directives are not supported: {0} at {1}</value>
     <comment>{0} is the directive type and name. {1} is the file path and line number.</comment>
   </data>
-  <data name="InvalidOptionCombination" xml:space="preserve">
-    <value>Cannot combine option '{0}' and '{1}'.</value>
-    <comment>{0} and {1} are option names like '--no-build'.</comment>
-  </data>
   <data name="InvalidOptionForStdin" xml:space="preserve">
     <value>Cannot specify option '{0}' when also using '-' to read the file from standard input.</value>
     <comment>{0} is an option name like '--no-build'.</comment>

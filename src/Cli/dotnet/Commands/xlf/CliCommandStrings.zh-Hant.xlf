@@ -1446,11 +1446,6 @@ Make the profile names distinct.</source>
         <target state="translated">指定的檔案必須存在，並具有 '.cs' 副檔名:'{0}'</target>
         <note>{Locked=".cs"}</note>
       </trans-unit>
-      <trans-unit id="InvalidOptionCombination">
-        <source>Cannot combine option '{0}' and '{1}'.</source>
-        <target state="translated">無法合併選項 '{0}' 與 '{1}'。</target>
-        <note>{0} and {1} are option names like '--no-build'.</note>
-      </trans-unit>
       <trans-unit id="InvalidOptionForStdin">
         <source>Cannot specify option '{0}' when also using '-' to read the file from standard input.</source>
         <target state="translated">當使用「-」從標準輸入讀取檔案時，無法指定選項 '{0}'。</target>
