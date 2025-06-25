@@ -1446,6 +1446,11 @@ Make the profile names distinct.</source>
         <target state="translated">지정한 파일이 존재해야 하며 '.cs' 파일 확장명이 있어야 합니다. '{0}'.</target>
         <note>{Locked=".cs"}</note>
       </trans-unit>
+      <trans-unit id="InvalidOptionForFileBasedApp">
+        <source>Cannot specify option '{0}' when operating on a file-based app.</source>
+        <target state="new">Cannot specify option '{0}' when operating on a file-based app.</target>
+        <note>{0} is an option name like '--source'.</note>
+      </trans-unit>
       <trans-unit id="InvalidOptionForStdin">
         <source>Cannot specify option '{0}' when also using '-' to read the file from standard input.</source>
         <target state="translated">'-'를 사용하여 표준 입력에서 파일을 읽는 경우에도 '{0}' 옵션을 지정할 수 없습니다.</target>

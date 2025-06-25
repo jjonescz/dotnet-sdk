@@ -61,7 +61,7 @@ internal abstract class RunApiInput
 
         public override RunApiOutput Execute()
         {
-            var sourceFile = VirtualProjectBuildingCommand.LoadSourceFile(EntryPointFileFullPath);
+            var sourceFile = SourceFile.Load(EntryPointFileFullPath);
             var directives = VirtualProjectBuildingCommand.FindDirectives(sourceFile, reportAllErrors: true, DiagnosticBag.Collect(out var diagnostics));
             string artifactsPath = ArtifactsPath ?? VirtualProjectBuildingCommand.GetArtifactsPath(EntryPointFileFullPath);
 

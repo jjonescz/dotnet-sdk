@@ -1,8 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#nullable disable
-
 using System.CommandLine;
 using Microsoft.DotNet.Cli.Commands.Hidden.Add.Package;
 using Microsoft.DotNet.Cli.Commands.Hidden.Add.Reference;
@@ -14,9 +12,9 @@ internal static class AddCommandParser
 {
     public static readonly string DocsLink = "https://aka.ms/dotnet-add";
 
-    public static readonly Argument<string> ProjectArgument = new Argument<string>(CliStrings.ProjectArgumentName)
+    public static readonly Argument<string> ProjectOrFileArgument = new Argument<string>(CliStrings.ProjectOrFileArgumentName)
     {
-        Description = CliStrings.ProjectArgumentDescription
+        Description = CliStrings.ProjectOrFileArgumentDescription
     }.DefaultToCurrentDirectory();
 
     private static readonly Command Command = ConstructCommand();
@@ -33,7 +31,7 @@ internal static class AddCommandParser
             Hidden = true
         };
 
-        command.Arguments.Add(ProjectArgument);
+        command.Arguments.Add(ProjectOrFileArgument);
         command.Subcommands.Add(AddPackageCommandParser.GetCommand());
         command.Subcommands.Add(AddReferenceCommandParser.GetCommand());
 

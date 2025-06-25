@@ -1446,6 +1446,11 @@ Make the profile names distinct.</source>
         <target state="translated">指定的檔案必須存在，並具有 '.cs' 副檔名:'{0}'</target>
         <note>{Locked=".cs"}</note>
       </trans-unit>
+      <trans-unit id="InvalidOptionForFileBasedApp">
+        <source>Cannot specify option '{0}' when operating on a file-based app.</source>
+        <target state="new">Cannot specify option '{0}' when operating on a file-based app.</target>
+        <note>{0} is an option name like '--source'.</note>
+      </trans-unit>
       <trans-unit id="InvalidOptionForStdin">
         <source>Cannot specify option '{0}' when also using '-' to read the file from standard input.</source>
         <target state="translated">當使用「-」從標準輸入讀取檔案時，無法指定選項 '{0}'。</target>

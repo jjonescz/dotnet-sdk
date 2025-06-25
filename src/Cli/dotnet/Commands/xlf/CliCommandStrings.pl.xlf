@@ -1446,6 +1446,11 @@ Rozróżnij nazwy profilów.</target>
         <target state="translated">Określony plik musi istnieć i mieć rozszerzenie pliku „.cs”: „{0}”</target>
         <note>{Locked=".cs"}</note>
       </trans-unit>
+      <trans-unit id="InvalidOptionForFileBasedApp">
+        <source>Cannot specify option '{0}' when operating on a file-based app.</source>
+        <target state="new">Cannot specify option '{0}' when operating on a file-based app.</target>
+        <note>{0} is an option name like '--source'.</note>
+      </trans-unit>
       <trans-unit id="InvalidOptionForStdin">
         <source>Cannot specify option '{0}' when also using '-' to read the file from standard input.</source>
         <target state="translated">Nie można określić opcji „{0}” przy jednoczesnym używaniu znaku „-” do odczytu pliku ze standardowych danych wejściowych.</target>

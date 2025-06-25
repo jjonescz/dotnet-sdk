@@ -6,7 +6,7 @@
 using System.CommandLine;
 using Microsoft.DotNet.Cli.Commands.Package;
 using Microsoft.DotNet.Cli.Commands.Package.Add;
-using Microsoft.DotNet.Cli.Extensions;
+using Microsoft.DotNet.Cli.Commands.Run;
 
 namespace Microsoft.DotNet.Cli.Commands.Hidden.Add.Package;
 
@@ -32,19 +32,14 @@ internal static class AddPackageCommandParser
         command.Options.Add(PackageAddCommandParser.InteractiveOption);
         command.Options.Add(PackageAddCommandParser.PrereleaseOption);
         command.Options.Add(PackageCommandParser.ProjectOption);
+        command.Options.Add(PackageCommandParser.FileOption);
 
         command.SetAction((parseResult) =>
         {
-            // this command can be called with an argument or an option for the project path - we prefer the option.
+            // this command can be called with an argument or an option for the project/file path - we prefer the option.
             // if the option is not present, we use the argument value instead.
-            if (parseResult.HasOption(PackageCommandParser.ProjectOption))
-            {
-                return new PackageAddCommand(parseResult, parseResult.GetValue(PackageCommandParser.ProjectOption)).Execute();
-            }
-            else
-            {
-                return new PackageAddCommand(parseResult, parseResult.GetValue(AddCommandParser.ProjectArgument) ?? Directory.GetCurrentDirectory()).Execute();
-            }
+            (string path, AppKinds allowedAppKinds) = PackageAddCommandParser.ProcessPathOptions(parseResult);
+            return new PackageAddCommand(parseResult, path, allowedAppKinds).Execute();
         });
 
         return command;

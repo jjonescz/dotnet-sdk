@@ -1,15 +1,17 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#nullable disable
-
 using System.CommandLine;
 using System.CommandLine.Completions;
-using Microsoft.Extensions.EnvironmentAbstractions;
-using NuGet.Versioning;
-using Microsoft.DotNet.Cli.Extensions;
 using System.CommandLine.Parsing;
+using Microsoft.DotNet.Cli.Commands.Hidden.Add;
+using Microsoft.DotNet.Cli.Commands.Run;
+using Microsoft.DotNet.Cli.Extensions;
+using Microsoft.DotNet.Cli.Utils;
+using Microsoft.Extensions.EnvironmentAbstractions;
 using NuGet.Packaging.Core;
+using NuGet.Versioning;
+using Command = System.CommandLine.Command;
 
 namespace Microsoft.DotNet.Cli.Commands.Package.Add;
 
@@ -19,7 +21,7 @@ internal static class PackageAddCommandParser
     .AddCompletions((context) =>
     {
         // we should take --prerelease flags into account for version completion
-        var allowPrerelease = context.ParseResult.GetValue(PrereleaseOption);
+        var allowPrerelease = context.ParseResult.GetValue(PrereleaseOption!);
         return QueryNuGet(context.WordToComplete, allowPrerelease, CancellationToken.None).Result.Select(packageId => new CompletionItem(packageId));
     });
 
@@ -34,7 +36,7 @@ internal static class PackageAddCommandParser
             if (context.ParseResult.GetValue(CmdPackageArgument) is PackageIdentity packageId && !packageId.HasVersion)
             {
                 // we should take --prerelease flags into account for version completion
-                var allowPrerelease = context.ParseResult.GetValue(PrereleaseOption);
+                var allowPrerelease = context.ParseResult.GetValue(PrereleaseOption!);
                 return QueryVersionsForPackage(packageId.Id, context.WordToComplete, allowPrerelease, CancellationToken.None)
                     .Result
                     .Select(version => new CompletionItem(version.ToNormalizedString()));
@@ -98,15 +100,36 @@ internal static class PackageAddCommandParser
         command.Options.Add(InteractiveOption);
         command.Options.Add(PrereleaseOption);
         command.Options.Add(PackageCommandParser.ProjectOption);
+        command.Options.Add(PackageCommandParser.FileOption);
 
-        command.SetAction((parseResult) => new PackageAddCommand(parseResult, parseResult.GetValue(PackageCommandParser.ProjectOption)).Execute());
+        command.SetAction((parseResult) =>
+        {
+            (string path, AppKinds allowedAppKinds) = ProcessPathOptions(parseResult);
+            return new PackageAddCommand(parseResult, path, allowedAppKinds).Execute();
+        });
 
         return command;
     }
 
+    public static (string Path, AppKinds AllowedAppKinds) ProcessPathOptions(ParseResult parseResult)
+    {
+        bool hasFileOption = parseResult.HasOption(PackageCommandParser.FileOption);
+        bool hasProjectOption = parseResult.HasOption(PackageCommandParser.ProjectOption);
+
+        return (hasFileOption, hasProjectOption) switch
+        {
+            (false, false) => parseResult.GetValue(AddCommandParser.ProjectOrFileArgument) is { } projectOrFile
+                ? (projectOrFile, AppKinds.Any)
+                : (Environment.CurrentDirectory, AppKinds.ProjectBased),
+            (true, false) => (parseResult.GetValue(PackageCommandParser.FileOption)!, AppKinds.FileBased),
+            (false, true) => (parseResult.GetValue(PackageCommandParser.ProjectOption)!, AppKinds.ProjectBased),
+            (true, true) => throw new GracefulException(CliCommandStrings.CannotCombineOptions, PackageCommandParser.FileOption.Name, PackageCommandParser.ProjectOption.Name),
+        };
+    }
+
     private static void DisallowVersionIfPackageIdentityHasVersionValidator(OptionResult result)
     {
-        if (result.Parent.GetValue(CmdPackageArgument) is PackageIdentity identity && identity.HasVersion)
+        if (result.Parent?.GetValue(CmdPackageArgument) is PackageIdentity identity && identity.HasVersion)
         {
             result.AddError(CliCommandStrings.ValidationFailedDuplicateVersion);
         }

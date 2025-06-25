@@ -5,6 +5,7 @@ using Microsoft.DotNet.Cli.Commands.Hidden.Add;
 using Microsoft.DotNet.Cli.Commands.Package.Add;
 using Microsoft.DotNet.Cli.Commands.Reference.Add;
 using Microsoft.DotNet.Cli.Commands.Restore;
+using Microsoft.DotNet.Cli.Commands.Run;
 using Microsoft.DotNet.Cli.Commands.Solution;
 using Microsoft.DotNet.Cli.Commands.Solution.Add;
 using Microsoft.DotNet.Cli.Utils;
@@ -21,7 +22,7 @@ internal static class DotnetCommandCallbacks
         {
             commandArgs = commandArgs.Append(PackageAddCommandParser.VersionOption.Name).Append(version);
         }
-        var addPackageReferenceCommand = new PackageAddCommand(AddCommandParser.GetCommand().Parse([.. commandArgs]), projectPath);
+        var addPackageReferenceCommand = new PackageAddCommand(AddCommandParser.GetCommand().Parse([.. commandArgs]), projectPath, allowedAppKinds: AppKinds.ProjectBased);
         return addPackageReferenceCommand.Execute() == 0;
     }
 

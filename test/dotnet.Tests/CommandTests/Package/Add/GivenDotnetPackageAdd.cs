@@ -229,6 +229,26 @@ namespace Microsoft.DotNet.Cli.Package.Add.Tests
                 .Fail();
         }
 
+        [Fact]
+        public void FileBasedApp()
+        {
+            var testInstance = _testAssetsManager.CreateTestDirectory();
+            var file = Path.Join(testInstance.Path, "Program.cs");
+            File.WriteAllText(file, """
+                Console.WriteLine();
+                """);
+
+            new DotnetCommand(Log, "package", "add", "Humanizer@2.14.1", "--file", "Program.cs")
+                .WithWorkingDirectory(testInstance.Path)
+                .Execute()
+                .Should().Pass();
+
+            File.ReadAllText(file).Should().Be("""
+                #:package Humanizer@2.14.1
+                Console.WriteLine();
+                """);
+        }
+
 
         private static TestProject GetProject(string targetFramework, string referenceProjectName, string version)
         {

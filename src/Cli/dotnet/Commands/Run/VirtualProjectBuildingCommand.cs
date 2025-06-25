@@ -433,7 +433,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
     {
         Debug.Assert(_directives.IsDefault, $"{nameof(PrepareProjectInstance)} should not be called multiple times.");
 
-        var sourceFile = LoadSourceFile(EntryPointFileFullPath);
+        var sourceFile = SourceFile.Load(EntryPointFileFullPath);
         _directives = FindDirectives(sourceFile, reportAllErrors: false, DiagnosticBag.ThrowOnFirst());
 
         return this;
@@ -855,12 +855,6 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
 #pragma warning restore RSEXPERIMENTAL003 // 'SyntaxTokenParser' is experimental
     }
 
-    public static SourceFile LoadSourceFile(string filePath)
-    {
-        using var stream = File.OpenRead(filePath);
-        return new SourceFile(filePath, SourceText.From(stream, Encoding.UTF8));
-    }
-
     public static SourceText? RemoveDirectivesFromFile(ImmutableArray<CSharpDirective> directives, SourceText text)
     {
         if (directives.Length == 0)
@@ -883,9 +877,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
     {
         if (RemoveDirectivesFromFile(directives, text) is { } modifiedText)
         {
-            using var stream = File.Open(filePath, FileMode.Create, FileAccess.Write);
-            using var writer = new StreamWriter(stream, Encoding.UTF8);
-            modifiedText.Write(writer);
+            new SourceFile(filePath, modifiedText).Save();
         }
     }
 
@@ -918,6 +910,24 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
 
 internal readonly record struct SourceFile(string Path, SourceText Text)
 {
+    public static SourceFile Load(string filePath)
+    {
+        using var stream = File.OpenRead(filePath);
+        return new SourceFile(filePath, SourceText.From(stream, Encoding.UTF8));
+    }
+
+    public SourceFile WithText(SourceText newText)
+    {
+        return new SourceFile(Path, newText);
+    }
+
+    public void Save()
+    {
+        using var stream = File.Open(Path, FileMode.Create, FileAccess.Write);
+        using var writer = new StreamWriter(stream, Encoding.UTF8);
+        Text.Write(writer);
+    }
+
     public FileLinePositionSpan GetFileLinePositionSpan(TextSpan span)
     {
         return new FileLinePositionSpan(Path, Text.Lines.GetLinePositionSpan(span));
@@ -989,10 +999,15 @@ internal abstract class CSharpDirective
         return (firstPart.ToString(), secondPart.ToString());
     }
 
+    public abstract override string ToString();
+
     /// <summary>
     /// <c>#!</c> directive.
     /// </summary>
-    public sealed class Shebang : CSharpDirective;
+    public sealed class Shebang : CSharpDirective
+    {
+        public override string ToString() => "#!";
+    }
 
     public abstract class Named : CSharpDirective
     {
@@ -1004,8 +1019,6 @@ internal abstract class CSharpDirective
     /// </summary>
     public sealed class Sdk : Named
     {
-        private Sdk() { }
-
         public string? Version { get; init; }
 
         public static new Sdk? Parse(DiagnosticBag diagnostics, SourceFile sourceFile, TextSpan span, string directiveKind, string directiveText)
@@ -1027,6 +1040,8 @@ internal abstract class CSharpDirective
         {
             return Version is null ? Name : $"{Name}/{Version}";
         }
+
+        public override string ToString() => Version is null ? $"#:sdk {Name}" : $"#:sdk {Name}@{Version}";
     }
 
     /// <summary>
@@ -1034,8 +1049,6 @@ internal abstract class CSharpDirective
     /// </summary>
     public sealed class Property : Named
     {
-        private Property() { }
-
         public required string Value { get; init; }
 
         public static new Property? Parse(DiagnosticBag diagnostics, SourceFile sourceFile, TextSpan span, string directiveKind, string directiveText)
@@ -1066,6 +1079,8 @@ internal abstract class CSharpDirective
                 Value = propertyValue,
             };
         }
+
+        public override string ToString() => $"#:property {Name}={Value}";
     }
 
     /// <summary>
@@ -1073,8 +1088,6 @@ internal abstract class CSharpDirective
     /// </summary>
     public sealed class Package : Named
     {
-        private Package() { }
-
         public string? Version { get; init; }
 
         public static new Package? Parse(DiagnosticBag diagnostics, SourceFile sourceFile, TextSpan span, string directiveKind, string directiveText)
@@ -1091,6 +1104,8 @@ internal abstract class CSharpDirective
                 Version = packageVersion,
             };
         }
+
+        public override string ToString() => Version is null ? $"#:package {Name}" : $"#:package {Name}@{Version}";
     }
 
     /// <summary>
@@ -1098,8 +1113,6 @@ internal abstract class CSharpDirective
     /// </summary>
     public sealed class Project : Named
     {
-        private Project() { }
-
         public static Project Parse(DiagnosticBag diagnostics, SourceFile sourceFile, TextSpan span, string directiveText)
         {
             try
@@ -1129,6 +1142,8 @@ internal abstract class CSharpDirective
                 Name = directiveText,
             };
         }
+
+        public override string ToString() => $"#:project {Name}";
     }
 }
 

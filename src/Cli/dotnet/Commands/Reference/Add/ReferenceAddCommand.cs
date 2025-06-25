@@ -16,7 +16,7 @@ internal class ReferenceAddCommand(ParseResult parseResult) : CommandBase(parseR
 {
     private readonly string _fileOrDirectory = parseResult.HasOption(ReferenceCommandParser.ProjectOption) ?
             parseResult.GetValue(ReferenceCommandParser.ProjectOption) :
-            parseResult.GetValue(AddCommandParser.ProjectArgument);
+            parseResult.GetValue(AddCommandParser.ProjectOrFileArgument);
 
     public override int Execute()
     {

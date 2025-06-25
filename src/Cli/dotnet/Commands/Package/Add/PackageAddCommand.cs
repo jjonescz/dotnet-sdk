@@ -1,28 +1,31 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#nullable disable
-
 using System.CommandLine;
 using Microsoft.DotNet.Cli.Commands.MSBuild;
 using Microsoft.DotNet.Cli.Commands.NuGet;
+using Microsoft.DotNet.Cli.Commands.Run;
 using Microsoft.DotNet.Cli.Extensions;
 using Microsoft.DotNet.Cli.Utils;
 using NuGet.Packaging.Core;
 
 namespace Microsoft.DotNet.Cli.Commands.Package.Add;
 
-/// <param name="parseResult"></param>
 /// <param name="fileOrDirectory">
 /// Since this command is invoked via both 'package add' and 'add package', different symbols will control what the project path to search is. 
 /// It's cleaner for the separate callsites to know this instead of pushing that logic here.
 /// </param>
-internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory) : CommandBase(parseResult)
+internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory, AppKinds allowedAppKinds) : CommandBase(parseResult)
 {
-    private readonly PackageIdentity _packageId = parseResult.GetValue(PackageAddCommandParser.CmdPackageArgument);
+    private readonly PackageIdentity _packageId = parseResult.GetValue(PackageAddCommandParser.CmdPackageArgument)!;
 
     public override int Execute()
     {
+        if (allowedAppKinds.HasFlag(AppKinds.FileBased) && VirtualProjectBuildingCommand.IsValidEntryPointPath(fileOrDirectory))
+        {
+            return ExecuteForFileBasedApp();
+        }
+
         string projectFilePath;
         if (!File.Exists(fileOrDirectory))
         {
@@ -133,5 +136,30 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
         }
 
         return [.. args];
+    }
+
+    private int ExecuteForFileBasedApp()
+    {
+        // Check disallowed options.
+        ReadOnlySpan<Option> disallowedOptions =
+        [
+            PackageAddCommandParser.FrameworkOption,
+                PackageAddCommandParser.NoRestoreOption,
+                PackageAddCommandParser.SourceOption,
+                PackageAddCommandParser.PackageDirOption,
+            ];
+        foreach (var option in disallowedOptions)
+        {
+            if (_parseResult.HasOption(option))
+            {
+                throw new GracefulException(CliCommandStrings.InvalidOptionForFileBasedApp, option.Name);
+            }
+        }
+
+        // Perform the edit.
+        var editor = FileBasedAppSourceEditor.Load(SourceFile.Load(Path.GetFullPath(fileOrDirectory)));
+        editor.Add(new CSharpDirective.Package { Span = default, Name = _packageId.Id, Version = _packageId.HasVersion ? _packageId.Version.ToString() : null });
+        editor.SourceFile.Save();
+        return 0;
     }
 }
