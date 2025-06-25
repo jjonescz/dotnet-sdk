@@ -434,7 +434,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         Debug.Assert(_directives.IsDefault, $"{nameof(PrepareProjectInstance)} should not be called multiple times.");
 
         var sourceFile = LoadSourceFile(EntryPointFileFullPath);
-        _directives = FindDirectives(sourceFile, reportAllErrors: false, errors: null);
+        _directives = FindDirectives(sourceFile, reportAllErrors: false, DiagnosticBag.ThrowOnFirst());
 
         return this;
     }
@@ -749,12 +749,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
     /// The latter is useful for <c>dotnet run file.cs</c> where if there are app directives after the first token,
     /// compiler reports <see cref="ErrorCode.ERR_PPIgnoredFollowsToken"/> anyway, so we speed up success scenarios by not parsing the whole file up front in the SDK CLI.
     /// </param>
-    /// <param name="errors">
-    /// If <see langword="null"/>, the first error is thrown as <see cref="GracefulException"/>.
-    /// Otherwise, all errors are put into the list.
-    /// Does not have any effect when <paramref name="reportAllErrors"/> is <see langword="false"/>.
-    /// </param>
-    public static ImmutableArray<CSharpDirective> FindDirectives(SourceFile sourceFile, bool reportAllErrors, ImmutableArray<SimpleDiagnostic>.Builder? errors)
+    public static ImmutableArray<CSharpDirective> FindDirectives(SourceFile sourceFile, bool reportAllErrors, DiagnosticBag diagnostics)
     {
 #pragma warning disable RSEXPERIMENTAL003 // 'SyntaxTokenParser' is experimental
 
@@ -798,24 +793,13 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                 var value = parts.MoveNext() ? message[parts.Current] : default;
                 Debug.Assert(!parts.MoveNext());
 
-                if (CSharpDirective.Parse(errors, sourceFile, span, name.ToString(), value.ToString()) is { } directive)
+                if (CSharpDirective.Parse(diagnostics, sourceFile, span, name.ToString(), value.ToString()) is { } directive)
                 {
                     // If the directive is already present, report an error.
                     if (deduplicated.TryGetValue(directive, out var existingDirective))
                     {
                         var typeAndName = $"#:{existingDirective.GetType().Name.ToLowerInvariant()} {existingDirective.Name}";
-                        if (errors != null)
-                        {
-                            errors.Add(new SimpleDiagnostic
-                            {
-                                Location = sourceFile.GetFileLinePositionSpan(directive.Span),
-                                Message = string.Format(CliCommandStrings.DuplicateDirective, typeAndName, sourceFile.GetLocationString(directive.Span)),
-                            });
-                        }
-                        else
-                        {
-                            throw new GracefulException(CliCommandStrings.DuplicateDirective, typeAndName, sourceFile.GetLocationString(directive.Span));
-                        }
+                        diagnostics.AddError(sourceFile, directive.Span, location => string.Format(CliCommandStrings.DuplicateDirective, typeAndName, location));
                     }
                     else
                     {
@@ -865,19 +849,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         {
             if (trivia.ContainsDiagnostics && trivia.IsKind(SyntaxKind.IgnoredDirectiveTrivia))
             {
-                string location = sourceFile.GetLocationString(trivia.Span);
-                if (errors != null)
-                {
-                    errors.Add(new SimpleDiagnostic
-                    {
-                        Location = sourceFile.GetFileLinePositionSpan(trivia.Span),
-                        Message = string.Format(CliCommandStrings.CannotConvertDirective, location),
-                    });
-                }
-                else
-                {
-                    throw new GracefulException(CliCommandStrings.CannotConvertDirective, location);
-                }
+                diagnostics.AddError(sourceFile, trivia.Span, location => string.Format(CliCommandStrings.CannotConvertDirective, location));
             }
         }
 #pragma warning restore RSEXPERIMENTAL003 // 'SyntaxTokenParser' is experimental
@@ -980,50 +952,32 @@ internal abstract class CSharpDirective
     /// </summary>
     public required TextSpan Span { get; init; }
 
-    public static Named? Parse(ImmutableArray<SimpleDiagnostic>.Builder? errors, SourceFile sourceFile, TextSpan span, string directiveKind, string directiveText)
+    public static Named? Parse(DiagnosticBag diagnostics, SourceFile sourceFile, TextSpan span, string directiveKind, string directiveText)
     {
         return directiveKind switch
         {
-            "sdk" => Sdk.Parse(errors, sourceFile, span, directiveKind, directiveText),
-            "property" => Property.Parse(errors, sourceFile, span, directiveKind, directiveText),
-            "package" => Package.Parse(errors, sourceFile, span, directiveKind, directiveText),
-            "project" => Project.Parse(errors, sourceFile, span, directiveText),
-            _ => ReportError<Named>(errors, sourceFile, span, string.Format(CliCommandStrings.UnrecognizedDirective, directiveKind, sourceFile.GetLocationString(span))),
+            "sdk" => Sdk.Parse(diagnostics, sourceFile, span, directiveKind, directiveText),
+            "property" => Property.Parse(diagnostics, sourceFile, span, directiveKind, directiveText),
+            "package" => Package.Parse(diagnostics, sourceFile, span, directiveKind, directiveText),
+            "project" => Project.Parse(diagnostics, sourceFile, span, directiveText),
+            _ => diagnostics.AddError<Named>(sourceFile, span, location => string.Format(CliCommandStrings.UnrecognizedDirective, directiveKind, location)),
         };
     }
 
-    private static T? ReportError<T>(ImmutableArray<SimpleDiagnostic>.Builder? errors, SourceFile sourceFile, TextSpan span, string message, Exception? inner = null)
-    {
-        ReportError(errors, sourceFile, span, message, inner);
-        return default;
-    }
-
-    private static void ReportError(ImmutableArray<SimpleDiagnostic>.Builder? errors, SourceFile sourceFile, TextSpan span, string message, Exception? inner = null)
-    {
-        if (errors != null)
-        {
-            errors.Add(new SimpleDiagnostic { Location = sourceFile.GetFileLinePositionSpan(span), Message = message });
-        }
-        else
-        {
-            throw new GracefulException(message, inner);
-        }
-    }
-
-    private static (string, string?)? ParseOptionalTwoParts(ImmutableArray<SimpleDiagnostic>.Builder? errors, SourceFile sourceFile, TextSpan span, string directiveKind, string directiveText, char separator)
+    private static (string, string?)? ParseOptionalTwoParts(DiagnosticBag diagnostics, SourceFile sourceFile, TextSpan span, string directiveKind, string directiveText, char separator)
     {
         var i = directiveText.IndexOf(separator, StringComparison.Ordinal);
         var firstPart = (i < 0 ? directiveText : directiveText.AsSpan(..i)).TrimEnd();
 
         if (firstPart.IsWhiteSpace())
         {
-            return ReportError<(string, string?)?>(errors, sourceFile, span, string.Format(CliCommandStrings.MissingDirectiveName, directiveKind, sourceFile.GetLocationString(span)));
+            return diagnostics.AddError<(string, string?)?>(sourceFile, span, location => string.Format(CliCommandStrings.MissingDirectiveName, directiveKind, location));
         }
 
         // If the name contains characters that resemble separators, report an error to avoid any confusion.
         if (Patterns.DisallowedNameCharacters.IsMatch(firstPart))
         {
-            return ReportError<(string, string?)?>(errors, sourceFile, span, string.Format(CliCommandStrings.InvalidDirectiveName, directiveKind, separator, sourceFile.GetLocationString(span)));
+            return diagnostics.AddError<(string, string?)?>(sourceFile, span, location => string.Format(CliCommandStrings.InvalidDirectiveName, directiveKind, separator, location));
         }
 
         var secondPart = i < 0 ? [] : directiveText.AsSpan((i + 1)..).TrimStart();
@@ -1054,9 +1008,9 @@ internal abstract class CSharpDirective
 
         public string? Version { get; init; }
 
-        public static new Sdk? Parse(ImmutableArray<SimpleDiagnostic>.Builder? errors, SourceFile sourceFile, TextSpan span, string directiveKind, string directiveText)
+        public static new Sdk? Parse(DiagnosticBag diagnostics, SourceFile sourceFile, TextSpan span, string directiveKind, string directiveText)
         {
-            if (ParseOptionalTwoParts(errors, sourceFile, span, directiveKind, directiveText, separator: '@') is not var (sdkName, sdkVersion))
+            if (ParseOptionalTwoParts(diagnostics, sourceFile, span, directiveKind, directiveText, separator: '@') is not var (sdkName, sdkVersion))
             {
                 return null;
             }
@@ -1084,16 +1038,16 @@ internal abstract class CSharpDirective
 
         public required string Value { get; init; }
 
-        public static new Property? Parse(ImmutableArray<SimpleDiagnostic>.Builder? errors, SourceFile sourceFile, TextSpan span, string directiveKind, string directiveText)
+        public static new Property? Parse(DiagnosticBag diagnostics, SourceFile sourceFile, TextSpan span, string directiveKind, string directiveText)
         {
-            if (ParseOptionalTwoParts(errors, sourceFile, span, directiveKind, directiveText, separator: '=') is not var (propertyName, propertyValue))
+            if (ParseOptionalTwoParts(diagnostics, sourceFile, span, directiveKind, directiveText, separator: '=') is not var (propertyName, propertyValue))
             {
                 return null;
             }
 
             if (propertyValue is null)
             {
-                return ReportError<Property?>(errors, sourceFile, span, string.Format(CliCommandStrings.PropertyDirectiveMissingParts, sourceFile.GetLocationString(span)));
+                return diagnostics.AddError<Property?>(sourceFile, span, location => string.Format(CliCommandStrings.PropertyDirectiveMissingParts, location));
             }
 
             try
@@ -1102,7 +1056,7 @@ internal abstract class CSharpDirective
             }
             catch (XmlException ex)
             {
-                return ReportError<Property?>(errors, sourceFile, span, string.Format(CliCommandStrings.PropertyDirectiveInvalidName, sourceFile.GetLocationString(span), ex.Message), ex);
+                return diagnostics.AddError<Property?>(sourceFile, span, location => string.Format(CliCommandStrings.PropertyDirectiveInvalidName, location, ex.Message), ex);
             }
 
             return new Property
@@ -1123,9 +1077,9 @@ internal abstract class CSharpDirective
 
         public string? Version { get; init; }
 
-        public static new Package? Parse(ImmutableArray<SimpleDiagnostic>.Builder? errors, SourceFile sourceFile, TextSpan span, string directiveKind, string directiveText)
+        public static new Package? Parse(DiagnosticBag diagnostics, SourceFile sourceFile, TextSpan span, string directiveKind, string directiveText)
         {
-            if (ParseOptionalTwoParts(errors, sourceFile, span, directiveKind, directiveText, separator: '@') is not var (packageName, packageVersion))
+            if (ParseOptionalTwoParts(diagnostics, sourceFile, span, directiveKind, directiveText, separator: '@') is not var (packageName, packageVersion))
             {
                 return null;
             }
@@ -1146,7 +1100,7 @@ internal abstract class CSharpDirective
     {
         private Project() { }
 
-        public static Project Parse(ImmutableArray<SimpleDiagnostic>.Builder? errors, SourceFile sourceFile, TextSpan span, string directiveText)
+        public static Project Parse(DiagnosticBag diagnostics, SourceFile sourceFile, TextSpan span, string directiveText)
         {
             try
             {
@@ -1166,7 +1120,7 @@ internal abstract class CSharpDirective
             }
             catch (GracefulException e)
             {
-                ReportError(errors, sourceFile, span, string.Format(CliCommandStrings.InvalidProjectDirective, sourceFile.GetLocationString(span), e.Message), e);
+                diagnostics.AddError(sourceFile, span, location => string.Format(CliCommandStrings.InvalidProjectDirective, location, e.Message), e);
             }
 
             return new Project
@@ -1226,6 +1180,39 @@ internal sealed class SimpleDiagnostic
     }
 }
 
+internal readonly struct DiagnosticBag
+{
+    public bool IgnoreDiagnostics { get; private init; }
+
+    /// <summary>
+    /// If <see langword="null"/> and <see cref="IgnoreDiagnostics"/> is <see langword="false"/>, the first diagnostic is thrown as <see cref="GracefulException"/>.
+    /// </summary>
+    public ImmutableArray<SimpleDiagnostic>.Builder? Builder { get; private init; }
+
+    public static DiagnosticBag ThrowOnFirst() => default;
+    public static DiagnosticBag Collect(out ImmutableArray<SimpleDiagnostic>.Builder builder) => new() { Builder = builder = ImmutableArray.CreateBuilder<SimpleDiagnostic>() };
+    public static DiagnosticBag Ignore() => new() { IgnoreDiagnostics = true, Builder = null };
+
+    public void AddError(SourceFile sourceFile, TextSpan span, Func<string, string> messageFactory, Exception? inner = null)
+    {
+        if (Builder != null)
+        {
+            Debug.Assert(!IgnoreDiagnostics);
+            Builder.Add(new SimpleDiagnostic { Location = sourceFile.GetFileLinePositionSpan(span), Message = messageFactory(sourceFile.GetLocationString(span)) });
+        }
+        else if (!IgnoreDiagnostics)
+        {
+            throw new GracefulException(messageFactory(sourceFile.GetLocationString(span)), inner);
+        }
+    }
+
+    public T? AddError<T>(SourceFile sourceFile, TextSpan span, Func<string, string> messageFactory, Exception? inner = null)
+    {
+        AddError(sourceFile, span, messageFactory, inner);
+        return default;
+    }
+}
+
 internal sealed class RunFileBuildCacheEntry
 {
     private static StringComparer GlobalPropertiesComparer => StringComparer.OrdinalIgnoreCase;
@@ -1257,3 +1244,12 @@ internal sealed class RunFileBuildCacheEntry
 
 [JsonSerializable(typeof(RunFileBuildCacheEntry))]
 internal partial class RunFileJsonSerializerContext : JsonSerializerContext;
+
+[Flags]
+internal enum AppKinds
+{
+    None = 0,
+    ProjectBased = 1 << 0,
+    FileBased = 1 << 1,
+    Any = ProjectBased | FileBased,
+}

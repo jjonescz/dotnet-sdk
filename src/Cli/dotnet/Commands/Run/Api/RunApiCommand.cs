@@ -62,8 +62,7 @@ internal abstract class RunApiInput
         public override RunApiOutput Execute()
         {
             var sourceFile = VirtualProjectBuildingCommand.LoadSourceFile(EntryPointFileFullPath);
-            var errors = ImmutableArray.CreateBuilder<SimpleDiagnostic>();
-            var directives = VirtualProjectBuildingCommand.FindDirectives(sourceFile, reportAllErrors: true, errors);
+            var directives = VirtualProjectBuildingCommand.FindDirectives(sourceFile, reportAllErrors: true, DiagnosticBag.Collect(out var diagnostics));
             string artifactsPath = ArtifactsPath ?? VirtualProjectBuildingCommand.GetArtifactsPath(EntryPointFileFullPath);
 
             var csprojWriter = new StringWriter();
@@ -72,7 +71,7 @@ internal abstract class RunApiInput
             return new RunApiOutput.Project
             {
                 Content = csprojWriter.ToString(),
-                Diagnostics = errors.ToImmutableArray(),
+                Diagnostics = diagnostics.ToImmutableArray(),
             };
         }
     }
