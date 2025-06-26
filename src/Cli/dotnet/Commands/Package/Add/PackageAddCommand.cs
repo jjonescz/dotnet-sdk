@@ -179,9 +179,10 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
         if (!_parseResult.GetValue(PackageAddCommandParser.NoRestoreOption))
         {
             // Restore.
+            bool interactive = _parseResult.GetValue(PackageAddCommandParser.InteractiveOption);
             var command = new VirtualProjectBuildingCommand(
                 entryPointFileFullPath: file.Path,
-                msbuildArgs: [])
+                msbuildArgs: [$"-property:NuGetInteractive={(interactive ? "true" : "false")}"])
             {
                 NoCache = true,
                 NoBuild = true,
