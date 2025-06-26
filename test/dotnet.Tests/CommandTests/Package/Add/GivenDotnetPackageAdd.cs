@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Runtime.CompilerServices;
+using Microsoft.DotNet.Cli.Commands;
 
 namespace Microsoft.DotNet.Cli.Package.Add.Tests
 {
@@ -390,6 +391,25 @@ namespace Microsoft.DotNet.Cli.Package.Add.Tests
                 #:package Humanizer@*
                 Console.WriteLine();
                 """);
+        }
+
+        [Fact]
+        public void FileBasedApp_VersionAndPrerelease()
+        {
+            var testInstance = _testAssetsManager.CreateTestDirectory();
+            var file = Path.Join(testInstance.Path, "Program.cs");
+            var source = """
+                Console.WriteLine();
+                """;
+            File.WriteAllText(file, source);
+
+            new DotnetCommand(Log, "package", "add", "Humanizer@2.14.1", "--file", "Program.cs", "--prerelease")
+                .WithWorkingDirectory(testInstance.Path)
+                .Execute()
+                .Should().Fail()
+                .And.HaveStdErrContaining(CliCommandStrings.PrereleaseAndVersionAreNotSupportedAtTheSameTime);
+
+            File.ReadAllText(file).Should().Be(source);
         }
 
         [Fact]

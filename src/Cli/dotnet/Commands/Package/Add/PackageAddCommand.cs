@@ -157,12 +157,20 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
             }
         }
 
+        bool hasVersion = _packageId.HasVersion;
+        bool prerelease = _parseResult.GetValue(PackageAddCommandParser.PrereleaseOption);
+
+        if (hasVersion && prerelease)
+        {
+            throw new GracefulException(CliCommandStrings.PrereleaseAndVersionAreNotSupportedAtTheSameTime);
+        }
+
         // Perform the edit.
         var file = SourceFile.Load(Path.GetFullPath(fileOrDirectory));
         var editor = FileBasedAppSourceEditor.Load(file);
-        string version = _packageId.HasVersion
+        string version = hasVersion
             ? _packageId.Version.ToString()
-            : _parseResult.GetValue(PackageAddCommandParser.PrereleaseOption)
+            : prerelease
             ? "*-*"
             : "*";
         editor.Add(new CSharpDirective.Package { Span = default, Name = _packageId.Id, Version = version });
@@ -187,7 +195,7 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
             }
 
             // If no version was specified, find the actually restored version and update the directive.
-            if (!_packageId.HasVersion)
+            if (!hasVersion)
             {
                 var projectCollection = new ProjectCollection();
                 var projectInstance = command.CreateProjectInstance(projectCollection);
