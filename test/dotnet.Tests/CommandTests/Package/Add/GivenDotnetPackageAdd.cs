@@ -344,6 +344,34 @@ namespace Microsoft.DotNet.Cli.Package.Add.Tests
             }
         }
 
+        [Theory, MemberData(nameof(PackageVersionsTheoryData))]
+        public void FileBasedApp_NoVersion_Prerelease(string[] inputVersions, string? _, string expectedVersion)
+        {
+            var testInstance = _testAssetsManager.CreateTestDirectory();
+
+            var packages = inputVersions.Select(e => GetPackagePath(ToolsetInfo.CurrentTargetFramework, "A", e, identifier: expectedVersion + e + inputVersions.GetHashCode().ToString())).ToArray();
+
+            var restoreSources = string.Join(";", packages.Select(package => Path.GetDirectoryName(package)));
+
+            var file = Path.Join(testInstance.Path, "Program.cs");
+            var source = $"""
+                #:property RestoreSources=$(RestoreSources);{restoreSources}
+                Console.WriteLine();
+                """;
+            File.WriteAllText(file, source);
+
+            var cmd = new DotnetCommand(Log, "package", "add", "A", "--prerelease", "--file", "Program.cs")
+                .WithWorkingDirectory(testInstance.Path)
+                .Execute();
+
+            cmd.Should().Pass();
+
+            File.ReadAllText(file).Should().Be($"""
+                    #:package A@{expectedVersion}
+                    {source}
+                    """);
+        }
+
         [Fact]
         public void FileBasedApp_NoVersionAndNoRestore()
         {

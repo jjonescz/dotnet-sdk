@@ -160,7 +160,12 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
         // Perform the edit.
         var file = SourceFile.Load(Path.GetFullPath(fileOrDirectory));
         var editor = FileBasedAppSourceEditor.Load(file);
-        editor.Add(new CSharpDirective.Package { Span = default, Name = _packageId.Id, Version = _packageId.HasVersion ? _packageId.Version.ToString() : "*" });
+        string version = _packageId.HasVersion
+            ? _packageId.Version.ToString()
+            : _parseResult.GetValue(PackageAddCommandParser.PrereleaseOption)
+            ? "*-*"
+            : "*";
+        editor.Add(new CSharpDirective.Package { Span = default, Name = _packageId.Id, Version = version });
         editor.SourceFile.Save();
 
         if (!_parseResult.GetValue(PackageAddCommandParser.NoRestoreOption))
