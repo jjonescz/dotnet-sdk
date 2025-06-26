@@ -31,19 +31,18 @@ namespace Microsoft.DotNet.Cli.Package.Add.Tests
             cmd.StdErr.Should().BeEmpty();
         }
 
-        public static readonly List<object[]> AddPkg_PackageVersionsLatestPrereleaseSucessData
-            = new()
+        public static readonly TheoryData<string[], string?, string> PackageVersionsTheoryData = new()
             {
-                    new object[] { new string[] { "0.0.5", "0.9.0", "1.0.0-preview.3" }, "1.0.0-preview.3" },
-                    new object[] { new string[] { "0.0.5", "0.9.0", "1.0.0-preview.3", "1.1.1-preview.7" }, "1.1.1-preview.7" },
-                    new object[] { new string[] { "0.0.5", "0.9.0", "1.0.0" }, "1.0.0" },
-                    new object[] { new string[] { "0.0.5", "0.9.0", "1.0.0-preview.3", "2.0.0" }, "2.0.0" },
-                    new object[] { new string[] { "1.0.0-preview.1", "1.0.0-preview.2", "1.0.0-preview.3" }, "1.0.0-preview.3" },
+            { ["0.0.5", "0.9.0", "1.0.0-preview.3"], "0.9.0", "1.0.0-preview.3" },
+            { ["0.0.5", "0.9.0", "1.0.0-preview.3", "1.1.1-preview.7"], "0.9.0", "1.1.1-preview.7" },
+            { ["0.0.5", "0.9.0", "1.0.0"], "1.0.0", "1.0.0" },
+            { ["0.0.5", "0.9.0", "1.0.0-preview.3", "2.0.0"], "2.0.0", "2.0.0" },
+            { ["1.0.0-preview.1", "1.0.0-preview.2", "1.0.0-preview.3"], null, "1.0.0-preview.3" },
             };
 
         [Theory]
-        [MemberData(nameof(AddPkg_PackageVersionsLatestPrereleaseSucessData))]
-        public void WhenPrereleaseOptionIsPassed(string[] inputVersions, string expectedVersion)
+        [MemberData(nameof(PackageVersionsTheoryData))]
+        public void WhenPrereleaseOptionIsPassed(string[] inputVersions, string? _, string expectedVersion)
         {
             var targetFramework = ToolsetInfo.CurrentTargetFramework;
             TestProject testProject = new()
@@ -69,6 +68,44 @@ namespace Microsoft.DotNet.Cli.Package.Add.Tests
                 .Pass()
                 .And.HaveStdOutContaining($"PackageReference for package 'A' version '{expectedVersion}' ")
                 .And.NotHaveStdErr();
+        }
+
+        [Theory]
+        [MemberData(nameof(PackageVersionsTheoryData))]
+        public void WhenNoVersionIsPassed(string[] inputVersions, string? expectedVersion, string prereleaseVersion)
+        {
+            var targetFramework = ToolsetInfo.CurrentTargetFramework;
+            TestProject testProject = new()
+            {
+                Name = "Project",
+                IsExe = false,
+                TargetFrameworks = targetFramework,
+            };
+
+            var packages = inputVersions.Select(e => GetPackagePath(targetFramework, "A", e, identifier: expectedVersion + e + inputVersions.GetHashCode().ToString())).ToArray();
+
+            // disable implicit use of the Roslyn Toolset compiler package
+            testProject.AdditionalProperties["BuildWithNetFrameworkHostedCompiler"] = false.ToString();
+            testProject.AdditionalProperties.Add("RestoreSources",
+                                     "$(RestoreSources);" + string.Join(";", packages.Select(package => Path.GetDirectoryName(package))));
+
+            var testAsset = _testAssetsManager.CreateTestProject(testProject, identifier: inputVersions.GetHashCode().ToString());
+
+            var cmd = new DotnetCommand(Log)
+                .WithWorkingDirectory(Path.Combine(testAsset.TestRoot, testProject.Name))
+                .Execute("add", "package", "A");
+
+            if (expectedVersion is null)
+            {
+                cmd.Should().Fail()
+                    .And.HaveStdOutContaining($"There are no stable versions available, {prereleaseVersion} is the best available. Consider adding the --prerelease option");
+            }
+            else
+            {
+                cmd.Should().Pass()
+                    .And.HaveStdOutContaining($"PackageReference for package 'A' version '{expectedVersion}' ")
+                    .And.NotHaveStdErr();
+            }
         }
 
         [Fact]
