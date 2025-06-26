@@ -48,12 +48,20 @@ internal sealed class FileBasedAppSourceEditor
     public void Add(CSharpDirective directive)
     {
         string directiveText = directive.ToString() + NewLine;
-        int insertPosition = DetermineWhereToAdd(directive);
-        SourceFile = SourceFile.WithText(SourceFile.Text.Replace(start: insertPosition, length: 0, newText: directiveText));
+        TextSpan span = DetermineWhereToAdd(directive);
+        SourceFile = SourceFile.WithText(SourceFile.Text.Replace(span, newText: directiveText));
     }
 
-    private int DetermineWhereToAdd(CSharpDirective directive)
+    private TextSpan DetermineWhereToAdd(CSharpDirective directive)
     {
+        // Find one that has the same kind and name.
+        // If found, we will replace it with the new directive.
+        if (directive is CSharpDirective.Named named &&
+            Directives.OfType<CSharpDirective.Named>().FirstOrDefault(d => NamedDirectiveComparer.Instance.Equals(d, named)) is { } toReplace)
+        {
+            return toReplace.Span;
+        }
+
         // Find the last directive of the first group of directives of the same kind.
         // If found, we will insert the new directive after it.
         CSharpDirective? addAfer = null;
@@ -71,9 +79,9 @@ internal sealed class FileBasedAppSourceEditor
 
         if (addAfer != null)
         {
-            return addAfer.Span.End;
+            return new TextSpan(start: addAfer.Span.End, length: 0);
         }
 
-        return 0;
+        return new TextSpan(start: 0, length: 0);
     }
 }
