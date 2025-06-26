@@ -165,52 +165,142 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
             throw new GracefulException(CliCommandStrings.PrereleaseAndVersionAreNotSupportedAtTheSameTime);
         }
 
-        // Perform the edit.
-        var file = SourceFile.Load(Path.GetFullPath(fileOrDirectory));
-        var editor = FileBasedAppSourceEditor.Load(file);
+        var fullPath = Path.GetFullPath(fileOrDirectory);
+
+        // Create restore command, used also for obtaining MSBuild properties.
+        bool interactive = _parseResult.GetValue(PackageAddCommandParser.InteractiveOption);
+        var command = new VirtualProjectBuildingCommand(
+            entryPointFileFullPath: fullPath,
+            msbuildArgs: [$"-property:NuGetInteractive={(interactive ? "true" : "false")}"])
+        {
+            NoCache = true,
+            NoBuild = true,
+        };
+        var projectCollection = new ProjectCollection();
+        var projectInstance = command.CreateProjectInstance(projectCollection);
+
+        // Set initial version either to the C# file or Directory.Packages.props.
         string version = hasVersion
             ? _packageId.Version.ToString()
             : prerelease
             ? "*-*"
             : "*";
-        editor.Add(new CSharpDirective.Package { Span = default, Name = _packageId.Id, Version = version });
-        editor.SourceFile.Save();
+        var (update, revert) = SetCpmVersion() ?? SetNonCpmVersion();
 
         if (!_parseResult.GetValue(PackageAddCommandParser.NoRestoreOption))
         {
             // Restore.
-            bool interactive = _parseResult.GetValue(PackageAddCommandParser.InteractiveOption);
-            var command = new VirtualProjectBuildingCommand(
-                entryPointFileFullPath: file.Path,
-                msbuildArgs: [$"-property:NuGetInteractive={(interactive ? "true" : "false")}"])
-            {
-                NoCache = true,
-                NoBuild = true,
-            };
             int exitCode = command.Execute();
             if (exitCode != 0)
             {
-                // Revert the edit.
-                file.Save();
+                // Revert any edits.
+                revert();
                 return exitCode;
             }
 
-            // If no version was specified, find the actually restored version and update the directive.
+            // If no version was specified by the user, save the actually restored version.
+            var projectAssetsFile = projectInstance.GetProperty("ProjectAssetsFile").EvaluatedValue;
+            var lockFile = new LockFileFormat().Read(projectAssetsFile);
             if (!hasVersion)
             {
-                var projectCollection = new ProjectCollection();
-                var projectInstance = command.CreateProjectInstance(projectCollection);
-                var projectAssetsFile = projectInstance.GetProperty("ProjectAssetsFile").EvaluatedValue;
-                var lockFile = new LockFileFormat().Read(projectAssetsFile);
                 var library = lockFile.Libraries.FirstOrDefault(l => string.Equals(l.Name, _packageId.Id, StringComparison.OrdinalIgnoreCase));
                 if (library != null)
                 {
-                    editor.Add(new CSharpDirective.Package { Span = default, Name = _packageId.Id, Version = library.Version.ToString() });
-                    editor.SourceFile.Save();
+                    update(library.Version.ToString());
                 }
             }
         }
 
         return 0;
+
+        (Action<string> Update, Action Revert) SetNonCpmVersion()
+        {
+            // Add #:package directive to the C# file.
+            var file = SourceFile.Load(fullPath);
+            var editor = FileBasedAppSourceEditor.Load(file);
+            editor.Add(new CSharpDirective.Package { Span = default, Name = _packageId.Id, Version = version });
+            editor.SourceFile.Save();
+            return (Update, Revert);
+
+            void Update(string value)
+            {
+                // Update the C# file with the given version.
+                editor.Add(new CSharpDirective.Package { Span = default, Name = _packageId.Id, Version = value });
+                editor.SourceFile.Save();
+            }
+
+            void Revert()
+            {
+                // Revert changes made to the C# file.
+                file.Save();
+            }
+        }
+
+        (Action<string> Update, Action Revert)? SetCpmVersion()
+        {
+            // Find out whether CPM is enabled.
+            if (!string.Equals(projectInstance.GetProperty("ManagePackageVersionsCentrally").EvaluatedValue, bool.TrueString, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            // Load the Directory.Packages.props project.
+            var directoryPackagesPropsPath = projectInstance.GetProperty("DirectoryPackagesPropsPath").EvaluatedValue;
+            var directoryPackagesPropsProject = projectCollection.LoadProject(directoryPackagesPropsPath);
+
+            // Add the package to Directory.Packages.props instead.
+            var snapshot = directoryPackagesPropsProject.Xml.DeepClone();
+            const string packageVersionItemType = "PackageVersion";
+            const string versionAttributeName = "Version";
+
+            // Update existing PackageVersion if it exists.
+            var packageVersion = directoryPackagesPropsProject.Items.LastOrDefault(i =>
+                string.Equals(i.ItemType, packageVersionItemType, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(i.EvaluatedInclude, _packageId.Id, StringComparison.OrdinalIgnoreCase));
+            if (packageVersion != null)
+            {
+                var packageVersionItemElement = packageVersion.Project.GetItemProvenance(packageVersion).LastOrDefault()?.ItemElement;
+                var versionAttribute = packageVersionItemElement?.Metadata.FirstOrDefault(i => i.Name.Equals(versionAttributeName, StringComparison.OrdinalIgnoreCase));
+                if (versionAttribute != null)
+                {
+                    versionAttribute.Value = version;
+                    directoryPackagesPropsProject.Save();
+
+                    return (Update, Revert);
+
+                    void Update(string value)
+                    {
+                        versionAttribute.Value = value;
+                        directoryPackagesPropsProject.Save();
+                    }
+                }
+            }
+
+            {
+                // Get the ItemGroup to add a PackageVersion to or create a new one.
+                var itemGroup = directoryPackagesPropsProject.Xml.ItemGroups
+                        .Where(e => e.Items.Any(i => string.Equals(i.ItemType, packageVersionItemType, StringComparison.OrdinalIgnoreCase)))
+                        .FirstOrDefault()
+                    ?? directoryPackagesPropsProject.Xml.AddItemGroup();
+
+                // Add a PackageVersion item.
+                var item = itemGroup.AddItem(packageVersionItemType, _packageId.Id);
+                var metadata = item.AddMetadata(versionAttributeName, version, expressAsAttribute: true);
+                directoryPackagesPropsProject.Save();
+
+                return (Update, Revert);
+
+                void Update(string value)
+                {
+                    metadata.Value = value;
+                    directoryPackagesPropsProject.Save();
+                }
+            }
+
+            void Revert()
+            {
+                snapshot.Save();
+            }
+        }
     }
 }

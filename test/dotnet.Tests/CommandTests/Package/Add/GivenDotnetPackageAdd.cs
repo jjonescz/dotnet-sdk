@@ -450,6 +450,43 @@ namespace Microsoft.DotNet.Cli.Package.Add.Tests
                 """);
         }
 
+        [Fact]
+        public void FileBasedApp_CentralPackageManagement()
+        {
+            var testInstance = _testAssetsManager.CreateTestDirectory();
+            var file = Path.Join(testInstance.Path, "Program.cs");
+            var source = """
+                Console.WriteLine();
+                """;
+            File.WriteAllText(file, source);
+
+            var directoryPackagesProps = Path.Join(testInstance.Path, "Directory.Packages.props");
+            File.WriteAllText(directoryPackagesProps, """
+                <Project>
+                  <PropertyGroup>
+                    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+                  </PropertyGroup>
+                </Project>
+                """);
+
+            new DotnetCommand(Log, "package", "add", "Humanizer@2.14.1", "--file", "Program.cs")
+                .WithWorkingDirectory(testInstance.Path)
+                .Execute()
+                .Should().Pass();
+
+            File.ReadAllText(file).Should().Be(source);
+
+            File.ReadAllText(directoryPackagesProps).Should().Be("""
+                <Project>
+                  <PropertyGroup>
+                    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <PackageVersion Include="Humanizer" Version="2.14.1" />
+                  </ItemGroup>
+                </Project>
+                """);
+        }
 
         private static TestProject GetProject(string targetFramework, string referenceProjectName, string version)
         {
