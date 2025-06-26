@@ -9,24 +9,44 @@ namespace Microsoft.DotNet.Cli.Commands.Run;
 /// <summary>
 /// A helper to perform edits of file-based app C# source files (e.g., updating the directives).
 /// </summary>
-/// <remarks>
-/// Currently, each editor instance can be used to make at most one edit.
-/// </remarks>
 internal sealed class FileBasedAppSourceEditor
 {
-    public required SourceFile SourceFile { get; set; }
-    public required ImmutableArray<CSharpDirective> Directives { get; init; }
+    private bool _modified;
+
+    public SourceFile SourceFile
+    {
+        get;
+        private set
+        {
+            field = value;
+            _modified = true;
+        }
+    }
+
+    public ImmutableArray<CSharpDirective> Directives
+    {
+        get
+        {
+            ReloadIfNecessary();
+            return field;
+        }
+        private set
+        {
+            field = value;
+            _modified = false;
+        }
+    }
+
     public required string NewLine { get; init; }
 
     private FileBasedAppSourceEditor() { }
 
     public static FileBasedAppSourceEditor Load(SourceFile sourceFile)
     {
-        var directives = VirtualProjectBuildingCommand.FindDirectives(sourceFile, reportAllErrors: false, DiagnosticBag.Ignore());
         return new FileBasedAppSourceEditor
         {
             SourceFile = sourceFile,
-            Directives = directives,
+            Directives = LoadDirectives(sourceFile),
             NewLine = GetNewLine(sourceFile.Text),
         };
 
@@ -42,6 +62,19 @@ internal sealed class FileBasedAppSourceEditor
                 [.., '\n'] => "\n",
                 _ => Environment.NewLine,
             };
+        }
+    }
+
+    private static ImmutableArray<CSharpDirective> LoadDirectives(SourceFile sourceFile)
+    {
+        return VirtualProjectBuildingCommand.FindDirectives(sourceFile, reportAllErrors: false, DiagnosticBag.Ignore());
+    }
+
+    private void ReloadIfNecessary()
+    {
+        if (_modified)
+        {
+            Directives = LoadDirectives(SourceFile);
         }
     }
 
