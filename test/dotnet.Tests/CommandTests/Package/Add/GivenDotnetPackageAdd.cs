@@ -270,6 +270,44 @@ namespace Microsoft.DotNet.Cli.Package.Add.Tests
                 """);
         }
 
+        [Fact]
+        public void FileBasedApp_InvalidPackage()
+        {
+            var testInstance = _testAssetsManager.CreateTestDirectory();
+            var file = Path.Join(testInstance.Path, "Program.cs");
+            var source = """
+                Console.WriteLine();
+                """;
+            File.WriteAllText(file, source);
+
+            new DotnetCommand(Log, "package", "add", "Microsoft.ThisPackageDoesNotExist", "--file", "Program.cs")
+                .WithWorkingDirectory(testInstance.Path)
+                .Execute()
+                .Should().Fail();
+
+            File.ReadAllText(file).Should().Be(source);
+        }
+
+        [Fact]
+        public void FileBasedApp_InvalidPackage_NoRestore()
+        {
+            var testInstance = _testAssetsManager.CreateTestDirectory();
+            var file = Path.Join(testInstance.Path, "Program.cs");
+            File.WriteAllText(file, """
+                Console.WriteLine();
+                """);
+
+            new DotnetCommand(Log, "package", "add", "Microsoft.ThisPackageDoesNotExist", "--file", "Program.cs", "--no-restore")
+                .WithWorkingDirectory(testInstance.Path)
+                .Execute()
+                .Should().Pass();
+
+            File.ReadAllText(file).Should().Be("""
+                #:package Microsoft.ThisPackageDoesNotExist
+                Console.WriteLine();
+                """);
+        }
+
 
         private static TestProject GetProject(string targetFramework, string referenceProjectName, string version)
         {
