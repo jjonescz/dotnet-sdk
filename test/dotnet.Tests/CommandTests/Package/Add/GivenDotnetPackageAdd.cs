@@ -271,6 +271,26 @@ namespace Microsoft.DotNet.Cli.Package.Add.Tests
         }
 
         [Fact]
+        public void FileBasedApp_NoVersionAndNoRestore()
+        {
+            var testInstance = _testAssetsManager.CreateTestDirectory();
+            var file = Path.Join(testInstance.Path, "Program.cs");
+            File.WriteAllText(file, """
+                Console.WriteLine();
+                """);
+
+            new DotnetCommand(Log, "package", "add", "Humanizer", "--file", "Program.cs", "--no-restore")
+                .WithWorkingDirectory(testInstance.Path)
+                .Execute()
+                .Should().Pass();
+
+            File.ReadAllText(file).Should().Be("""
+                #:package Humanizer@*
+                Console.WriteLine();
+                """);
+        }
+
+        [Fact]
         public void FileBasedApp_InvalidPackage()
         {
             var testInstance = _testAssetsManager.CreateTestDirectory();
