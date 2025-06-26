@@ -32,13 +32,13 @@ namespace Microsoft.DotNet.Cli.Package.Add.Tests
         }
 
         public static readonly TheoryData<string[], string?, string> PackageVersionsTheoryData = new()
-            {
+        {
             { ["0.0.5", "0.9.0", "1.0.0-preview.3"], "0.9.0", "1.0.0-preview.3" },
             { ["0.0.5", "0.9.0", "1.0.0-preview.3", "1.1.1-preview.7"], "0.9.0", "1.1.1-preview.7" },
             { ["0.0.5", "0.9.0", "1.0.0"], "1.0.0", "1.0.0" },
             { ["0.0.5", "0.9.0", "1.0.0-preview.3", "2.0.0"], "2.0.0", "2.0.0" },
             { ["1.0.0-preview.1", "1.0.0-preview.2", "1.0.0-preview.3"], null, "1.0.0-preview.3" },
-            };
+        };
 
         [Theory]
         [MemberData(nameof(PackageVersionsTheoryData))]
@@ -305,6 +305,43 @@ namespace Microsoft.DotNet.Cli.Package.Add.Tests
                 #:package Humanizer@2.14.1
                 Console.WriteLine();
                 """);
+        }
+
+        [Theory, MemberData(nameof(PackageVersionsTheoryData))]
+        public void FileBasedApp_NoVersion(string[] inputVersions, string? expectedVersion, string _)
+        {
+            var testInstance = _testAssetsManager.CreateTestDirectory();
+
+            var packages = inputVersions.Select(e => GetPackagePath(ToolsetInfo.CurrentTargetFramework, "A", e, identifier: expectedVersion + e + inputVersions.GetHashCode().ToString())).ToArray();
+
+            var restoreSources = string.Join(";", packages.Select(package => Path.GetDirectoryName(package)));
+
+            var file = Path.Join(testInstance.Path, "Program.cs");
+            var source = $"""
+                #:property RestoreSources=$(RestoreSources);{restoreSources}
+                Console.WriteLine();
+                """;
+            File.WriteAllText(file, source);
+
+            var cmd = new DotnetCommand(Log, "package", "add", "A", "--file", "Program.cs")
+                .WithWorkingDirectory(testInstance.Path)
+                .Execute();
+
+            if (expectedVersion is null)
+            {
+                cmd.Should().Fail();
+
+                File.ReadAllText(file).Should().Be(source);
+            }
+            else
+            {
+                cmd.Should().Pass();
+
+                File.ReadAllText(file).Should().Be($"""
+                    #:package A@{expectedVersion}
+                    {source}
+                    """);
+            }
         }
 
         [Fact]

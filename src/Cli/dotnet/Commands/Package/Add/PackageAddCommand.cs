@@ -2,12 +2,14 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.CommandLine;
+using Microsoft.Build.Evaluation;
 using Microsoft.DotNet.Cli.Commands.MSBuild;
 using Microsoft.DotNet.Cli.Commands.NuGet;
 using Microsoft.DotNet.Cli.Commands.Run;
 using Microsoft.DotNet.Cli.Extensions;
 using Microsoft.DotNet.Cli.Utils;
 using NuGet.Packaging.Core;
+using NuGet.ProjectModel;
 
 namespace Microsoft.DotNet.Cli.Commands.Package.Add;
 
@@ -114,7 +116,7 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
             "--project",
             projectFilePath
         ];
-        
+
         if (packageId.HasVersion)
         {
             args.Add("--version");
@@ -177,6 +179,21 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
                 // Revert the edit.
                 file.Save();
                 return exitCode;
+            }
+
+            // If no version was specified, find the actually restored version and update the directive.
+            if (!_packageId.HasVersion)
+            {
+                var projectCollection = new ProjectCollection();
+                var projectInstance = command.CreateProjectInstance(projectCollection);
+                var projectAssetsFile = projectInstance.GetProperty("ProjectAssetsFile").EvaluatedValue;
+                var lockFile = new LockFileFormat().Read(projectAssetsFile);
+                var library = lockFile.Libraries.FirstOrDefault(l => string.Equals(l.Name, _packageId.Id, StringComparison.OrdinalIgnoreCase));
+                if (library != null)
+                {
+                    editor.Add(new CSharpDirective.Package { Span = default, Name = _packageId.Id, Version = library.Version.ToString() });
+                    editor.SourceFile.Save();
+                }
             }
         }
 
