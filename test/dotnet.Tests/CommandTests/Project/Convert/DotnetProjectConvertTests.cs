@@ -275,6 +275,8 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
         File.WriteAllText(Path.Join(testInstance.Path, "my.json"), "");
         File.WriteAllText(Path.Join(testInstance.Path, "Resources.resx"), "");
         File.WriteAllText(Path.Join(testInstance.Path, "Util.cs"), "");
+        Directory.CreateDirectory(Path.Join(testInstance.Path, "subdir"));
+        File.WriteAllText(Path.Join(testInstance.Path, "subdir", "second.json"), "");
 
         new DotnetCommand(Log, "project", "convert", "Program.cs")
             .WithWorkingDirectory(testInstance.Path)
@@ -283,11 +285,15 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
 
         new DirectoryInfo(testInstance.Path)
             .EnumerateFileSystemInfos().Select(f => f.Name).Order()
-            .Should().BeEquivalentTo(["Program", "Resources.resx", "Util.cs", "my.json"]);
+            .Should().BeEquivalentTo(["Program", "Resources.resx", "Util.cs", "my.json", "subdir"]);
 
         new DirectoryInfo(Path.Join(testInstance.Path, "Program"))
             .EnumerateFileSystemInfos().Select(f => f.Name).Order()
-            .Should().BeEquivalentTo(["Program.csproj", "Program.cs", "my.json"]);
+            .Should().BeEquivalentTo(["Program.csproj", "Program.cs", "my.json", "subdir"]);
+
+        new DirectoryInfo(Path.Join(testInstance.Path, "Program", "subdir"))
+            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
+            .Should().BeEquivalentTo(["second.json"]);
     }
 
     [Fact]
