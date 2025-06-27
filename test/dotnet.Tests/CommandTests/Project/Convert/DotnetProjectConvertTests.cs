@@ -263,20 +263,18 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     }
 
     /// <summary>
-    /// Default items are copied over, e.g., <c>.json</c> in web apps.
+    /// Default items like <c>None</c> or <c>Content</c> are copied over.
     /// </summary>
     [Fact]
-    public void DefaultItems_JsonInWeb()
+    public void DefaultItems()
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
         File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), """
-            #:sdk Microsoft.NET.Sdk.Web
             Console.WriteLine();
             """);
-        var json = """
-            {"MyKey":"TestValue"}
-            """;
-        File.WriteAllText(Path.Join(testInstance.Path, "my.json"), json);
+        File.WriteAllText(Path.Join(testInstance.Path, "my.json"), "");
+        File.WriteAllText(Path.Join(testInstance.Path, "Resources.resx"), "");
+        File.WriteAllText(Path.Join(testInstance.Path, "Util.cs"), "");
 
         new DotnetCommand(Log, "project", "convert", "Program.cs")
             .WithWorkingDirectory(testInstance.Path)
@@ -285,31 +283,25 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
 
         new DirectoryInfo(testInstance.Path)
             .EnumerateFileSystemInfos().Select(f => f.Name).Order()
-            .Should().BeEquivalentTo(["Program", "my.json"]);
-
-        File.ReadAllText(Path.Join(testInstance.Path, "my.json")).Should().Be(json);
+            .Should().BeEquivalentTo(["Program", "Resources.resx", "Util.cs", "my.json"]);
 
         new DirectoryInfo(Path.Join(testInstance.Path, "Program"))
             .EnumerateFileSystemInfos().Select(f => f.Name).Order()
             .Should().BeEquivalentTo(["Program.csproj", "Program.cs", "my.json"]);
-
-        File.ReadAllText(Path.Join(testInstance.Path, "Program", "my.json")).Should().Be(json);
     }
 
-    /// <summary>
-    /// If the file is not included in the build (e.g., <c>.json</c> files are only included by the Web SDK),
-    /// it should not be copied over during the converion.
-    /// </summary>
     [Fact]
-    public void DefaultItems_JsonInConsole()
+    public void DefaultItems_MoreIncluded()
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
         File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), """
+            #:property EnableDefaultCompileItems=true
+            #:property EnableDefaultEmbeddedResourceItems=true
             Console.WriteLine();
             """);
-        File.WriteAllText(Path.Join(testInstance.Path, "my.json"), """
-            {"MyKey":"TestValue"}
-            """);
+        File.WriteAllText(Path.Join(testInstance.Path, "my.json"), "");
+        File.WriteAllText(Path.Join(testInstance.Path, "Resources.resx"), "");
+        File.WriteAllText(Path.Join(testInstance.Path, "Util.cs"), "");
 
         new DotnetCommand(Log, "project", "convert", "Program.cs")
             .WithWorkingDirectory(testInstance.Path)
@@ -318,7 +310,33 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
 
         new DirectoryInfo(testInstance.Path)
             .EnumerateFileSystemInfos().Select(f => f.Name).Order()
-            .Should().BeEquivalentTo(["Program", "my.json"]);
+            .Should().BeEquivalentTo(["Program", "Resources.resx", "Util.cs", "my.json"]);
+
+        new DirectoryInfo(Path.Join(testInstance.Path, "Program"))
+            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
+            .Should().BeEquivalentTo(["Program.csproj", "Program.cs", "Resources.resx", "Util.cs", "my.json"]);
+    }
+
+    [Fact]
+    public void DefaultItems_MoreExcluded()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), """
+            #:property EnableDefaultItems=false
+            Console.WriteLine();
+            """);
+        File.WriteAllText(Path.Join(testInstance.Path, "my.json"), "");
+        File.WriteAllText(Path.Join(testInstance.Path, "Resources.resx"), "");
+        File.WriteAllText(Path.Join(testInstance.Path, "Util.cs"), "");
+
+        new DotnetCommand(Log, "project", "convert", "Program.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass();
+
+        new DirectoryInfo(testInstance.Path)
+            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
+            .Should().BeEquivalentTo(["Program", "Resources.resx", "Util.cs", "my.json"]);
 
         new DirectoryInfo(Path.Join(testInstance.Path, "Program"))
             .EnumerateFileSystemInfos().Select(f => f.Name).Order()

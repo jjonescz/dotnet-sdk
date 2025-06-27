@@ -85,15 +85,24 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
                 .PrepareProjectInstance().CreateProjectInstance(projectCollection);
             foreach (var item in projectInstance.Items)
             {
-                // Exclude items that don't have `CopyToOutputDirectory` set or have it set to `Never`.
-                if (item.GetMetadata("CopyToOutputDirectory") is not { } copyToOutputDirectory ||
-                    string.Equals(copyToOutputDirectory.EvaluatedValue, "Never", StringComparison.OrdinalIgnoreCase))
+                // Include only items we know are files.
+                if (!string.Equals(item.ItemType, "Content", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(item.ItemType, "None", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(item.ItemType, "Compile", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(item.ItemType, "EmbeddedResource", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                // Escape hatch - exclude items that have metadata `ExcludeFromFileBasedAppConversion` set to `true`.
+                string include = item.GetMetadataValue("ExcludeFromFileBasedAppConversion");
+                if (string.Equals(include, bool.TrueString, StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
 
                 // Exclude items that are not contained within the entry point file directory.
-                string itemFullPath = Path.GetFullPath(path: item.EvaluatedInclude, basePath: entryPointFileDirectory);
+                string itemFullPath = Path.GetFullPath(path: item.GetMetadataValue("FullPath"), basePath: entryPointFileDirectory);
                 if (!itemFullPath.StartsWith(entryPointFileDirectory, StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
