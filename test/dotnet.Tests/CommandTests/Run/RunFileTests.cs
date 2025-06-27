@@ -1127,6 +1127,37 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     }
 
     [Fact]
+    public void Publish_WithJson()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        var programFile = Path.Join(testInstance.Path, "Program.cs");
+        File.WriteAllText(programFile, """
+            #:sdk Microsoft.NET.Sdk.Web
+            Console.WriteLine(File.ReadAllText("config.json"));
+            """);
+
+        File.WriteAllText(Path.Join(testInstance.Path, "config.json"), """
+            { "MyKey": "MyValue" }
+            """);
+
+        var artifactsDir = VirtualProjectBuildingCommand.GetArtifactsPath(programFile);
+        if (Directory.Exists(artifactsDir)) Directory.Delete(artifactsDir, recursive: true);
+
+        var publishDir = Path.Join(testInstance.Path, "artifacts");
+        if (Directory.Exists(publishDir)) Directory.Delete(publishDir, recursive: true);
+
+        new DotnetCommand(Log, "publish", "Program.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass();
+
+        new DirectoryInfo(publishDir).Sub("Program")
+            .Should().Exist()
+            .And.NotHaveFilesMatching("*.deps.json", SearchOption.TopDirectoryOnly) // no deps.json file for AOT-published app
+            .And.HaveFile("config.json"); // the JSON is included as content and hence copied
+    }
+
+    [Fact]
     public void Publish_Options()
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
