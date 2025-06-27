@@ -593,7 +593,8 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
             writer.WriteLine("""
 
                   <PropertyGroup>
-                    <EnableDefaultItems>false</EnableDefaultItems>
+                    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+                    <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
                   </PropertyGroup>
                 """);
         }

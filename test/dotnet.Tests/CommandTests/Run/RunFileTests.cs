@@ -903,13 +903,13 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     }
 
     /// <summary>
-    /// Default projects do not include anything apart from the entry-point file.
+    /// Default projects do not include embedded resources by default.
     /// </summary>
     [Fact]
     public void EmbeddedResource()
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
-        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), """
+        string code = """
             using var stream = System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream("Program.Resources.resources");
 
             if (stream is null)
@@ -920,7 +920,8 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
 
             using var reader = new System.Resources.ResourceReader(stream);
             Console.WriteLine(reader.Cast<System.Collections.DictionaryEntry>().Single());
-            """);
+            """;
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), code);
         File.WriteAllText(Path.Join(testInstance.Path, "Resources.resx"), """
             <root>
               <data name="MyString">
@@ -935,6 +936,20 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .Should().Pass()
             .And.HaveStdOut("""
                 Resource not found
+                """);
+
+        // This behavior can be overridden.
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), $"""
+            #:property EnableDefaultEmbeddedResourceItems=true
+            {code}
+            """);
+
+        new DotnetCommand(Log, "run", "Program.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut("""
+                [MyString, TestValue]
                 """);
     }
 
@@ -1617,7 +1632,8 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
                       </PropertyGroup>
 
                       <PropertyGroup>
-                        <EnableDefaultItems>false</EnableDefaultItems>
+                        <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+                        <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
                       </PropertyGroup>
 
                       <PropertyGroup>
@@ -1690,7 +1706,8 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
                       </PropertyGroup>
 
                       <PropertyGroup>
-                        <EnableDefaultItems>false</EnableDefaultItems>
+                        <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+                        <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
                       </PropertyGroup>
 
                       <PropertyGroup>
@@ -1757,7 +1774,8 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
                       </PropertyGroup>
 
                       <PropertyGroup>
-                        <EnableDefaultItems>false</EnableDefaultItems>
+                        <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+                        <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
                       </PropertyGroup>
 
                       <PropertyGroup>
