@@ -445,7 +445,7 @@ namespace Microsoft.DotNet.Cli.Package.Add.Tests
                 .Should().Pass();
 
             File.ReadAllText(file).Should().Be("""
-                #:package Microsoft.ThisPackageDoesNotExist
+                #:package Microsoft.ThisPackageDoesNotExist@*
                 Console.WriteLine();
                 """);
         }
