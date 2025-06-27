@@ -108,8 +108,6 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
           </Target>
         """;
 
-    private ImmutableArray<CSharpDirective> _directives;
-
     public VirtualProjectBuildingCommand(
         string entryPointFileFullPath,
         string[] msbuildArgs)
@@ -130,6 +128,23 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
     public bool NoCache { get; init; }
     public bool NoBuild { get; init; }
     public string BuildTarget { get; init; } = "Build";
+
+    public ImmutableArray<CSharpDirective> Directives
+    {
+        get
+        {
+            if (field.IsDefault)
+            {
+                var sourceFile = SourceFile.Load(EntryPointFileFullPath);
+                field = FindDirectives(sourceFile, reportAllErrors: false, DiagnosticBag.ThrowOnFirst());
+                Debug.Assert(!field.IsDefault);
+            }
+
+            return field;
+        }
+
+        set;
+    }
 
     public override int Execute()
     {
@@ -447,17 +462,11 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
 
         ProjectRootElement CreateProjectRootElement(ProjectCollection projectCollection)
         {
-            if (_directives.IsDefault)
-            {
-                var sourceFile = SourceFile.Load(EntryPointFileFullPath);
-                _directives = FindDirectives(sourceFile, reportAllErrors: false, DiagnosticBag.ThrowOnFirst());
-            }
-
             var projectFileFullPath = Path.ChangeExtension(EntryPointFileFullPath, ".csproj");
             var projectFileWriter = new StringWriter();
             WriteProjectFile(
                 projectFileWriter,
-                _directives,
+                Directives,
                 isVirtualProject: true,
                 targetFilePath: EntryPointFileFullPath,
                 artifactsPath: GetArtifactsPath(),
