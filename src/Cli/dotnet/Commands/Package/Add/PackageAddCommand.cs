@@ -224,6 +224,7 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
             var editor = FileBasedAppSourceEditor.Load(file);
             editor.Add(new CSharpDirective.Package { Span = default, Name = _packageId.Id, Version = version });
             editor.SourceFile.Save();
+            command.Directives = editor.Directives;
             return (Update, Revert);
 
             void Update(string value)
