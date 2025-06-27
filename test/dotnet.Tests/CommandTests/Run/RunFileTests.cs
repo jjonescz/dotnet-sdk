@@ -576,6 +576,20 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .Execute()
             .Should().Fail()
             .And.HaveStdOutContaining("error CS0103"); // The name 'Util' does not exist in the current context
+
+        // This can be overridden.
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), $"""
+            #:property EnableDefaultCompileItems=true
+            {s_programDependingOnUtil}
+            """);
+
+        new DotnetCommand(Log, "run", "Program.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            // warning CS2002: Source file 'Program.cs' specified multiple times
+            .And.HaveStdOutContaining("warning CS2002")
+            .And.HaveStdOutContaining("Hello, String from Util");
     }
 
     /// <summary>
