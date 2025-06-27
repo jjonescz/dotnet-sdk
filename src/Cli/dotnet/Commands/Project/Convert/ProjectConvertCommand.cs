@@ -83,17 +83,13 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
                 entryPointFileFullPath: entryPointFileFullPath,
                 msbuildArgs: [])
                 .PrepareProjectInstance().CreateProjectInstance(projectCollection);
-            foreach (var item in projectInstance.Items)
-            {
-                // Include only items we know are files.
-                if (!string.Equals(item.ItemType, "Content", StringComparison.OrdinalIgnoreCase) &&
-                    !string.Equals(item.ItemType, "None", StringComparison.OrdinalIgnoreCase) &&
-                    !string.Equals(item.ItemType, "Compile", StringComparison.OrdinalIgnoreCase) &&
-                    !string.Equals(item.ItemType, "EmbeddedResource", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
 
+            // Include only items we know are files.
+            string[] itemTypes = ["Content", "None", "Compile", "EmbeddedResource"];
+            var items = itemTypes.SelectMany(t => projectInstance.GetItems(t));
+
+            foreach (var item in items)
+            {
                 // Escape hatch - exclude items that have metadata `ExcludeFromFileBasedAppConversion` set to `true`.
                 string include = item.GetMetadataValue("ExcludeFromFileBasedAppConversion");
                 if (string.Equals(include, bool.TrueString, StringComparison.OrdinalIgnoreCase))
