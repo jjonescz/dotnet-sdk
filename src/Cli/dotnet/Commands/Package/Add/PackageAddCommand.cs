@@ -189,7 +189,7 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
             : prerelease
             ? "*-*"
             : "*";
-        var (update, revert) = SetCpmVersion() ?? SetNonCpmVersion();
+        var (save, update, revert) = SetCpmVersion() ?? SetNonCpmVersion();
 
         if (!_parseResult.GetValue(PackageAddCommandParser.NoRestoreOption))
         {
@@ -203,29 +203,42 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
             }
 
             // If no version was specified by the user, save the actually restored version.
-            var projectAssetsFile = projectInstance.GetProperty("ProjectAssetsFile").EvaluatedValue;
-            var lockFile = new LockFileFormat().Read(projectAssetsFile);
             if (!hasVersion)
             {
-                var library = lockFile.Libraries.FirstOrDefault(l => string.Equals(l.Name, _packageId.Id, StringComparison.OrdinalIgnoreCase));
-                if (library != null)
+                var projectAssetsFile = projectInstance.GetProperty("ProjectAssetsFile")?.EvaluatedValue;
+                if (!File.Exists(projectAssetsFile))
                 {
-                    update(library.Version.ToString());
+                    Reporter.Verbose.WriteLine($"Assets file does not exist: {projectAssetsFile}");
+                }
+                else
+                {
+                    var lockFile = new LockFileFormat().Read(projectAssetsFile);
+                    var library = lockFile.Libraries.FirstOrDefault(l => string.Equals(l.Name, _packageId.Id, StringComparison.OrdinalIgnoreCase));
+                    if (library != null)
+                    {
+                        update(library.Version.ToString());
+                        return 0;
+                    }
                 }
             }
         }
 
+        save();
         return 0;
 
-        (Action<string> Update, Action Revert) SetNonCpmVersion()
+        (Action Save, Action<string> Update, Action Revert) SetNonCpmVersion()
         {
             // Add #:package directive to the C# file.
             var file = SourceFile.Load(fullPath);
             var editor = FileBasedAppSourceEditor.Load(file);
             editor.Add(new CSharpDirective.Package { Span = default, Name = _packageId.Id, Version = version });
-            editor.SourceFile.Save();
             command.Directives = editor.Directives;
-            return (Update, Revert);
+            return (Save, Update, Revert);
+
+            void Save()
+            {
+                editor.SourceFile.Save();
+            }
 
             void Update(string value)
             {
@@ -236,21 +249,26 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
 
             void Revert()
             {
-                // Revert changes made to the C# file.
-                file.Save();
+                // No op.
             }
         }
 
-        (Action<string> Update, Action Revert)? SetCpmVersion()
+        (Action Save, Action<string> Update, Action Revert)? SetCpmVersion()
         {
             // Find out whether CPM is enabled.
-            if (!string.Equals(projectInstance.GetProperty("ManagePackageVersionsCentrally").EvaluatedValue, bool.TrueString, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(projectInstance.GetProperty("ManagePackageVersionsCentrally")?.EvaluatedValue, bool.TrueString, StringComparison.OrdinalIgnoreCase))
             {
                 return null;
             }
 
             // Load the Directory.Packages.props project.
-            var directoryPackagesPropsPath = projectInstance.GetProperty("DirectoryPackagesPropsPath").EvaluatedValue;
+            var directoryPackagesPropsPath = projectInstance.GetProperty("DirectoryPackagesPropsPath")?.EvaluatedValue;
+            if (!File.Exists(directoryPackagesPropsPath))
+            {
+                Reporter.Verbose.WriteLine($"Directory.Packages.props file does not exist: {directoryPackagesPropsPath}");
+                return null;
+            }
+
             var directoryPackagesPropsProject = projectCollection.LoadProject(directoryPackagesPropsPath);
 
             // Add the package to Directory.Packages.props instead.
@@ -269,9 +287,8 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
                 if (versionAttribute != null)
                 {
                     versionAttribute.Value = version;
-                    directoryPackagesPropsProject.Save();
 
-                    return (Update, Revert);
+                    return (Save, Update, Revert);
 
                     void Update(string value)
                     {
@@ -291,15 +308,19 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
                 // Add a PackageVersion item.
                 var item = itemGroup.AddItem(packageVersionItemType, _packageId.Id);
                 var metadata = item.AddMetadata(versionAttributeName, version, expressAsAttribute: true);
-                directoryPackagesPropsProject.Save();
 
-                return (Update, Revert);
+                return (Save, Update, Revert);
 
                 void Update(string value)
                 {
                     metadata.Value = value;
                     directoryPackagesPropsProject.Save();
                 }
+            }
+
+            void Save()
+            {
+                directoryPackagesPropsProject.Save();
             }
 
             void Revert()
