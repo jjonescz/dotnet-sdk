@@ -277,9 +277,8 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
             const string versionAttributeName = "Version";
 
             // Update existing PackageVersion if it exists.
-            var packageVersion = directoryPackagesPropsProject.Items.LastOrDefault(i =>
-                string.Equals(i.ItemType, packageVersionItemType, StringComparison.OrdinalIgnoreCase) &&
-                string.Equals(i.EvaluatedInclude, _packageId.Id, StringComparison.OrdinalIgnoreCase));
+            var packageVersion = directoryPackagesPropsProject.GetItems(packageVersionItemType)
+                .LastOrDefault(i => string.Equals(i.EvaluatedInclude, _packageId.Id, StringComparison.OrdinalIgnoreCase));
             if (packageVersion != null)
             {
                 var packageVersionItemElement = packageVersion.Project.GetItemProvenance(packageVersion).LastOrDefault()?.ItemElement;
