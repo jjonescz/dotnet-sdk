@@ -474,7 +474,10 @@ namespace Microsoft.DotNet.Cli.Package.Add.Tests
                 .Execute()
                 .Should().Pass();
 
-            File.ReadAllText(file).Should().Be(source);
+            File.ReadAllText(file).Should().Be($"""
+                #:package Humanizer
+                {source}
+                """);
 
             File.ReadAllText(directoryPackagesProps).Should().Be("""
                 <Project>
@@ -483,6 +486,54 @@ namespace Microsoft.DotNet.Cli.Package.Add.Tests
                   </PropertyGroup>
                   <ItemGroup>
                     <PackageVersion Include="Humanizer" Version="2.14.1" />
+                  </ItemGroup>
+                </Project>
+                """);
+        }
+
+        [Fact]
+        public void FileBasedApp_CentralPackageManagement_NoVersionSpecified()
+        {
+            var testInstance = _testAssetsManager.CreateTestDirectory();
+
+            string[] versions = ["0.0.5", "0.9.0", "1.0.0-preview.3"];
+            var packages = versions.Select(e => GetPackagePath(ToolsetInfo.CurrentTargetFramework, "A", e, identifier: e + versions.GetHashCode().ToString())).ToArray();
+
+            var restoreSources = string.Join(";", packages.Select(package => Path.GetDirectoryName(package)));
+
+            var file = Path.Join(testInstance.Path, "Program.cs");
+            var source = $"""
+                #:property RestoreSources=$(RestoreSources);{restoreSources}
+                Console.WriteLine();
+                """;
+            File.WriteAllText(file, source);
+
+            var directoryPackagesProps = Path.Join(testInstance.Path, "Directory.Packages.props");
+            File.WriteAllText(directoryPackagesProps, """
+                <Project>
+                  <PropertyGroup>
+                    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+                  </PropertyGroup>
+                </Project>
+                """);
+
+            new DotnetCommand(Log, "package", "add", "A", "--file", "Program.cs")
+                .WithWorkingDirectory(testInstance.Path)
+                .Execute()
+                .Should().Pass();
+
+            File.ReadAllText(file).Should().Be($"""
+                #:package A
+                {source}
+                """);
+
+            File.ReadAllText(directoryPackagesProps).Should().Be("""
+                <Project>
+                  <PropertyGroup>
+                    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <PackageVersion Include="A" Version="0.9.0" />
                   </ItemGroup>
                 </Project>
                 """);

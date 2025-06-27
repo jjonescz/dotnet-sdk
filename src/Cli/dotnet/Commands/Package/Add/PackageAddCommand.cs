@@ -183,13 +183,15 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
         var projectCollection = new ProjectCollection();
         var projectInstance = command.CreateProjectInstance(projectCollection);
 
-        // Set initial version either to the C# file or Directory.Packages.props.
+        // Set initial version to Directory.Packages.props or C# file
+        // (we always need to add the package reference to the C# file but when CPM is enabled, it's added without a version).
         string version = hasVersion
             ? _packageId.Version.ToString()
             : prerelease
             ? "*-*"
             : "*";
-        var (save, update, revert) = SetCpmVersion() ?? SetNonCpmVersion();
+        var cpm = SetCpmVersion(version);
+        var nonCpm = SetNonCpmVersion(cpm != null ? null : version);
 
         if (!_parseResult.GetValue(PackageAddCommandParser.NoRestoreOption))
         {
@@ -197,8 +199,6 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
             int exitCode = command.Execute();
             if (exitCode != 0)
             {
-                // Revert any edits.
-                revert();
                 return exitCode;
             }
 
@@ -216,24 +216,34 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
                     var library = lockFile.Libraries.FirstOrDefault(l => string.Equals(l.Name, _packageId.Id, StringComparison.OrdinalIgnoreCase));
                     if (library != null)
                     {
-                        update(library.Version.ToString());
+                        var restoredVersion = library.Version.ToString();
+                        if (cpm is { } cpmValue)
+                        {
+                            cpmValue.Update(restoredVersion);
+                        }
+                        else
+                        {
+                            nonCpm.Update(restoredVersion);
+                        }
+
                         return 0;
                     }
                 }
             }
         }
 
-        save();
+        cpm?.Save();
+        nonCpm.Save();
         return 0;
 
-        (Action Save, Action<string> Update, Action Revert) SetNonCpmVersion()
+        (Action Save, Action<string> Update) SetNonCpmVersion(string? version)
         {
             // Add #:package directive to the C# file.
             var file = SourceFile.Load(fullPath);
             var editor = FileBasedAppSourceEditor.Load(file);
             editor.Add(new CSharpDirective.Package { Span = default, Name = _packageId.Id, Version = version });
             command.Directives = editor.Directives;
-            return (Save, Update, Revert);
+            return (Save, Update);
 
             void Save()
             {
@@ -246,14 +256,9 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
                 editor.Add(new CSharpDirective.Package { Span = default, Name = _packageId.Id, Version = value });
                 editor.SourceFile.Save();
             }
-
-            void Revert()
-            {
-                // No op.
-            }
         }
 
-        (Action Save, Action<string> Update, Action Revert)? SetCpmVersion()
+        (Action Save, Action<string> Update)? SetCpmVersion(string version)
         {
             // Find out whether CPM is enabled.
             if (!string.Equals(projectInstance.GetProperty("ManagePackageVersionsCentrally")?.EvaluatedValue, bool.TrueString, StringComparison.OrdinalIgnoreCase))
@@ -271,8 +276,6 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
 
             var directoryPackagesPropsProject = projectCollection.LoadProject(directoryPackagesPropsPath);
 
-            // Add the package to Directory.Packages.props instead.
-            var snapshot = directoryPackagesPropsProject.Xml.DeepClone();
             const string packageVersionItemType = "PackageVersion";
             const string versionAttributeName = "Version";
 
@@ -286,8 +289,9 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
                 if (versionAttribute != null)
                 {
                     versionAttribute.Value = version;
+                    Reevaluate();
 
-                    return (Save, Update, Revert);
+                    return (Save, Update);
 
                     void Update(string value)
                     {
@@ -307,8 +311,9 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
                 // Add a PackageVersion item.
                 var item = itemGroup.AddItem(packageVersionItemType, _packageId.Id);
                 var metadata = item.AddMetadata(versionAttributeName, version, expressAsAttribute: true);
+                Reevaluate();
 
-                return (Save, Update, Revert);
+                return (Save, Update);
 
                 void Update(string value)
                 {
@@ -317,14 +322,14 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
                 }
             }
 
+            void Reevaluate()
+            {
+                directoryPackagesPropsProject.ReevaluateIfNecessary();
+            }
+
             void Save()
             {
                 directoryPackagesPropsProject.Save();
-            }
-
-            void Revert()
-            {
-                snapshot.Save();
             }
         }
     }
