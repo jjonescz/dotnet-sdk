@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.CommandLine;
+using System.Diagnostics;
 using Microsoft.Build.Evaluation;
 using Microsoft.DotNet.Cli.Commands.MSBuild;
 using Microsoft.DotNet.Cli.Commands.NuGet;
@@ -27,6 +28,8 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
         {
             return ExecuteForFileBasedApp();
         }
+
+        Debug.Assert(allowedAppKinds.HasFlag(AppKinds.ProjectBased));
 
         string projectFilePath;
         if (!File.Exists(fileOrDirectory))
