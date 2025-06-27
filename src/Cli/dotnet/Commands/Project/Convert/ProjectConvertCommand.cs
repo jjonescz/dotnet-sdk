@@ -34,7 +34,7 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
         var directives = VirtualProjectBuildingCommand.FindDirectives(sourceFile, reportAllErrors: !_force, errors: null);
 
         // Find other items to copy over, e.g., default Content items like JSON files in Web apps.
-        var includeItems = FindIncludedItems(file).ToList();
+        var includeItems = FindIncludedItems().ToList();
 
         Directory.CreateDirectory(targetDirectory);
 
@@ -75,14 +75,17 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
 
         return 0;
 
-        static IEnumerable<(string FullPath, string RelativePath)> FindIncludedItems(string entryPointFileFullPath)
+        IEnumerable<(string FullPath, string RelativePath)> FindIncludedItems()
         {
-            string entryPointFileDirectory = PathUtility.EnsureTrailingSlash(Path.GetDirectoryName(entryPointFileFullPath)!);
+            string entryPointFileDirectory = PathUtility.EnsureTrailingSlash(Path.GetDirectoryName(file)!);
             var projectCollection = new ProjectCollection();
-            var projectInstance = new VirtualProjectBuildingCommand(
-                entryPointFileFullPath: entryPointFileFullPath,
+            var command = new VirtualProjectBuildingCommand(
+                entryPointFileFullPath: file,
                 msbuildArgs: [])
-                .PrepareProjectInstance().CreateProjectInstance(projectCollection);
+            {
+                Directives = directives,
+            };
+            var projectInstance = command.CreateProjectInstance(projectCollection);
 
             // Include only items we know are files.
             string[] itemTypes = ["Content", "None", "Compile", "EmbeddedResource"];
