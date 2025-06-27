@@ -263,6 +263,69 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     }
 
     /// <summary>
+    /// Default items are copied over, e.g., <c>.json</c> in web apps.
+    /// </summary>
+    [Fact]
+    public void DefaultItems_JsonInWeb()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), """
+            #:sdk Microsoft.NET.Sdk.Web
+            Console.WriteLine();
+            """);
+        var json = """
+            {"MyKey":"TestValue"}
+            """;
+        File.WriteAllText(Path.Join(testInstance.Path, "my.json"), json);
+
+        new DotnetCommand(Log, "project", "convert", "Program.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass();
+
+        new DirectoryInfo(testInstance.Path)
+            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
+            .Should().BeEquivalentTo(["Program", "my.json"]);
+
+        File.ReadAllText(Path.Join(testInstance.Path, "my.json")).Should().Be(json);
+
+        new DirectoryInfo(Path.Join(testInstance.Path, "Program"))
+            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
+            .Should().BeEquivalentTo(["Program.csproj", "Program.cs", "my.json"]);
+
+        File.ReadAllText(Path.Join(testInstance.Path, "Program", "my.json")).Should().Be(json);
+    }
+
+    /// <summary>
+    /// If the file is not included in the build (e.g., <c>.json</c> files are only included by the Web SDK),
+    /// it should not be copied over during the converion.
+    /// </summary>
+    [Fact]
+    public void DefaultItems_JsonInConsole()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), """
+            Console.WriteLine();
+            """);
+        File.WriteAllText(Path.Join(testInstance.Path, "my.json"), """
+            {"MyKey":"TestValue"}
+            """);
+
+        new DotnetCommand(Log, "project", "convert", "Program.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass();
+
+        new DirectoryInfo(testInstance.Path)
+            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
+            .Should().BeEquivalentTo(["Program", "my.json"]);
+
+        new DirectoryInfo(Path.Join(testInstance.Path, "Program"))
+            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
+            .Should().BeEquivalentTo(["Program.csproj", "Program.cs"]);
+    }
+
+    /// <summary>
     /// When processing fails due to invalid directives, no conversion should be performed
     /// (e.g., the target directory should not be created).
     /// </summary>
