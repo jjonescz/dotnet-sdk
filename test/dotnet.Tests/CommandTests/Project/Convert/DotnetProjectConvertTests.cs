@@ -365,6 +365,28 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     }
 
     /// <summary>
+    /// Since we perform MSBuild evaluation during the conversion (to find included items to copy over),
+    /// the conversion can fail when the specified SDK does not exist.
+    /// </summary>
+    [Fact]
+    public void ProcessingFails_Evaluation()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        var filePath = Path.Join(testInstance.Path, "Program.cs");
+        File.WriteAllText(filePath, "#:sdk Microsoft.ThisSdkDoesNotExist");
+
+        new DotnetCommand(Log, "project", "convert", "Program.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            // The SDK 'Microsoft.ThisSdkDoesNotExist' specified could not be found.
+            .And.HaveStdErrContaining("Microsoft.ThisSdkDoesNotExist");
+
+        new DirectoryInfo(Path.Join(testInstance.Path))
+            .EnumerateDirectories().Should().BeEmpty();
+    }
+
+    /// <summary>
     /// End-to-end test of directive processing. More cases are covered by faster unit tests below.
     /// </summary>
     [Fact]
@@ -372,7 +394,7 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
         File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), """
-            #:sdk Aspire.Hosting.Sdk@9.1.0
+            #:package Humanizer@2.14.1
             Console.WriteLine();
             """);
 
@@ -394,7 +416,7 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
 
         File.ReadAllText(Path.Join(testInstance.Path, "Program", "Program.csproj"))
             .Should().Be($"""
-                <Project Sdk="Aspire.Hosting.Sdk/9.1.0">
+                <Project Sdk="Microsoft.NET.Sdk">
 
                   <PropertyGroup>
                     <OutputType>Exe</OutputType>
@@ -403,6 +425,10 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
                     <Nullable>enable</Nullable>
                     <PublishAot>true</PublishAot>
                   </PropertyGroup>
+
+                  <ItemGroup>
+                    <PackageReference Include="Humanizer" Version="2.14.1" />
+                  </ItemGroup>
 
                 </Project>
 
