@@ -143,6 +143,7 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
         return [.. args];
     }
 
+    // More logic should live in NuGet: https://github.com/NuGet/Home/issues/14390
     private int ExecuteForFileBasedApp()
     {
         // Check disallowed options.
