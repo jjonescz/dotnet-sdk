@@ -2,6 +2,9 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Immutable;
+using System.Diagnostics;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Text;
 
 namespace Microsoft.DotNet.Cli.Commands.Run;
@@ -80,13 +83,15 @@ internal sealed class FileBasedAppSourceEditor
 
     public void Add(CSharpDirective directive)
     {
-        string directiveText = directive.ToString() + NewLine;
-        TextSpan span = DetermineWhereToAdd(directive);
-        SourceFile = SourceFile.WithText(SourceFile.Text.Replace(span, newText: directiveText));
+        TextSpan span = DetermineWhereToAdd(directive, out var append);
+        string newText = append.Prefix + directive.ToString() + NewLine + append.Suffix;
+        SourceFile = SourceFile.WithText(SourceFile.Text.Replace(span, newText: newText));
     }
 
-    private TextSpan DetermineWhereToAdd(CSharpDirective directive)
+    private TextSpan DetermineWhereToAdd(CSharpDirective directive, out (string? Prefix, string? Suffix) append)
     {
+        append = default;
+
         // Find one that has the same kind and name.
         // If found, we will replace it with the new directive.
         if (directive is CSharpDirective.Named named &&
@@ -115,6 +120,76 @@ internal sealed class FileBasedAppSourceEditor
             return new TextSpan(start: addAfer.Span.End, length: 0);
         }
 
-        return new TextSpan(start: 0, length: 0);
+        // Otherwise, we will add the directive to the top of the file.
+        int start = 0;
+
+        var tokenizer = VirtualProjectBuildingCommand.CreateTokenizer(SourceFile.Text);
+        var result = tokenizer.ParseNextToken();
+        var leadingTrivia = result.Token.LeadingTrivia;
+
+        // If there is a comment at the top of the file, we add the directive after it
+        // (the comment might be a license which should always stay at the top).
+        int i = 0;
+        bool anyComments = false;
+        int trailingNewLines = 0;
+        for (; i < leadingTrivia.Count; i++)
+        {
+            var trivia = leadingTrivia[i];
+            bool isComment = IsComment(trivia);
+            if (isComment)
+            {
+                anyComments = true;
+                trailingNewLines = 0;
+            }
+
+            bool isEndOfLine = trivia.IsKind(SyntaxKind.EndOfLineTrivia);
+            if (isEndOfLine)
+            {
+                trailingNewLines++;
+            }
+
+            if (!isComment && !isEndOfLine && !trivia.IsKind(SyntaxKind.WhitespaceTrivia))
+            {
+                break;
+            }
+        }
+
+        if (!anyComments)
+        {
+            i = -1;
+        }
+
+        if (i > 0)
+        {
+            var lastCommentOrWhiteSpace = leadingTrivia[i - 1];
+
+            // Add newline after the comment if there is not one already (can happen with block comments).
+            if (!lastCommentOrWhiteSpace.IsKind(SyntaxKind.EndOfLineTrivia))
+            {
+                append.Prefix += NewLine;
+            }
+
+            // Add a blank separating line between the comment and the directive (unless there is already one).
+            if (trailingNewLines < 2)
+            {
+                append.Prefix += NewLine;
+            }
+
+            start = lastCommentOrWhiteSpace.FullSpan.End;
+        }
+
+        // Add a blank line after the directive unless there is already a blank line or another directive before the first C# token.
+        if (!leadingTrivia.Skip(i).Any(static t => t.IsKind(SyntaxKind.EndOfLineTrivia) || t.IsDirective))
+        {
+            append.Suffix += NewLine;
+        }
+
+        return new TextSpan(start: start, length: 0);
+
+        static bool IsComment(SyntaxTrivia trivia)
+        {
+            return trivia.Kind() is SyntaxKind.SingleLineCommentTrivia or SyntaxKind.MultiLineCommentTrivia
+                or SyntaxKind.SingleLineDocumentationCommentTrivia or SyntaxKind.MultiLineDocumentationCommentTrivia;
+        }
     }
 }

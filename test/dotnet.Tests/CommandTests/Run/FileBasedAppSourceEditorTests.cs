@@ -13,14 +13,33 @@ public sealed class FileBasedAppSourceEditorTests(ITestOutputHelper log) : SdkTe
         return FileBasedAppSourceEditor.Load(new SourceFile("/app/Program.cs", SourceText.From(source, Encoding.UTF8)));
     }
 
+    [Theory]
+    [InlineData("#:package MyPackage@1.0.1")]
+    [InlineData("#:package   MyPackage @ abc")]
+    [InlineData("#:package MYPACKAGE")]
+    public void ReplaceExisting(string inputLine)
+    {
+        Verify(
+            $"""
+            {inputLine}
+            Console.WriteLine();
+            """,
+            static editor => editor.Add(new CSharpDirective.Package { Span = default, Name = "MyPackage", Version = "1.0.0" }),
+            """
+            #:package MyPackage@1.0.0
+            Console.WriteLine();
+            """);
+    }
+
     [Fact]
     public void OnlyStatement()
     {
-        var editor = CreateEditor("""
+        Verify(
+            """
             Console.WriteLine();
-            """);
-        editor.Add(new CSharpDirective.Package { Span = default, Name = "MyPackage", Version = "1.0.0" });
-        editor.SourceFile.Text.ToString().Should().Be("""
+            """,
+            static editor => editor.Add(new CSharpDirective.Package { Span = default, Name = "MyPackage", Version = "1.0.0" }),
+            """
             #:package MyPackage@1.0.0
 
             Console.WriteLine();
@@ -30,13 +49,14 @@ public sealed class FileBasedAppSourceEditorTests(ITestOutputHelper log) : SdkTe
     [Fact]
     public void PreExistingWhiteSpace()
     {
-        var editor = CreateEditor("""
+        Verify(
+            """
 
 
             Console.WriteLine();
-            """);
-        editor.Add(new CSharpDirective.Package { Span = default, Name = "MyPackage", Version = "1.0.0" });
-        editor.SourceFile.Text.ToString().Should().Be("""
+            """,
+            static editor => editor.Add(new CSharpDirective.Package { Span = default, Name = "MyPackage", Version = "1.0.0" }),
+            """
             #:package MyPackage@1.0.0
 
 
@@ -47,16 +67,18 @@ public sealed class FileBasedAppSourceEditorTests(ITestOutputHelper log) : SdkTe
     [Fact]
     public void Comments()
     {
-        var editor = CreateEditor("""
+        Verify(
+            """
             // Comment1a
             // Comment1b
 
             // Comment2a
             // Comment2b
             Console.WriteLine();
-            """);
-        editor.Add(new CSharpDirective.Package { Span = default, Name = "MyPackage", Version = "1.0.0" });
-        editor.SourceFile.Text.ToString().Should().Be("""
+            // Comment3
+            """,
+            static editor => editor.Add(new CSharpDirective.Package { Span = default, Name = "MyPackage", Version = "1.0.0" }),
+            """
             // Comment1a
             // Comment1b
 
@@ -66,22 +88,40 @@ public sealed class FileBasedAppSourceEditorTests(ITestOutputHelper log) : SdkTe
             #:package MyPackage@1.0.0
 
             Console.WriteLine();
+            // Comment3
             """);
     }
 
     [Fact]
     public void CommentsWithWhiteSpaceAfter()
     {
-        var editor = CreateEditor("""
+        Verify(
+            """
             // Comment
 
 
             Console.WriteLine();
-            """);
-        editor.Add(new CSharpDirective.Package { Span = default, Name = "MyPackage", Version = "1.0.0" });
-        editor.SourceFile.Text.ToString().Should().Be("""
+            """,
+            static editor => editor.Add(new CSharpDirective.Package { Span = default, Name = "MyPackage", Version = "1.0.0" }),
+            """
             // Comment
 
+
+            #:package MyPackage@1.0.0
+
+            Console.WriteLine();
+            """);
+    }
+    [Fact]
+    public void Comment_MultiLine()
+    {
+        Verify(
+            """
+            /* test */Console.WriteLine();
+            """,
+            static editor => editor.Add(new CSharpDirective.Package { Span = default, Name = "MyPackage", Version = "1.0.0" }),
+            """
+            /* test */
 
             #:package MyPackage@1.0.0
 
@@ -92,16 +132,17 @@ public sealed class FileBasedAppSourceEditorTests(ITestOutputHelper log) : SdkTe
     [Fact]
     public void Group()
     {
-        var editor = CreateEditor("""
+        Verify(
+            """
             #:property A
             #:package B@C
             #:project D
             #:package E
 
             Console.WriteLine();
-            """);
-        editor.Add(new CSharpDirective.Package { Span = default, Name = "MyPackage", Version = "1.0.0" });
-        editor.SourceFile.Text.ToString().Should().Be("""
+            """,
+            static editor => editor.Add(new CSharpDirective.Package { Span = default, Name = "MyPackage", Version = "1.0.0" }),
+            """
             #:property A
             #:package B@C
             #:package MyPackage@1.0.0
@@ -113,17 +154,52 @@ public sealed class FileBasedAppSourceEditorTests(ITestOutputHelper log) : SdkTe
     }
 
     [Fact]
+    public void GroupWithoutSpace()
+    {
+        Verify(
+            """
+            #:package B@C
+            Console.WriteLine();
+            """,
+            static editor => editor.Add(new CSharpDirective.Package { Span = default, Name = "MyPackage", Version = "1.0.0" }),
+            """
+            #:package B@C
+            #:package MyPackage@1.0.0
+            Console.WriteLine();
+            """);
+    }
+
+    [Fact]
+    public void OtherDirectives()
+    {
+        Verify(
+            """
+            #:property A
+            #:project D
+            Console.WriteLine();
+            """,
+            static editor => editor.Add(new CSharpDirective.Package { Span = default, Name = "MyPackage", Version = "1.0.0" }),
+            """
+            #:package MyPackage@1.0.0
+            #:property A
+            #:project D
+            Console.WriteLine();
+            """);
+    }
+
+    [Fact]
     public void AfterTokens()
     {
-        var editor = CreateEditor("""
+        Verify(
+            """
             using System;
 
             #:package A
 
             Console.WriteLine();
-            """);
-        editor.Add(new CSharpDirective.Package { Span = default, Name = "MyPackage", Version = "1.0.0" });
-        editor.SourceFile.Text.ToString().Should().Be("""
+            """,
+            static editor => editor.Add(new CSharpDirective.Package { Span = default, Name = "MyPackage", Version = "1.0.0" }),
+            """
             #:package MyPackage@1.0.0
 
             using System;
@@ -132,5 +208,23 @@ public sealed class FileBasedAppSourceEditorTests(ITestOutputHelper log) : SdkTe
 
             Console.WriteLine();
             """);
+    }
+
+    private void Verify(
+        string input,
+        Action<FileBasedAppSourceEditor> action,
+        string expectedOutput)
+    {
+        var editor = CreateEditor(input);
+        action(editor);
+        var actualOutput = editor.SourceFile.Text.ToString();
+        if (actualOutput != expectedOutput)
+        {
+            Log.WriteLine("Expected output:");
+            Log.WriteLine(expectedOutput);
+            Log.WriteLine("\nActual output:");
+            Log.WriteLine(actualOutput);
+            Assert.Fail();
+        }
     }
 }

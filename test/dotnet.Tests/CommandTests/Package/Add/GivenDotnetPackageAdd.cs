@@ -283,6 +283,7 @@ namespace Microsoft.DotNet.Cli.Package.Add.Tests
 
             File.ReadAllText(file).Should().Be("""
                 #:package Humanizer@2.14.1
+
                 Console.WriteLine();
                 """);
         }
@@ -389,6 +390,7 @@ namespace Microsoft.DotNet.Cli.Package.Add.Tests
 
             File.ReadAllText(file).Should().Be("""
                 #:package Humanizer@*
+
                 Console.WriteLine();
                 """);
         }
@@ -446,6 +448,7 @@ namespace Microsoft.DotNet.Cli.Package.Add.Tests
 
             File.ReadAllText(file).Should().Be("""
                 #:package Microsoft.ThisPackageDoesNotExist@*
+
                 Console.WriteLine();
                 """);
         }
@@ -476,6 +479,7 @@ namespace Microsoft.DotNet.Cli.Package.Add.Tests
 
             File.ReadAllText(file).Should().Be($"""
                 #:package Humanizer
+
                 {source}
                 """);
 
@@ -504,6 +508,7 @@ namespace Microsoft.DotNet.Cli.Package.Add.Tests
             {
                 source = $"""
                     #:package Humanizer@2.9.9
+
                     {source}
                     """;
             }
@@ -529,6 +534,7 @@ namespace Microsoft.DotNet.Cli.Package.Add.Tests
 
             File.ReadAllText(file).Should().Be("""
                 #:package Humanizer
+
                 Console.WriteLine();
                 """);
 

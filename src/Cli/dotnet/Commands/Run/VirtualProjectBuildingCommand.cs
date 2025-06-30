@@ -749,6 +749,14 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         }
     }
 
+#pragma warning disable RSEXPERIMENTAL003 // 'SyntaxTokenParser' is experimental
+    public static SyntaxTokenParser CreateTokenizer(SourceText text)
+    {
+        return SyntaxFactory.CreateTokenParser(text,
+            CSharpParseOptions.Default.WithFeatures([new("FileBasedProgram", "true")]));
+    }
+#pragma warning restore RSEXPERIMENTAL003 // 'SyntaxTokenParser' is experimental
+
     /// <param name="reportAllErrors">
     /// If <see langword="true"/>, the whole <paramref name="sourceFile"/> is parsed to find diagnostics about every app directive.
     /// Otherwise, only directives up to the first C# token is checked.
@@ -758,12 +766,9 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
     /// </param>
     public static ImmutableArray<CSharpDirective> FindDirectives(SourceFile sourceFile, bool reportAllErrors, DiagnosticBag diagnostics)
     {
-#pragma warning disable RSEXPERIMENTAL003 // 'SyntaxTokenParser' is experimental
-
         var deduplicated = new HashSet<CSharpDirective.Named>(NamedDirectiveComparer.Instance);
         var builder = ImmutableArray.CreateBuilder<CSharpDirective>();
-        SyntaxTokenParser tokenizer = SyntaxFactory.CreateTokenParser(sourceFile.Text,
-            CSharpParseOptions.Default.WithFeatures([new("FileBasedProgram", "true")]));
+        var tokenizer = CreateTokenizer(sourceFile.Text);
 
         var result = tokenizer.ParseLeadingTrivia();
         TextSpan previousWhiteSpaceSpan = default;
@@ -859,7 +864,6 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                 diagnostics.AddError(sourceFile, trivia.Span, location => string.Format(CliCommandStrings.CannotConvertDirective, location));
             }
         }
-#pragma warning restore RSEXPERIMENTAL003 // 'SyntaxTokenParser' is experimental
     }
 
     public static SourceText? RemoveDirectivesFromFile(ImmutableArray<CSharpDirective> directives, SourceText text)
