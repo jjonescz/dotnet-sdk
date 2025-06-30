@@ -175,7 +175,13 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
         bool interactive = _parseResult.GetValue(PackageAddCommandParser.InteractiveOption);
         var command = new VirtualProjectBuildingCommand(
             entryPointFileFullPath: fullPath,
-            msbuildArgs: [$"-property:NuGetInteractive={(interactive ? "true" : "false")}"])
+            msbuildArgs:
+            [
+                $"-property:NuGetInteractive={(interactive ? "true" : "false")}",
+                // Floating versions are needed if user did not specify a version
+                // - then we restore with version '*' to determine the latest version.
+                "-property:CentralPackageFloatingVersionsEnabled=true",
+            ])
         {
             NoCache = true,
             NoBuild = true,
@@ -183,7 +189,7 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
         var projectCollection = new ProjectCollection();
         var projectInstance = command.CreateProjectInstance(projectCollection);
 
-        // Set initial version to Directory.Packages.props or C# file
+        // Set initial version to Directory.Packages.props and/or C# file
         // (we always need to add the package reference to the C# file but when CPM is enabled, it's added without a version).
         string version = hasVersion
             ? _packageId.Version.ToString()
@@ -222,6 +228,7 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
                         if (cpm is { } cpmValue)
                         {
                             cpmValue.Update(restoredVersion);
+                            nonCpm.Save();
                         }
                         else
                         {
