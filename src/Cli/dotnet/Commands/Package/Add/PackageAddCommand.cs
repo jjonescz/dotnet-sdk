@@ -196,8 +196,9 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
             : prerelease
             ? "*-*"
             : "*";
-        var cpm = SetCpmVersion(version);
-        var nonCpm = SetNonCpmVersion(cpm != null ? null : version);
+        bool skipUpdate = false;
+        var central = SetCentralVersion(version);
+        var local = SetLocalVersion(central != null ? null : version);
 
         if (!_parseResult.GetValue(PackageAddCommandParser.NoRestoreOption))
         {
@@ -206,12 +207,12 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
             if (exitCode != 0)
             {
                 // If restore fails, revert any changes made.
-                cpm?.Revert();
+                central?.Revert();
                 return exitCode;
             }
 
             // If no version was specified by the user, save the actually restored version.
-            if (!hasVersion)
+            if (!hasVersion && !skipUpdate)
             {
                 var projectAssetsFile = projectInstance.GetProperty("ProjectAssetsFile")?.EvaluatedValue;
                 if (!File.Exists(projectAssetsFile))
@@ -225,14 +226,14 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
                     if (library != null)
                     {
                         var restoredVersion = library.Version.ToString();
-                        if (cpm is { } cpmValue)
+                        if (central is { } centralValue)
                         {
-                            cpmValue.Update(restoredVersion);
-                            nonCpm.Save();
+                            centralValue.Update(restoredVersion);
+                            local.Save();
                         }
                         else
                         {
-                            nonCpm.Update(restoredVersion);
+                            local.Update(restoredVersion);
                         }
 
                         return 0;
@@ -241,10 +242,11 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
             }
         }
 
-        nonCpm.Save();
+        central?.Save();
+        local.Save();
         return 0;
 
-        (Action Save, Action<string> Update) SetNonCpmVersion(string? version)
+        (Action Save, Action<string> Update) SetLocalVersion(string? version)
         {
             // Add #:package directive to the C# file.
             var file = SourceFile.Load(fullPath);
@@ -266,7 +268,7 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
             }
         }
 
-        (Action Revert, Action<string> Update)? SetCpmVersion(string version)
+        (Action Revert, Action<string> Update, Action Save)? SetCentralVersion(string version)
         {
             // Find out whether CPM is enabled.
             if (!string.Equals(projectInstance.GetProperty("ManagePackageVersionsCentrally")?.EvaluatedValue, bool.TrueString, StringComparison.OrdinalIgnoreCase))
@@ -282,8 +284,8 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
                 return null;
             }
 
+            var snapshot = File.ReadAllText(directoryPackagesPropsPath);
             var directoryPackagesPropsProject = projectCollection.LoadProject(directoryPackagesPropsPath);
-            var snapshot = directoryPackagesPropsProject.Xml.DeepClone();
 
             const string packageVersionItemType = "PackageVersion";
             const string versionAttributeName = "Version";
@@ -300,7 +302,18 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
                     versionAttribute.Value = version;
                     directoryPackagesPropsProject.Save();
 
-                    return (Revert, Update);
+                    // If user didn't specify a version and a version is already specified in Directory.Packages.props,
+                    // don't update the Directory.Packages.props (that's how the project-based equivalent behaves as well).
+                    if (!hasVersion)
+                    {
+                        skipUpdate = true;
+                        return (Revert: NoOp, Update: Unreachable, Save: Revert);
+
+                        static void NoOp() { }
+                        static void Unreachable(string value) => Debug.Fail("Unreachable.");
+                    }
+
+                    return (Revert, Update, Save);
 
                     void Update(string value)
                     {
@@ -322,7 +335,7 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
                 var metadata = item.AddMetadata(versionAttributeName, version, expressAsAttribute: true);
                 directoryPackagesPropsProject.Save();
 
-                return (Revert, Update);
+                return (Revert, Update, Save);
 
                 void Update(string value)
                 {
@@ -333,8 +346,10 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
 
             void Revert()
             {
-                snapshot.Save(path: directoryPackagesPropsPath);
+                File.WriteAllText(path: directoryPackagesPropsPath, contents: snapshot);
             }
+
+            static void Save() { /* No-op by default. */ }
         }
     }
 }
