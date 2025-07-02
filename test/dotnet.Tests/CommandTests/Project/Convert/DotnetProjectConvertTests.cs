@@ -1,7 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Collections.Immutable;
 using Microsoft.CodeAnalysis.Text;
 using Microsoft.DotNet.Cli.Commands;
 using Microsoft.DotNet.Cli.Commands.Run;
@@ -629,6 +628,53 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
                  #  !  /test
                   #!  /program   x   
                  # :property Name=Value
+                """);
+    }
+
+    [Fact]
+    public void Directives_BlankLines()
+    {
+        var expectedProject = $"""
+            <Project Sdk="Microsoft.NET.Sdk">
+
+              <PropertyGroup>
+                <OutputType>Exe</OutputType>
+                <TargetFramework>{ToolsetInfo.CurrentTargetFramework}</TargetFramework>
+                <ImplicitUsings>enable</ImplicitUsings>
+                <Nullable>enable</Nullable>
+                <PublishAot>true</PublishAot>
+              </PropertyGroup>
+
+              <ItemGroup>
+                <PackageReference Include="A" Version="B" />
+              </ItemGroup>
+
+            </Project>
+
+            """;
+
+        VerifyConversion(
+            inputCSharp: """
+                #:package A@B
+
+                Console.WriteLine();
+                """,
+            expectedProject: expectedProject,
+            expectedCSharp: """
+
+                Console.WriteLine();
+                """);
+
+        VerifyConversion(
+            inputCSharp: """
+
+                #:package A@B
+                Console.WriteLine();
+                """,
+            expectedProject: expectedProject,
+            expectedCSharp: """
+
+                Console.WriteLine();
                 """);
     }
 
