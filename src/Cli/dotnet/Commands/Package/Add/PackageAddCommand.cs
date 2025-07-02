@@ -120,7 +120,7 @@ internal class PackageAddCommand(ParseResult parseResult) : CommandBase(parseRes
         if (packageId.HasVersion)
         {
             args.Add("--version");
-            args.Add(packageId.VersionRange.OriginalString);
+            args.Add(packageId.VersionRange.OriginalString ?? string.Empty);
         }
 
         args.AddRange(_parseResult
@@ -172,13 +172,13 @@ internal class PackageAddCommand(ParseResult parseResult) : CommandBase(parseRes
         bool interactive = _parseResult.GetValue(PackageAddCommandParser.InteractiveOption);
         var command = new VirtualProjectBuildingCommand(
             entryPointFileFullPath: fullPath,
-            msbuildArgs:
-            [
-                $"-property:NuGetInteractive={(interactive ? "true" : "false")}",
+            msbuildArgs: MSBuildArgs.FromProperties(new Dictionary<string, string>(2)
+            {
+                ["NuGetInteractive"] = interactive.ToString(),
                 // Floating versions are needed if user did not specify a version
                 // - then we restore with version '*' to determine the latest version.
-                "-property:CentralPackageFloatingVersionsEnabled=true",
-            ])
+                ["CentralPackageFloatingVersionsEnabled"] = bool.TrueString,
+            }.AsReadOnly()))
         {
             NoCache = true,
             NoBuild = true,
@@ -189,7 +189,7 @@ internal class PackageAddCommand(ParseResult parseResult) : CommandBase(parseRes
         // Set initial version to Directory.Packages.props and/or C# file
         // (we always need to add the package reference to the C# file but when CPM is enabled, it's added without a version).
         string version = hasVersion
-            ? _packageId.Version.ToString()
+            ? _packageId.VersionRange?.OriginalString ?? string.Empty
             : prerelease
             ? "*-*"
             : "*";
