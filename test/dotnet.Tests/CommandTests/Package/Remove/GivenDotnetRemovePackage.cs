@@ -12,10 +12,10 @@ namespace Microsoft.DotNet.Cli.Remove.Package.Tests
   Remove a NuGet package reference from the project.
 
 Usage:
-  dotnet remove [<PROJECT>] package <PACKAGE_NAME>... [options]
+  dotnet remove [<PROJECT | FILE>] package <PACKAGE_NAME>... [options]
 
 Arguments:
-  <PROJECT>         The project file to operate on. If a file is not specified, the command will search the current directory for one. [default: {PathUtility.EnsureTrailingSlash(defaultVal)}]
+  <PROJECT | FILE>  The project file or C# file-based app to operate on. If a file is not specified, the command will search the current directory for a project file. [default: {PathUtility.EnsureTrailingSlash(defaultVal)}]
   <PACKAGE_NAME>    The package reference to remove.
 
 Options:
@@ -26,10 +26,10 @@ Options:
   .NET Remove Command
 
 Usage:
-  dotnet remove <PROJECT> [command] [options]
+  dotnet remove <PROJECT | FILE> [command] [options]
 
 Arguments:
-  <PROJECT>    The project file to operate on. If a file is not specified, the command will search the current directory for one. [default: {PathUtility.EnsureTrailingSlash(defaultVal)}]
+  <PROJECT | FILE>  The project file or C# file-based app to operate on. If a file is not specified, the command will search the current directory for a project file. [default: {PathUtility.EnsureTrailingSlash(defaultVal)}]
 
 Options:
   -?, -h, --help    Show command line help.
