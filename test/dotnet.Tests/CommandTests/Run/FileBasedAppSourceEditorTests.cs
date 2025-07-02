@@ -297,6 +297,29 @@ public sealed class FileBasedAppSourceEditorTests(ITestOutputHelper log) : SdkTe
             """));
     }
 
+    [Fact]
+    public void RemoveMultiple()
+    {
+        Verify(
+            """
+            #:package Humanizer@2.14.1
+            #:property X=Y
+            #:package Humanizer@2.9.9
+
+            Console.WriteLine();
+            """,
+            (static editor =>
+            {
+                editor.Remove(editor.Directives.OfType<CSharpDirective.Package>().First());
+                editor.Remove(editor.Directives.OfType<CSharpDirective.Package>().First());
+            },
+            """
+            #:property X=Y
+
+            Console.WriteLine();
+            """));
+    }
+
     private void Verify(
         string input,
         params ReadOnlySpan<(Action<FileBasedAppSourceEditor> action, string expectedOutput)> verify)

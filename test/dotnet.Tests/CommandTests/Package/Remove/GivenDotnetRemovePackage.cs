@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using Microsoft.DotNet.Cli.Commands;
 using Microsoft.DotNet.Cli.Utils;
 
 namespace Microsoft.DotNet.Cli.Remove.Package.Tests
@@ -83,6 +84,76 @@ Commands:
             remove.Should().Pass();
             remove.StdOut.Should().Contain($"Removing PackageReference for package '{packageName}' from project '{projectDirectory + Path.DirectorySeparatorChar}TestAppSimple.csproj'.");
             remove.StdErr.Should().BeEmpty();
+        }
+
+        [Fact]
+        public void FileBasedApp()
+        {
+            var testInstance = _testAssetsManager.CreateTestDirectory();
+            var file = Path.Join(testInstance.Path, "Program.cs");
+            File.WriteAllText(file, """
+                #:package Humanizer@2.14.1
+
+                Console.WriteLine();
+                """);
+
+            new DotnetCommand(Log, "package", "remove", "Humanizer", "--file", "Program.cs")
+                .WithWorkingDirectory(testInstance.Path)
+                .Execute()
+                .Should().Pass()
+                .And.HaveStdOut(string.Format(CliCommandStrings.DirectivesRemoved, "#:package", 1, "Humanizer", file));
+
+            File.ReadAllText(file).Should().Be("""
+                Console.WriteLine();
+                """);
+        }
+
+        [Fact]
+        public void FileBasedApp_Multiple()
+        {
+            var testInstance = _testAssetsManager.CreateTestDirectory();
+            var file = Path.Join(testInstance.Path, "Program.cs");
+            File.WriteAllText(file, """
+                #:package Humanizer@2.14.1
+                #:package Another@1.0.0
+                #:property X=Y
+                #:package Humanizer@2.9.9
+
+                Console.WriteLine();
+                """);
+
+            new DotnetCommand(Log, "package", "remove", "Humanizer", "--file", "Program.cs")
+                .WithWorkingDirectory(testInstance.Path)
+                .Execute()
+                .Should().Pass()
+                .And.HaveStdOut(string.Format(CliCommandStrings.DirectivesRemoved, "#:package", 2, "Humanizer", file));
+
+            File.ReadAllText(file).Should().Be("""
+                #:package Another@1.0.0
+                #:property X=Y
+
+                Console.WriteLine();
+                """);
+        }
+
+        [Fact]
+        public void FileBasedApp_None()
+        {
+            var testInstance = _testAssetsManager.CreateTestDirectory();
+            var file = Path.Join(testInstance.Path, "Program.cs");
+            File.WriteAllText(file, """
+                Console.WriteLine();
+                """);
+
+            new DotnetCommand(Log, "package", "remove", "Humanizer", "--file", "Program.cs")
+                .WithWorkingDirectory(testInstance.Path)
+                .Execute()
+                .Should().Fail()
+                .And.HaveStdOut(string.Format(CliCommandStrings.DirectivesRemoved, "#:package", 0, "Humanizer", file));
+
+            File.ReadAllText(file).Should().Be("""
+                Console.WriteLine();
+                """);
         }
     }
 }
