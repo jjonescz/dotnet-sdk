@@ -97,7 +97,7 @@ internal sealed class FileBasedAppSourceEditor
         if (directive is CSharpDirective.Named named &&
             Directives.OfType<CSharpDirective.Named>().FirstOrDefault(d => NamedDirectiveComparer.Instance.Equals(d, named)) is { } toReplace)
         {
-            return toReplace.Span;
+            return toReplace.Info.Span;
         }
 
         // Find the last directive of the first group of directives of the same kind.
@@ -117,7 +117,7 @@ internal sealed class FileBasedAppSourceEditor
 
         if (addAfer != null)
         {
-            return new TextSpan(start: addAfer.Span.End, length: 0);
+            return new TextSpan(start: addAfer.Info.Span.End, length: 0);
         }
 
         // Otherwise, we will add the directive to the top of the file.
@@ -191,5 +191,33 @@ internal sealed class FileBasedAppSourceEditor
             return trivia.Kind() is SyntaxKind.SingleLineCommentTrivia or SyntaxKind.MultiLineCommentTrivia
                 or SyntaxKind.SingleLineDocumentationCommentTrivia or SyntaxKind.MultiLineDocumentationCommentTrivia;
         }
+    }
+
+    public void Remove(CSharpDirective directive)
+    {
+        var span = directive.Info.Span;
+        var start = span.Start;
+        var length = span.Length + DetermineTrailingLengthToRemove(directive);
+        SourceFile = SourceFile.WithText(SourceFile.Text.Replace(start: start, length: length, newText: string.Empty));
+    }
+
+    private static int DetermineTrailingLengthToRemove(CSharpDirective directive)
+    {
+        // If there are blank lines both before and after the directive, remove the trailing white space.
+        if (directive.Info.LeadingWhiteSpace.LineBreaks > 0 && directive.Info.TrailingWhiteSpace.LineBreaks > 0)
+        {
+            return directive.Info.TrailingWhiteSpace.TotalLength;
+        }
+
+        // If the directive (including leading white space) starts at the beginning of the file,
+        // remove both the leading and trailing white space.
+        var startBeforeWhiteSpace = directive.Info.Span.Start - directive.Info.LeadingWhiteSpace.TotalLength;
+        if (startBeforeWhiteSpace == 0)
+        {
+            return directive.Info.LeadingWhiteSpace.TotalLength + directive.Info.TrailingWhiteSpace.TotalLength;
+        }
+
+        Debug.Assert(startBeforeWhiteSpace > 0);
+        return 0;
     }
 }

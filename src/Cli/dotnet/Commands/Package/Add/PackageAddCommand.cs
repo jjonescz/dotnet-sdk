@@ -251,7 +251,7 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
             // Add #:package directive to the C# file.
             var file = SourceFile.Load(fullPath);
             var editor = FileBasedAppSourceEditor.Load(file);
-            editor.Add(new CSharpDirective.Package { Span = default, Name = _packageId.Id, Version = version });
+            editor.Add(new CSharpDirective.Package(default) { Name = _packageId.Id, Version = version });
             command.Directives = editor.Directives;
             return (Save, Update);
 
@@ -263,7 +263,7 @@ internal class PackageAddCommand(ParseResult parseResult, string fileOrDirectory
             void Update(string value)
             {
                 // Update the C# file with the given version.
-                editor.Add(new CSharpDirective.Package { Span = default, Name = _packageId.Id, Version = value });
+                editor.Add(new CSharpDirective.Package(default) { Name = _packageId.Id, Version = value });
                 editor.SourceFile.Save();
             }
         }

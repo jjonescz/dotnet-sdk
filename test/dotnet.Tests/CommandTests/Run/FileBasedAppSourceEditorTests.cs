@@ -24,11 +24,11 @@ public sealed class FileBasedAppSourceEditorTests(ITestOutputHelper log) : SdkTe
             {inputLine}
             Console.WriteLine();
             """,
-            static editor => editor.Add(new CSharpDirective.Package { Span = default, Name = "MyPackage", Version = "1.0.0" }),
+            (static editor => editor.Add(new CSharpDirective.Package(default) { Name = "MyPackage", Version = "1.0.0" }),
             """
             #:package MyPackage@1.0.0
             Console.WriteLine();
-            """);
+            """));
     }
 
     [Fact]
@@ -38,12 +38,16 @@ public sealed class FileBasedAppSourceEditorTests(ITestOutputHelper log) : SdkTe
             """
             Console.WriteLine();
             """,
-            static editor => editor.Add(new CSharpDirective.Package { Span = default, Name = "MyPackage", Version = "1.0.0" }),
+            (static editor => editor.Add(new CSharpDirective.Package(default) { Name = "MyPackage", Version = "1.0.0" }),
             """
             #:package MyPackage@1.0.0
 
             Console.WriteLine();
-            """);
+            """),
+            (static editor => editor.Remove(editor.Directives.Single()),
+            """
+            Console.WriteLine();
+            """));
     }
 
     [Fact]
@@ -55,13 +59,17 @@ public sealed class FileBasedAppSourceEditorTests(ITestOutputHelper log) : SdkTe
 
             Console.WriteLine();
             """,
-            static editor => editor.Add(new CSharpDirective.Package { Span = default, Name = "MyPackage", Version = "1.0.0" }),
+            (static editor => editor.Add(new CSharpDirective.Package(default) { Name = "MyPackage", Version = "1.0.0" }),
             """
             #:package MyPackage@1.0.0
 
 
             Console.WriteLine();
-            """);
+            """),
+            (static editor => editor.Remove(editor.Directives.Single()),
+            """
+            Console.WriteLine();
+            """));
     }
 
     [Fact]
@@ -77,7 +85,7 @@ public sealed class FileBasedAppSourceEditorTests(ITestOutputHelper log) : SdkTe
             Console.WriteLine();
             // Comment3
             """,
-            static editor => editor.Add(new CSharpDirective.Package { Span = default, Name = "MyPackage", Version = "1.0.0" }),
+            (static editor => editor.Add(new CSharpDirective.Package(default) { Name = "MyPackage", Version = "1.0.0" }),
             """
             // Comment1a
             // Comment1b
@@ -89,7 +97,18 @@ public sealed class FileBasedAppSourceEditorTests(ITestOutputHelper log) : SdkTe
 
             Console.WriteLine();
             // Comment3
-            """);
+            """),
+            (static editor => editor.Remove(editor.Directives.Single()),
+            """
+            // Comment1a
+            // Comment1b
+            
+            // Comment2a
+            // Comment2b
+
+            Console.WriteLine();
+            // Comment3
+            """));
     }
 
     [Fact]
@@ -102,7 +121,7 @@ public sealed class FileBasedAppSourceEditorTests(ITestOutputHelper log) : SdkTe
 
             Console.WriteLine();
             """,
-            static editor => editor.Add(new CSharpDirective.Package { Span = default, Name = "MyPackage", Version = "1.0.0" }),
+            (static editor => editor.Add(new CSharpDirective.Package(default) { Name = "MyPackage", Version = "1.0.0" }),
             """
             // Comment
 
@@ -110,7 +129,14 @@ public sealed class FileBasedAppSourceEditorTests(ITestOutputHelper log) : SdkTe
             #:package MyPackage@1.0.0
 
             Console.WriteLine();
-            """);
+            """),
+            (static editor => editor.Remove(editor.Directives.Single()),
+            """
+            // Comment
+
+
+            Console.WriteLine();
+            """));
     }
     [Fact]
     public void Comment_MultiLine()
@@ -119,14 +145,20 @@ public sealed class FileBasedAppSourceEditorTests(ITestOutputHelper log) : SdkTe
             """
             /* test */Console.WriteLine();
             """,
-            static editor => editor.Add(new CSharpDirective.Package { Span = default, Name = "MyPackage", Version = "1.0.0" }),
+            (static editor => editor.Add(new CSharpDirective.Package(default) { Name = "MyPackage", Version = "1.0.0" }),
             """
             /* test */
 
             #:package MyPackage@1.0.0
 
             Console.WriteLine();
-            """);
+            """),
+            (static editor => editor.Remove(editor.Directives.Single()),
+            """
+            /* test */
+
+            Console.WriteLine();
+            """));
     }
 
     [Fact]
@@ -134,23 +166,59 @@ public sealed class FileBasedAppSourceEditorTests(ITestOutputHelper log) : SdkTe
     {
         Verify(
             """
-            #:property A
+            #:property X=Y
             #:package B@C
             #:project D
             #:package E
 
             Console.WriteLine();
             """,
-            static editor => editor.Add(new CSharpDirective.Package { Span = default, Name = "MyPackage", Version = "1.0.0" }),
+            (static editor => editor.Add(new CSharpDirective.Package(default) { Name = "MyPackage", Version = "1.0.0" }),
             """
-            #:property A
+            #:property X=Y
             #:package B@C
             #:package MyPackage@1.0.0
             #:project D
             #:package E
 
             Console.WriteLine();
-            """);
+            """),
+            (static editor => editor.Remove(editor.Directives[2]),
+            """
+            #:property X=Y
+            #:package B@C
+            #:project D
+            #:package E
+
+            Console.WriteLine();
+            """));
+    }
+
+    [Fact]
+    public void GroupEnd()
+    {
+        Verify(
+            """
+            #:property X=Y
+            #:package B@C
+
+            Console.WriteLine();
+            """,
+            (static editor => editor.Add(new CSharpDirective.Package(default) { Name = "MyPackage", Version = "1.0.0" }),
+            """
+            #:property X=Y
+            #:package B@C
+            #:package MyPackage@1.0.0
+
+            Console.WriteLine();
+            """),
+            (static editor => editor.Remove(editor.Directives[2]),
+            """
+            #:property X=Y
+            #:package B@C
+
+            Console.WriteLine();
+            """));
     }
 
     [Fact]
@@ -161,12 +229,17 @@ public sealed class FileBasedAppSourceEditorTests(ITestOutputHelper log) : SdkTe
             #:package B@C
             Console.WriteLine();
             """,
-            static editor => editor.Add(new CSharpDirective.Package { Span = default, Name = "MyPackage", Version = "1.0.0" }),
+            (static editor => editor.Add(new CSharpDirective.Package(default) { Name = "MyPackage", Version = "1.0.0" }),
             """
             #:package B@C
             #:package MyPackage@1.0.0
             Console.WriteLine();
-            """);
+            """),
+            (static editor => editor.Remove(editor.Directives[1]),
+            """
+            #:package B@C
+            Console.WriteLine();
+            """));
     }
 
     [Fact]
@@ -178,13 +251,19 @@ public sealed class FileBasedAppSourceEditorTests(ITestOutputHelper log) : SdkTe
             #:project D
             Console.WriteLine();
             """,
-            static editor => editor.Add(new CSharpDirective.Package { Span = default, Name = "MyPackage", Version = "1.0.0" }),
+            (static editor => editor.Add(new CSharpDirective.Package(default) { Name = "MyPackage", Version = "1.0.0" }),
             """
             #:package MyPackage@1.0.0
             #:property A
             #:project D
             Console.WriteLine();
-            """);
+            """),
+            (static editor => editor.Remove(editor.Directives[0]),
+            """
+            #:property A
+            #:project D
+            Console.WriteLine();
+            """));
     }
 
     [Fact]
@@ -198,7 +277,7 @@ public sealed class FileBasedAppSourceEditorTests(ITestOutputHelper log) : SdkTe
 
             Console.WriteLine();
             """,
-            static editor => editor.Add(new CSharpDirective.Package { Span = default, Name = "MyPackage", Version = "1.0.0" }),
+            (static editor => editor.Add(new CSharpDirective.Package(default) { Name = "MyPackage", Version = "1.0.0" }),
             """
             #:package MyPackage@1.0.0
 
@@ -207,24 +286,36 @@ public sealed class FileBasedAppSourceEditorTests(ITestOutputHelper log) : SdkTe
             #:package A
 
             Console.WriteLine();
-            """);
+            """),
+            (static editor => editor.Remove(editor.Directives[0]),
+            """
+            using System;
+
+            #:package A
+
+            Console.WriteLine();
+            """));
     }
 
     private void Verify(
         string input,
-        Action<FileBasedAppSourceEditor> action,
-        string expectedOutput)
+        params ReadOnlySpan<(Action<FileBasedAppSourceEditor> action, string expectedOutput)> verify)
     {
         var editor = CreateEditor(input);
-        action(editor);
-        var actualOutput = editor.SourceFile.Text.ToString();
-        if (actualOutput != expectedOutput)
+        int index = 0;
+        foreach (var (action, expectedOutput) in verify)
         {
-            Log.WriteLine("Expected output:");
-            Log.WriteLine(expectedOutput);
-            Log.WriteLine("\nActual output:");
-            Log.WriteLine(actualOutput);
-            Assert.Fail();
+            action(editor);
+            var actualOutput = editor.SourceFile.Text.ToString();
+            if (actualOutput != expectedOutput)
+            {
+                Log.WriteLine("Expected output:");
+                Log.WriteLine(expectedOutput);
+                Log.WriteLine("\nActual output:");
+                Log.WriteLine(actualOutput);
+                Assert.Fail($"Output mismatch at index {index}.");
+            }
+            index++;
         }
     }
 }
