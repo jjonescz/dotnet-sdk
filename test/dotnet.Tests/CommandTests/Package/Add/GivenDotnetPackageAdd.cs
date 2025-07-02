@@ -267,6 +267,29 @@ namespace Microsoft.DotNet.Cli.Package.Add.Tests
                 .Fail();
         }
 
+        [Theory, CombinatorialData]
+        public void VersionRange(bool asArgument)
+        {
+            var testAsset = "TestAppSimple";
+            var projectDirectory = _testAssetsManager
+                .CopyTestAsset(testAsset)
+                .WithSource()
+                .Path;
+
+            var packageName = "Humanizer";
+            var packageVersion = "2.*";
+            string[] args = asArgument
+                ? ["add", "package", $"{packageName}@{packageVersion}"]
+                : ["add", "package", packageName, "--version", packageVersion];
+            var cmd = new DotnetCommand(Log)
+                .WithWorkingDirectory(projectDirectory)
+                .Execute(args);
+            cmd.Should().Pass();
+            cmd.StdOut.Should().Contain($"PackageReference for package '{packageName}' version '{packageVersion}' " +
+                $"added to file '{projectDirectory + Path.DirectorySeparatorChar + testAsset}.csproj'.");
+            cmd.StdErr.Should().BeEmpty();
+        }
+
         [Fact]
         public void FileBasedApp()
         {

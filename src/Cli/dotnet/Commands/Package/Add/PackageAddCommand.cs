@@ -9,14 +9,13 @@ using Microsoft.DotNet.Cli.Commands.NuGet;
 using Microsoft.DotNet.Cli.Commands.Run;
 using Microsoft.DotNet.Cli.Extensions;
 using Microsoft.DotNet.Cli.Utils;
-using NuGet.Packaging.Core;
 using NuGet.ProjectModel;
 
 namespace Microsoft.DotNet.Cli.Commands.Package.Add;
 
 internal class PackageAddCommand(ParseResult parseResult) : CommandBase(parseResult)
 {
-    private readonly PackageIdentity _packageId = parseResult.GetValue(PackageAddCommandParser.CmdPackageArgument)!;
+    private readonly PackageIdentityWithRange _packageId = parseResult.GetValue(PackageAddCommandParser.CmdPackageArgument)!;
 
     public override int Execute()
     {
@@ -107,7 +106,7 @@ internal class PackageAddCommand(ParseResult parseResult) : CommandBase(parseRes
         }
     }
 
-    private string[] TransformArgs(PackageIdentity packageId, string tempDgFilePath, string projectFilePath)
+    private string[] TransformArgs(PackageIdentityWithRange packageId, string tempDgFilePath, string projectFilePath)
     {
         List<string> args = [
             "package",
@@ -121,11 +120,11 @@ internal class PackageAddCommand(ParseResult parseResult) : CommandBase(parseRes
         if (packageId.HasVersion)
         {
             args.Add("--version");
-            args.Add(packageId.Version.ToString());
+            args.Add(packageId.VersionRange.OriginalString);
         }
 
         args.AddRange(_parseResult
-            .OptionValuesToBeForwarded(PackageAddCommandParser.GetCommand())
+            .OptionValuesToBeForwarded()
             .SelectMany(a => a.Split(' ', 2)));
 
         if (_parseResult.GetResult(PackageAddCommandParser.NoRestoreOption) is not null)

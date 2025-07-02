@@ -1,11 +1,13 @@
 ﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Collections.Frozen;
 using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.CommandLine;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.DotNet.Cli.Utils;
 
 namespace Microsoft.DotNet.Cli.Commands.Run.Api;
 
@@ -83,9 +85,10 @@ internal abstract class RunApiInput
 
         public override RunApiOutput Execute()
         {
+            var msbuildArgs = MSBuildArgs.FromOtherArgs("-verbosity:quiet");
             var buildCommand = new VirtualProjectBuildingCommand(
                 entryPointFileFullPath: EntryPointFileFullPath,
-                msbuildArgs: ["-verbosity:quiet"])
+                msbuildArgs: msbuildArgs)
             {
                 CustomArtifactsPath = ArtifactsPath,
             };
@@ -101,10 +104,11 @@ internal abstract class RunApiInput
                 noCache: false,
                 interactive: false,
                 verbosity: VerbosityOptions.quiet,
-                restoreArgs: [],
-                args: [],
+                msbuildArgs: msbuildArgs,
+                applicationArgs: [],
                 readCodeFromStdin: false,
-                environmentVariables: ReadOnlyDictionary<string, string>.Empty);
+                environmentVariables: ReadOnlyDictionary<string, string>.Empty,
+                msbuildRestoreProperties: ReadOnlyDictionary<string, string>.Empty);
 
             runCommand.TryGetLaunchProfileSettingsIfNeeded(out var launchSettings);
             var targetCommand = (Utils.Command)runCommand.GetTargetCommand(buildCommand.CreateProjectInstance);
