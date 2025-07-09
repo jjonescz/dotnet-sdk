@@ -96,6 +96,10 @@
       <Uri>https://github.com/dotnet/dotnet</Uri>
       <Sha>eaa19c281d34580a8168cff9ce1e7337da8bfe4f</Sha>
     </Dependency>
+    <Dependency Name="Microsoft.CodeAnalysis.BuildClient" Version="5.0.0-1.25358.102">
+      <Uri>https://github.com/dotnet/dotnet</Uri>
+      <Sha>23101ed07a38169d3e59d63b9d4d33e6d1d609bb</Sha>
+    </Dependency>
     <Dependency Name="Microsoft.CodeAnalysis.CSharp" Version="5.0.0-1.25351.106">
       <Uri>https://github.com/dotnet/dotnet</Uri>
       <Sha>eaa19c281d34580a8168cff9ce1e7337da8bfe4f</Sha>
