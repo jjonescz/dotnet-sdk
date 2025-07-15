@@ -1451,6 +1451,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             : string.Empty;
 
         new DotnetCommand(Log, "run", "-bl", "Program.cs")
+            .WithEnvironmentVariable(CommandLoggingContext.Variables.Verbose, bool.TrueString)
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Pass()
