@@ -1718,6 +1718,9 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         // Remove artifacts from possible previous runs of this test.
         var artifactsDir = VirtualProjectBuildingCommand.GetArtifactsPath(entryPointPath);
         if (Directory.Exists(artifactsDir)) Directory.Delete(artifactsDir, recursive: true);
+        
+        // Kill build server.
+        new DotnetCommand(Log, "build-server", "shutdown", "--vbcscompiler").Execute();
 
         // Build using MSBuild.
         new DotnetCommand(Log, "run", fileName, "-bl", "--no-cache", "-v:m")
