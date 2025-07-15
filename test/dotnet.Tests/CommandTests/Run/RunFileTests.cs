@@ -1693,6 +1693,22 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     [Fact]
     public void CscArguments()
     {
+        var oldRoslynCommandLineLogFile = Environment.GetEnvironmentVariable("RoslynCommandLineLogFile");
+        var tempRoslynCommandLineLogFile = Path.GetTempFileName();
+        Environment.SetEnvironmentVariable("RoslynCommandLineLogFile", tempRoslynCommandLineLogFile);
+        try
+        {
+            CscArguments_Core(roslynCommandLineLogFile: tempRoslynCommandLineLogFile);
+        }
+        finally
+        {
+            Log.WriteLine($"RoslynCommandLineLogFile ('{tempRoslynCommandLineLogFile}'):\n{File.ReadAllText(tempRoslynCommandLineLogFile)}");
+            Environment.SetEnvironmentVariable("RoslynCommandLineLogFile", oldRoslynCommandLineLogFile);
+        }
+    }
+
+    private void CscArguments_Core(string roslynCommandLineLogFile)
+    {
         var testInstance = _testAssetsManager.CreateTestDirectory(baseDirectory: OutOfTreeBaseDirectory);
         const string programName = "TestProgram";
         const string fileName = $"{programName}.cs";
@@ -1704,11 +1720,11 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         if (Directory.Exists(artifactsDir)) Directory.Delete(artifactsDir, recursive: true);
 
         // Build using MSBuild.
-        new DotnetCommand(Log, "run", fileName, "-bl", "--no-cache")
+        new DotnetCommand(Log, "run", fileName, "-bl", "--no-cache", "-v:m")
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Pass()
-            .And.HaveStdOut($"Hello from {programName}");
+            .And.HaveStdOutContaining($"Hello from {programName}");
 
         // Find the csc args used by the build.
         var msbuildCall = FindCompilerCall(Path.Join(testInstance.Path, "msbuild.binlog"));
@@ -1916,6 +1932,8 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         // Build using CSC.
         Directory.Delete(artifactsDir, recursive: true);
         new DotnetCommand(Log, "run", fileName, "-bl")
+            .WithEnvironmentVariable(CommandLoggingContext.Variables.Verbose, bool.TrueString)
+            .WithEnvironmentVariable("RoslynCommandLineLogFile", roslynCommandLineLogFile)
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Pass()
