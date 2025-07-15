@@ -1890,7 +1890,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         var nonGeneratedFile = codeFolder.File("CSharpCompilerCommand.cs");
         if (!nonGeneratedFile.Exists)
         {
-            Log.WriteLine($"Skipping code generation because file does not exist: {nonGeneratedFile.FullName}");
+            Log.WriteLine($"Skipping code generation because file does not exist '{nonGeneratedFile.FullName}'. Would generate:\n{code}");
         }
         else
         {
@@ -1899,9 +1899,9 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             var newText = code.ToString();
             if (existingText != newText)
             {
-                Log.WriteLine($"{codeFilePath.FullName} needs to be updated:");
+                Log.WriteLine($"File '{codeFilePath.FullName}' needs to be updated:");
                 Log.WriteLine(newText);
-                if (Environment.GetEnvironmentVariable("CI") == "true")
+                if (Env.GetEnvironmentVariableAsBool("CI"))
                 {
                     throw new InvalidOperationException($"Not updating file in CI: {codeFilePath.FullName}");
                 }
