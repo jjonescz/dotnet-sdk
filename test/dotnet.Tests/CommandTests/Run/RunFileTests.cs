@@ -1943,12 +1943,6 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         var rspFilePath = Path.Join(artifactsDir, "csc.rsp");
         Log.WriteLine($"csc.rsp ('{rspFilePath}'):\n{File.ReadAllText(rspFilePath)}");
 
-        result.Should().Pass()
-            .And.HaveStdOut($"""
-                {CliCommandStrings.NoBinaryLogBecauseRunningJustCsc}
-                Hello from {programName}
-                """);
-
         // Read args from csc.rsp file.
         var cscOnlyCallArgs = File.ReadAllLines(rspFilePath);
         var cscOnlyCallArgsString = string.Join(' ', cscOnlyCallArgs);
@@ -1962,6 +1956,12 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         Log.WriteLine(string.Join(Environment.NewLine, msbuildArgsToVerify));
         normalizedCscOnlyArgs.Should().Equal(msbuildArgsToVerify,
             "the generated file might be outdated, run this test locally to regenerate it");
+
+        result.Should().Pass()
+            .And.HaveStdOut($"""
+                {CliCommandStrings.NoBinaryLogBecauseRunningJustCsc}
+                Hello from {programName}
+                """);
 
         static CompilerCall FindCompilerCall(string binaryLogPath)
         {
@@ -2012,14 +2012,9 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         if (Directory.Exists(artifactsBackupDir)) Directory.Delete(artifactsBackupDir, recursive: true);
 
         // Build using CSC.
-        new DotnetCommand(Log, "run", fileName, "-bl")
+        var result = new DotnetCommand(Log, "run", fileName, "-bl")
             .WithWorkingDirectory(testInstance.Path)
-            .Execute()
-            .Should().Pass()
-            .And.HaveStdOut($"""
-                {CliCommandStrings.NoBinaryLogBecauseRunningJustCsc}
-                Hello from {programName}
-                """);
+            .Execute();
 
         // Backup the artifacts directory.
         Directory.Move(artifactsDir, artifactsBackupDir);
@@ -2070,6 +2065,12 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             }
         }
         hasErrors.Should().BeFalse();
+
+        result.Should().Pass()
+            .And.HaveStdOut($"""
+                {CliCommandStrings.NoBinaryLogBecauseRunningJustCsc}
+                Hello from {programName}
+                """);
     }
 
     [Fact]
