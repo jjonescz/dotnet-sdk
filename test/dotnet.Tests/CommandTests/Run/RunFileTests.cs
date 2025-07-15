@@ -1931,19 +1931,22 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
 
         // Build using CSC.
         Directory.Delete(artifactsDir, recursive: true);
-        new DotnetCommand(Log, "run", fileName, "-bl")
+        var result = new DotnetCommand(Log, "run", fileName, "-bl")
             .WithEnvironmentVariable(CommandLoggingContext.Variables.Verbose, bool.TrueString)
             .WithEnvironmentVariable("RoslynCommandLineLogFile", roslynCommandLineLogFile)
             .WithWorkingDirectory(testInstance.Path)
-            .Execute()
-            .Should().Pass()
+            .Execute();
+
+        var rspFilePath = Path.Join(artifactsDir, "csc.rsp");
+        Log.WriteLine($"csc.rsp ('{rspFilePath}'):\n{File.ReadAllText(rspFilePath)}");
+
+        result.Should().Pass()
             .And.HaveStdOut($"""
                 {CliCommandStrings.NoBinaryLogBecauseRunningJustCsc}
                 Hello from {programName}
                 """);
 
         // Read args from csc.rsp file.
-        var rspFilePath = Path.Join(artifactsDir, "csc.rsp");
         var cscOnlyCallArgs = File.ReadAllLines(rspFilePath);
         var cscOnlyCallArgsString = string.Join(' ', cscOnlyCallArgs);
 
