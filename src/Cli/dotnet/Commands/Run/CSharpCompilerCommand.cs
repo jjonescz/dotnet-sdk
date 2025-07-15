@@ -235,10 +235,12 @@ internal sealed partial class CSharpCompilerCommand
         {
             var rid = RuntimeInformation.RuntimeIdentifier;
             var apphostSource = Path.Join(SdkPath, "..", "..", "packs", $"Microsoft.NETCore.App.Host.{rid}", RuntimeVersion, "runtimes", rid, "native", $"apphost{FileNameSuffixes.CurrentPlatform.Exe}");
+            Reporter.Verbose.WriteLine($"Creating apphost from {apphostSource} to {apphostTarget}");
             HostWriter.CreateAppHost(
                 appHostSourceFilePath: apphostSource,
                 appHostDestinationFilePath: apphostTarget,
-                appBinaryFilePath: $"{fileNameWithoutExtension}.dll");
+                appBinaryFilePath: $"{fileNameWithoutExtension}.dll",
+                enableMacOSCodeSign: OperatingSystem.IsMacOS());
         }
 
         var runtimeConfig = Path.Join(binDir, $"{fileNameWithoutExtension}{FileNameSuffixes.RuntimeConfigJson}");
