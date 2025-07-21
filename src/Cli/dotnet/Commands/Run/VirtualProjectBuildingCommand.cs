@@ -46,6 +46,12 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
     /// </summary>
     private const string BuildSuccessCacheFileName = "build-success.cache";
 
+    /// <summary>
+    /// A file in the artifacts directory containing the virtual project file XML content.
+    /// Build components like NuGet Static Graph Restore can read it (via <c>ProjectTextFile</c> MSBuild property) to determine the project file content.
+    /// </summary>
+    private const string ProjectTextFileName = "project.txt";
+
     private static readonly ImmutableArray<string> s_implicitBuildFileNames =
     [
         "global.json",
@@ -555,6 +561,8 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                 includeRuntimeConfigInformation: !MSBuildArgs.RequestedTargets?.Contains("Publish") ?? true);
             var projectFileText = projectFileWriter.ToString();
 
+            File.WriteAllText(Path.Join(GetArtifactsPath(), ProjectTextFileName), projectFileText);
+
             using var reader = new StringReader(projectFileText);
             using var xmlReader = XmlReader.Create(reader);
             var projectRoot = ProjectRootElement.Create(xmlReader, projectCollection);
@@ -652,6 +660,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                     <IncludeProjectNameInArtifactsPaths>false</IncludeProjectNameInArtifactsPaths>
                     <ArtifactsPath>{EscapeValue(artifactsPath)}</ArtifactsPath>
                     <PublishDir>artifacts/$(MSBuildProjectName)</PublishDir>
+                    <ProjectTextFile>{EscapeValue(Path.Join(artifactsPath, ProjectTextFileName))}</ProjectTextFile>
                   </PropertyGroup>
 
                   <ItemGroup>
