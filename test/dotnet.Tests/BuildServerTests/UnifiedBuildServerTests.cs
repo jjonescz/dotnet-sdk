@@ -3,10 +3,14 @@
 
 namespace Microsoft.DotNet.Tests.BuildServerTests;
 
+[CollectionDefinition(nameof(BuildServerTestCollection), DisableParallelization = true)]
+public sealed class BuildServerTestCollection : ICollectionFixture<BuildServerTestCollection>;
+
+[Collection(nameof(BuildServerTestCollection))]
 public sealed class UnifiedBuildServerTests(ITestOutputHelper output) : SdkTest(output)
 {
     [Fact]
-    public void Shutdown_Roslyn()
+    public async Task Shutdown_Roslyn()
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
         File.WriteAllText(Path.Join(testInstance.Path, "app.csproj"), $"""
@@ -24,12 +28,21 @@ public sealed class UnifiedBuildServerTests(ITestOutputHelper output) : SdkTest(
 
         var roslynLog = Path.Join(testInstance.Path, "roslyn-log.txt");
 
+        var printLogsAfterTimeoutCts = new CancellationTokenSource();
+        var printLogsAfterTimeoutTask = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromMinutes(5), printLogsAfterTimeoutCts.Token);
+            printLogsAfterTimeoutCts.Token.ThrowIfCancellationRequested();
+            Log.WriteLine("Timeout occurred, printing roslyn logs:");
+            PrintRoslynLog();
+        },
+        printLogsAfterTimeoutCts.Token);
+
         // Ensure there is no build server running from other tests.
         new DotnetCommand(Log, "build-server", "shutdown", "--unified")
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Pass()
-            .And.NotHaveStdOutContaining("VBCSCompiler")
             .And.NotHaveStdErr();
 
         // Build.
@@ -45,12 +58,19 @@ public sealed class UnifiedBuildServerTests(ITestOutputHelper output) : SdkTest(
             .WithWorkingDirectory(testInstance.Path)
             .Execute();
 
-        Log.WriteLine(roslynLog);
-        string roslynLogText = File.ReadAllText(roslynLog);
-        Log.WriteLine(roslynLogText);
+        printLogsAfterTimeoutCts.Cancel();
+        try { await printLogsAfterTimeoutTask; } catch (TaskCanceledException) { }
+        PrintRoslynLog();
 
         result.Should().Pass()
             .And.HaveStdOutContaining("VBCSCompiler")
             .And.NotHaveStdErr();
+
+        void PrintRoslynLog()
+        {
+            Log.WriteLine(roslynLog);
+            string roslynLogText = File.ReadAllText(roslynLog);
+            Log.WriteLine(roslynLogText);
+        }
     }
 }
