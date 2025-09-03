@@ -49,7 +49,16 @@ internal sealed partial class CSharpCompilerCommand
     public required string EntryPointFileFullPath { get; init; }
     public required string ArtifactsPath { get; init; }
     public required bool CanReuseAuxiliaryFiles { get; init; }
+
+    /// <summary>
+    /// Compiler command line arguments to use. If empty, default arguments are used.
+    /// </summary>
     public required ImmutableArray<string> CscArguments { get; init; }
+
+    /// <summary>
+    /// Path to the <c>bin/Program.dll</c> file. If specified,
+    /// the compiled output (<c>obj/Program.dll</c>) will be copied to this location.
+    /// </summary>
     public required string? BuildResultFile { get; init; }
 
     /// <param name="fallbackToNormalBuild">
@@ -137,6 +146,7 @@ internal sealed partial class CSharpCompilerCommand
             }
         }
 
+        // Finds /out: argument and extract the file path from it.
         string? FindOutputFile()
         {
             const string outPrefix = "/out:";

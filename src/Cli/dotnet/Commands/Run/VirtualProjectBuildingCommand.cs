@@ -433,7 +433,14 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
     public sealed class CacheInfo
     {
         public required FileInfo EntryPointFile { get; init; }
+
+        /// <summary>
+        /// If <see cref="PreviousEntry"/> is <see langword="null"/> and this is
+        /// <see langword="true"/>, it means previous entry was deserialized
+        /// unsuccessfully (so no need to try again).
+        /// </summary>
         public bool TriedDeserializingPreviousEntry { get; set; }
+
         public RunFileBuildCacheEntry? PreviousEntry { get; set; }
         public required RunFileBuildCacheEntry CurrentEntry { get; init; }
 
@@ -1799,8 +1806,14 @@ internal sealed class RunFileBuildCacheEntry
 
     public RunProperties? Run { get; set; }
 
+    /// <summary>
+    /// <see cref="CSharpCompilerCommand.CscArguments"/>
+    /// </summary>
     public ImmutableArray<string> CscArguments { get; set; } = [];
 
+    /// <summary>
+    /// <see cref="CSharpCompilerCommand.BuildResultFile"/>
+    /// </summary>
     public string? BuildResultFile { get; set; }
 
     [JsonConstructor]
