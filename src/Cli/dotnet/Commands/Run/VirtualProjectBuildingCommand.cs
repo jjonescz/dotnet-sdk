@@ -723,9 +723,9 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                 Reporter.Verbose.WriteLine("We have CSC arguments from previous run. Skipping MSBuild and using CSC only.");
 
                 // Keep the cached info for next time, so we can use CSC again.
-                cache.CurrentEntry.Run = cache.PreviousEntry.Run;
                 cache.CurrentEntry.CscArguments = cache.PreviousEntry.CscArguments;
                 cache.CurrentEntry.BuildResultFile = cache.PreviousEntry.BuildResultFile;
+                cache.CurrentEntry.Run = cache.PreviousEntry.Run;
 
                 return BuildLevel.Csc;
             }
@@ -765,6 +765,15 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         }
 
         Reporter.Verbose.WriteLine("Skipping MSBuild and using CSC only.");
+
+        // Don't reuse CSC arguments, this is the "simple" CSC-only build.
+        if (cache.PreviousEntry?.CscArguments.IsDefaultOrEmpty == false)
+        {
+            cache.PreviousEntry.CscArguments = [];
+            cache.PreviousEntry.BuildResultFile = null;
+            cache.PreviousEntry.Run = null;
+        }
+
         return BuildLevel.Csc;
     }
 
