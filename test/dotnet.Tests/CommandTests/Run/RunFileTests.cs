@@ -2942,8 +2942,12 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
 
         Build(testInstance, BuildLevel.Csc, expectedOutput: "v3 Release");
 
-        // TODO: Customizing a property forces MSBuild to be used.
-        //Build(testInstance, BuildLevel.All, args: ["-c", "Debug"], expectedOutput: "v2");
+        // Customizing a property forces MSBuild to be used.
+        File.WriteAllText(programPath, code.Replace("Configuration=Release", "Configuration=Debug"));
+
+        Build(testInstance, BuildLevel.All, expectedOutput: "v1 ");
+
+        Build(testInstance, BuildLevel.All, args: ["-c", "Release"], expectedOutput: "v1 Release");
     }
 
     private static string ToJson(string s) => JsonSerializer.Serialize(s);

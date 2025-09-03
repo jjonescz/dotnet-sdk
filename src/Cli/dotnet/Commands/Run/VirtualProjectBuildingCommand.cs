@@ -442,6 +442,11 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         /// </remarks>
         public bool InitialCanReuseAuxiliaryFiles { get; set; } = true;
 
+        /// <summary>
+        /// Set during <see cref="NeedsToBuild"/>.
+        /// </summary>
+        public bool CanUseCscViaPreviousArguments { get; set; }
+
         public bool DetermineFinalCanReuseAuxiliaryFiles()
         {
             if (PreviousEntry?.CscArguments.IsDefaultOrEmpty == false)
@@ -478,7 +483,10 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
     {
         var cacheEntry = new RunFileBuildCacheEntry(MSBuildArgs.GlobalProperties?.ToDictionary(StringComparer.OrdinalIgnoreCase) ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase))
         {
-            AnyDirectives = Directives.Any(static d => d is not CSharpDirective.Shebang),
+            Directives = Directives
+                .Where(static d => d is not CSharpDirective.Shebang)
+                .Select(static d => d.ToString())
+                .ToImmutableArray(),
             SdkVersion = Product.Version,
             RuntimeVersion = CSharpCompilerCommand.RuntimeVersion,
         };
@@ -614,6 +622,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         // Check that the source file is not modified.
         if (entryPointFile.LastWriteTimeUtc > buildTimeUtc)
         {
+            cache.CanUseCscViaPreviousArguments = true;
             Reporter.Verbose.WriteLine("Compiling because entry point file is modified: " + entryPointFile.FullName);
             return true;
         }
@@ -670,8 +679,8 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         }
 
         // Determine whether we can invoke CSC using previous arguments.
-        // TODO: Need to check all the stuff below whether it's outdated.
-        if (cache.PreviousEntry?.CscArguments.IsDefaultOrEmpty == false)
+        if (cache.CanUseCscViaPreviousArguments &&
+            cache.PreviousEntry?.CscArguments.IsDefaultOrEmpty == false)
         {
             if (cache.PreviousEntry?.Run == null)
             {
@@ -680,6 +689,11 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
             else if (cache.PreviousEntry?.BuildResultFile == null)
             {
                 Reporter.Verbose.WriteLine("We have CSC arguments but not build result file. That's unexpected.");
+            }
+            else if (cache.PreviousEntry.Directives.Length != cache.CurrentEntry.Directives.Length ||
+                !cache.PreviousEntry.Directives.SequenceEqual(cache.CurrentEntry.Directives))
+            {
+                Reporter.Verbose.WriteLine("Cannot use CSC arguments from previous run because directives changed.");
             }
             else
             {
@@ -697,7 +711,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         // Determine whether we can use CSC only or need to use MSBuild.
         var cacheEntry = cache.CurrentEntry;
 
-        if (cacheEntry.AnyDirectives)
+        if (!cacheEntry.Directives.IsDefaultOrEmpty)
         {
             Reporter.Verbose.WriteLine("Using MSBuild because there are directives in the source file.");
             return BuildLevel.All;
@@ -1741,9 +1755,9 @@ internal sealed class RunFileBuildCacheEntry
     public HashSet<string> ImplicitBuildFiles { get; }
 
     /// <summary>
-    /// Whether there are any <see cref="CSharpDirective"/>s recognized by the SDK (i.e., except shebang).
+    /// <see cref="CSharpDirective"/>s recognized by the SDK (i.e., except shebang).
     /// </summary>
-    public bool AnyDirectives { get; set; } // should be required and init-only but https://github.com/dotnet/runtime/issues/92877
+    public ImmutableArray<string> Directives { get; set; } = [];
 
     public BuildLevel BuildLevel { get; set; }
 
