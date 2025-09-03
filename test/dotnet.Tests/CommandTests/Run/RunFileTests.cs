@@ -2909,6 +2909,43 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
                 """);
     }
 
+    [Fact]
+    public void CscOnly_AfterMSBuild()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory(baseDirectory: OutOfTreeBaseDirectory);
+
+        var code = """
+            #:property Configuration=Release
+            Console.Write("v1 ");
+            #if !DEBUG
+            Console.Write("Release");
+            #endif
+            """;
+
+        var programPath = Path.Join(testInstance.Path, "Program.cs");
+
+        File.WriteAllText(programPath, code);
+
+        // Remove artifacts from possible previous runs of this test.
+        var artifactsDir = VirtualProjectBuildingCommand.GetArtifactsPath(programPath);
+        if (Directory.Exists(artifactsDir)) Directory.Delete(artifactsDir, recursive: true);
+
+        Build(testInstance, BuildLevel.All, expectedOutput: "v1 Release");
+
+        Build(testInstance, BuildLevel.None, expectedOutput: "v1 Release");
+
+        File.WriteAllText(programPath, code.Replace("v1", "v2"));
+
+        Build(testInstance, BuildLevel.Csc, expectedOutput: "v2 Release");
+
+        File.WriteAllText(programPath, code.Replace("v1", "v3"));
+
+        Build(testInstance, BuildLevel.Csc, expectedOutput: "v3 Release");
+
+        // TODO: Customizing a property forces MSBuild to be used.
+        //Build(testInstance, BuildLevel.All, args: ["-c", "Debug"], expectedOutput: "v2");
+    }
+
     private static string ToJson(string s) => JsonSerializer.Serialize(s);
 
     /// <summary>

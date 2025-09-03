@@ -1,6 +1,7 @@
 ﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System;
 using System.Collections.Frozen;
 using System.Collections.Immutable;
 using System.Collections.ObjectModel;
@@ -94,6 +95,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         "NuGetInteractive",
         "_BuildNonexistentProjectsByDefault",
         "RestoreUseSkipNonexistentTargets",
+        "ProvideCommandLineArgs",
     ];
 
     public static string TargetFrameworkVersion => Product.TargetFrameworkVersion;
@@ -110,6 +112,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
             // See https://github.com/dotnet/msbuild/blob/main/documentation/specs/build-nonexistent-projects-by-default.md.
             { "_BuildNonexistentProjectsByDefault", bool.TrueString },
             { "RestoreUseSkipNonexistentTargets", bool.FalseString },
+            { "ProvideCommandLineArgs", bool.TrueString },
         }
         .AsReadOnly());
     }
@@ -209,6 +212,8 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                         EntryPointFileFullPath = EntryPointFileFullPath,
                         ArtifactsPath = ArtifactsPath,
                         CanReuseAuxiliaryFiles = cache.DetermineFinalCanReuseAuxiliaryFiles(),
+                        CscArguments = cache.PreviousEntry?.CscArguments ?? [],
+                        BuildResultFile = cache.PreviousEntry?.BuildResultFile,
                     }
                     .Execute(out bool fallbackToNormalBuild);
 
@@ -298,7 +303,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
             {
                 var buildRequest = new BuildRequestData(
                     CreateProjectInstance(projectCollection),
-                    targetsToBuild: MSBuildArgs.RequestedTargets ?? ["Build"]);
+                    targetsToBuild: MSBuildArgs.RequestedTargets ?? [Constants.Build, Constants.CoreCompile]);
 
                 var buildResult = BuildManager.DefaultBuildManager.BuildRequest(buildRequest);
                 if (buildResult.OverallResult != BuildResultCode.Success)
@@ -312,6 +317,8 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                 // Cache run info (to avoid re-evaluating the project instance).
                 cache.CurrentEntry.Run = RunProperties.FromProject(buildRequest.ProjectInstance);
 
+                GetCscArguments(cache.CurrentEntry, buildResult);
+
                 MarkBuildSuccess(cache);
             }
 
@@ -322,7 +329,9 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         }
         catch (Exception e)
         {
-            Console.Error.WriteLine(e.Message);
+            Reporter.Error.WriteLine(CommandLoggingContext.IsVerbose ?
+                e.ToString().Red().Bold() :
+                e.Message.Red().Bold());
             return 1;
         }
         finally
@@ -385,6 +394,29 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
 
             return null;
         }
+
+        static void GetCscArguments(RunFileBuildCacheEntry cacheEntry, BuildResult result)
+        {
+            if (result.TryGetResultsForTarget(Constants.CoreCompile, out var coreCompileResult) &&
+                coreCompileResult.ResultCode == TargetResultCode.Success &&
+                coreCompileResult.Items.Length != 0 &&
+                result.TryGetResultsForTarget(Constants.Build, out var buildResult) &&
+                buildResult.ResultCode == TargetResultCode.Success &&
+                buildResult.Items is [{ } buildResultItem])
+            {
+                // TODO: Reuse previous if the are no items. Test that.
+                cacheEntry.CscArguments = coreCompileResult.Items
+                    .Select(static i => i.GetMetadata(Constants.Identity))
+                    .Where(static a => a != "/noconfig")
+                    .ToImmutableArray();
+                cacheEntry.BuildResultFile = buildResultItem.GetMetadata(Constants.FullPath);
+                Reporter.Verbose.WriteLine($"Found CSC arguments ({cacheEntry.CscArguments.Length}) and build result path: {cacheEntry.BuildResultFile}");
+            }
+            else
+            {
+                Reporter.Verbose.WriteLine($"No CSC arguments found in targets: {string.Join(", ", result.ResultsByTarget.Keys)}");
+            }
+        }
     }
 
     /// <summary>
@@ -412,6 +444,11 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
 
         public bool DetermineFinalCanReuseAuxiliaryFiles()
         {
+            if (PreviousEntry?.CscArguments.IsDefaultOrEmpty == false)
+            {
+                return false;
+            }
+
             if (!InitialCanReuseAuxiliaryFiles)
             {
                 Reporter.Verbose.WriteLine("CSC auxiliary files can NOT be reused due to the same reason build is needed.");
@@ -420,7 +457,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
 
             if (PreviousEntry?.BuildLevel != BuildLevel.Csc)
             {
-                Reporter.Verbose.WriteLine($"CSC auxiliary files can NOT be reused because previous build level was not CSC " +
+                Reporter.Verbose.WriteLine("CSC auxiliary files can NOT be reused because previous build level was not CSC " +
                     $"(it was {PreviousEntry?.BuildLevel.ToString() ?? "N/A"}).");
                 return false;
             }
@@ -630,6 +667,31 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         {
             Reporter.Verbose.WriteLine("No need to build, the output is up to date.");
             return BuildLevel.None;
+        }
+
+        // Determine whether we can invoke CSC using previous arguments.
+        // TODO: Need to check all the stuff below whether it's outdated.
+        if (cache.PreviousEntry?.CscArguments.IsDefaultOrEmpty == false)
+        {
+            if (cache.PreviousEntry?.Run == null)
+            {
+                Reporter.Verbose.WriteLine("We have CSC arguments but not run properties. That's unexpected.");
+            }
+            else if (cache.PreviousEntry?.BuildResultFile == null)
+            {
+                Reporter.Verbose.WriteLine("We have CSC arguments but not build result file. That's unexpected.");
+            }
+            else
+            {
+                Reporter.Verbose.WriteLine("We have CSC arguments from previous run. Skipping MSBuild and using CSC only.");
+
+                // Keep the cached info for next time, so we can use CSC again.
+                cache.CurrentEntry.Run = cache.PreviousEntry.Run;
+                cache.CurrentEntry.CscArguments = cache.PreviousEntry.CscArguments;
+                cache.CurrentEntry.BuildResultFile = cache.PreviousEntry.BuildResultFile;
+
+                return BuildLevel.Csc;
+            }
         }
 
         // Determine whether we can use CSC only or need to use MSBuild.
@@ -1690,6 +1752,10 @@ internal sealed class RunFileBuildCacheEntry
     public string? RuntimeVersion { get; set; } // should be required and init-only but https://github.com/dotnet/runtime/issues/92877
 
     public RunProperties? Run { get; set; }
+
+    public ImmutableArray<string> CscArguments { get; set; } = [];
+
+    public string? BuildResultFile { get; set; }
 
     [JsonConstructor]
     public RunFileBuildCacheEntry()

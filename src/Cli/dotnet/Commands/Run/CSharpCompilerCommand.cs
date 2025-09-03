@@ -49,6 +49,8 @@ internal sealed partial class CSharpCompilerCommand
     public required string EntryPointFileFullPath { get; init; }
     public required string ArtifactsPath { get; init; }
     public required bool CanReuseAuxiliaryFiles { get; init; }
+    public required ImmutableArray<string> CscArguments { get; init; }
+    public required string? BuildResultFile { get; init; }
 
     /// <param name="fallbackToNormalBuild">
     /// Whether the returned error code should not cause the build to fail but instead fallback to full MSBuild.
@@ -87,7 +89,16 @@ internal sealed partial class CSharpCompilerCommand
             cancellationToken: default);
 
         // Process the response.
-        return ProcessBuildResponse(responseTask.Result, out fallbackToNormalBuild);
+        var exitCode = ProcessBuildResponse(responseTask.Result, out fallbackToNormalBuild);
+
+        // Copy from obj to bin.
+        if (BuildResultFile != null && FindOutputFile() is { } objFile)
+        {
+            Reporter.Verbose.WriteLine($"Copying '{objFile}' to '{BuildResultFile}'.");
+            File.Copy(objFile, BuildResultFile, overwrite: true);
+        }
+
+        return exitCode;
 
         static string GetCompilerCommitHash()
         {
@@ -125,10 +136,33 @@ internal sealed partial class CSharpCompilerCommand
                     return 1;
             }
         }
+
+        string? FindOutputFile()
+        {
+            const string outPrefix = "/out:";
+
+            foreach (var arg in CscArguments)
+            {
+                if (arg.StartsWith(outPrefix, StringComparison.OrdinalIgnoreCase) && arg.Length > outPrefix.Length)
+                {
+                    return arg[outPrefix.Length..];
+                }
+            }
+
+            return null;
+        }
     }
 
     private void PrepareAuxiliaryFiles(out string rspPath)
     {
+        rspPath = Path.Join(ArtifactsPath, "csc.rsp");
+
+        if (!CscArguments.IsDefaultOrEmpty)
+        {
+            File.WriteAllLines(rspPath, CscArguments);
+            return;
+        }
+
         string fileDirectory = Path.GetDirectoryName(EntryPointFileFullPath) ?? string.Empty;
         string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(EntryPointFileFullPath);
 
@@ -283,7 +317,6 @@ internal sealed partial class CSharpCompilerCommand
                 """);
         }
 
-        rspPath = Path.Join(ArtifactsPath, "csc.rsp");
         if (ShouldEmit(rspPath))
         {
             IEnumerable<string> args = GetCscArguments(
