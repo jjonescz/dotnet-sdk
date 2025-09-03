@@ -2934,20 +2934,34 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
 
         Build(testInstance, BuildLevel.None, expectedOutput: "v1 Release");
 
-        File.WriteAllText(programPath, code.Replace("v1", "v2"));
+        code = code.Replace("v1", "v2");
+        File.WriteAllText(programPath, code);
 
         Build(testInstance, BuildLevel.Csc, expectedOutput: "v2 Release");
 
-        File.WriteAllText(programPath, code.Replace("v1", "v3"));
+        code = code.Replace("v2", "v3");
+        File.WriteAllText(programPath, code);
 
         Build(testInstance, BuildLevel.Csc, expectedOutput: "v3 Release");
 
         // Customizing a property forces MSBuild to be used.
-        File.WriteAllText(programPath, code.Replace("Configuration=Release", "Configuration=Debug"));
+        code = code.Replace("Configuration=Release", "Configuration=Debug");
+        File.WriteAllText(programPath, code);
 
-        Build(testInstance, BuildLevel.All, expectedOutput: "v1 ");
+        Build(testInstance, BuildLevel.All, expectedOutput: "v3 ");
 
-        Build(testInstance, BuildLevel.All, args: ["-c", "Release"], expectedOutput: "v1 Release");
+        // This MSBuild will skip CoreBuild but we still need to preserve CSC args so the next build can be CSC-only.
+        Build(testInstance, BuildLevel.All, ["--no-cache"], expectedOutput: "v3 ");
+
+        code = code.Replace("v3", "v4");
+        File.WriteAllText(programPath, code);
+
+        Build(testInstance, BuildLevel.Csc, expectedOutput: "v4 ");
+
+        // Customizing a property on the command-line forces MSBuild to be used.
+        Build(testInstance, BuildLevel.All, args: ["-c", "Release"], expectedOutput: "v4 Release");
+
+        Build(testInstance, BuildLevel.All, expectedOutput: "v4 ");
     }
 
     private static string ToJson(string s) => JsonSerializer.Serialize(s);

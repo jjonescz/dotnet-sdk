@@ -317,7 +317,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                 // Cache run info (to avoid re-evaluating the project instance).
                 cache.CurrentEntry.Run = RunProperties.FromProject(buildRequest.ProjectInstance);
 
-                GetCscArguments(cache.CurrentEntry, buildResult);
+                GetCscArguments(cache, buildResult);
 
                 MarkBuildSuccess(cache);
             }
@@ -395,22 +395,30 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
             return null;
         }
 
-        static void GetCscArguments(RunFileBuildCacheEntry cacheEntry, BuildResult result)
+        void GetCscArguments(CacheInfo cache, BuildResult result)
         {
             if (result.TryGetResultsForTarget(Constants.CoreCompile, out var coreCompileResult) &&
                 coreCompileResult.ResultCode == TargetResultCode.Success &&
-                coreCompileResult.Items.Length != 0 &&
                 result.TryGetResultsForTarget(Constants.Build, out var buildResult) &&
                 buildResult.ResultCode == TargetResultCode.Success &&
                 buildResult.Items is [{ } buildResultItem])
             {
-                // TODO: Reuse previous if the are no items. Test that.
-                cacheEntry.CscArguments = coreCompileResult.Items
-                    .Select(static i => i.GetMetadata(Constants.Identity))
-                    .Where(static a => a != "/noconfig")
-                    .ToImmutableArray();
-                cacheEntry.BuildResultFile = buildResultItem.GetMetadata(Constants.FullPath);
-                Reporter.Verbose.WriteLine($"Found CSC arguments ({cacheEntry.CscArguments.Length}) and build result path: {cacheEntry.BuildResultFile}");
+                if (coreCompileResult.Items.Length == 0)
+                {
+                    EnsurePreviousCacheEntry(cache);
+                    cache.CurrentEntry.CscArguments = cache.PreviousEntry?.CscArguments ?? [];
+                    cache.CurrentEntry.BuildResultFile = cache.PreviousEntry?.BuildResultFile;
+                    Reporter.Verbose.WriteLine($"Reusing previous CSC arguments ({cache.CurrentEntry.CscArguments.Length}) because none were found in the {Constants.CoreCompile} target.");
+                }
+                else
+                {
+                    cache.CurrentEntry.CscArguments = coreCompileResult.Items
+                        .Select(static i => i.GetMetadata(Constants.Identity))
+                        .Where(static a => a != "/noconfig")
+                        .ToImmutableArray();
+                    cache.CurrentEntry.BuildResultFile = buildResultItem.GetMetadata(Constants.FullPath);
+                    Reporter.Verbose.WriteLine($"Found CSC arguments ({cache.CurrentEntry.CscArguments.Length}) and build result path: {cache.CurrentEntry.BuildResultFile}");
+                }
             }
             else
             {
@@ -425,6 +433,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
     public sealed class CacheInfo
     {
         public required FileInfo EntryPointFile { get; init; }
+        public bool TriedDeserializingPreviousEntry { get; set; }
         public RunFileBuildCacheEntry? PreviousEntry { get; set; }
         public required RunFileBuildCacheEntry CurrentEntry { get; init; }
 
@@ -557,7 +566,9 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
             return true;
         }
 
+        Debug.Assert(!cache.TriedDeserializingPreviousEntry);
         var previousCacheEntry = DeserializeCacheEntry(successCacheFile.FullName);
+        cache.TriedDeserializingPreviousEntry = true;
         if (previousCacheEntry is null)
         {
             cache.InitialCanReuseAuxiliaryFiles = false;
@@ -670,6 +681,15 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         return DeserializeCacheEntry(Path.Join(ArtifactsPath, BuildSuccessCacheFileName));
     }
 
+    private void EnsurePreviousCacheEntry(CacheInfo cache)
+    {
+        if (cache.PreviousEntry is null && !cache.TriedDeserializingPreviousEntry)
+        {
+            cache.PreviousEntry = GetPreviousCacheEntry();
+            cache.TriedDeserializingPreviousEntry = true;
+        }
+    }
+
     private BuildLevel GetBuildLevel(out CacheInfo cache)
     {
         if (!NeedsToBuild(out cache))
@@ -679,10 +699,13 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         }
 
         // Determine whether we can invoke CSC using previous arguments.
-        if (cache.CanUseCscViaPreviousArguments &&
-            cache.PreviousEntry?.CscArguments.IsDefaultOrEmpty == false)
+        if (cache.CanUseCscViaPreviousArguments)
         {
-            if (cache.PreviousEntry?.Run == null)
+            if (cache.PreviousEntry?.CscArguments.IsDefaultOrEmpty != false)
+            {
+                Reporter.Verbose.WriteLine("No CSC arguments from previous run.");
+            }
+            else if (cache.PreviousEntry?.Run == null)
             {
                 Reporter.Verbose.WriteLine("We have CSC arguments but not run properties. That's unexpected.");
             }
