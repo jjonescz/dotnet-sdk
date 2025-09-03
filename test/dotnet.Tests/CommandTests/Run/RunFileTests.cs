@@ -989,10 +989,10 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
 
         string[] args = beforeFile
-            ? ["run", "-bl", "Program.cs"]
-            : ["run", "Program.cs", "-bl"];
+            ? ["-bl", "Program.cs"]
+            : ["Program.cs", "-bl"];
 
-        new DotnetCommand(Log, args)
+        new DotnetCommand(Log, ["run", "--no-cache", .. args])
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Pass()
@@ -1039,7 +1039,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         var testInstance = _testAssetsManager.CreateTestDirectory();
         File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
 
-        new DotnetCommand(Log, "run", "Program.cs", arg)
+        new DotnetCommand(Log, "run", "--no-cache", "Program.cs", arg)
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Pass()
@@ -1059,7 +1059,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         var testInstance = _testAssetsManager.CreateTestDirectory();
         File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
 
-        new DotnetCommand(Log, "run", "Program.cs", "-bl:one.binlog", "two.binlog", "/bl:three.binlog")
+        new DotnetCommand(Log, "run", "--no-cache", "Program.cs", "-bl:one.binlog", "two.binlog", "/bl:three.binlog")
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Pass()
@@ -1122,7 +1122,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         var testInstance = _testAssetsManager.CreateTestDirectory();
         File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_program);
 
-        new DotnetCommand(Log, "run", "Program.cs", "-bl")
+        new DotnetCommand(Log, "run", "--no-cache", "Program.cs", "-bl")
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Pass()
