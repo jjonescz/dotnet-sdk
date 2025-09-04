@@ -397,6 +397,14 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
 
         void GetCscArguments(CacheInfo cache, BuildResult result)
         {
+            // We cannot reuse CSC arguments from previous run and skip MSBuild if there are project references
+            // because we cannot easily detect whether any referenced projects have changed.
+            if (Directives.Any(static d => d is CSharpDirective.Project))
+            {
+                Reporter.Verbose.WriteLine("Not saving CSC arguments because there is a project directive.");
+                return;
+            }
+
             if (result.TryGetResultsForTarget(Constants.CoreCompile, out var coreCompileResult) &&
                 coreCompileResult.ResultCode == TargetResultCode.Success &&
                 result.TryGetResultsForTarget(Constants.Build, out var buildResult) &&
