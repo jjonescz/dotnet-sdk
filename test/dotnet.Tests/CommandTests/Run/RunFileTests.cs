@@ -3095,6 +3095,52 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         Build(testInstance, BuildLevel.All, expectedOutput: "v2 Hello from Lib v2", programFileName: programFileName);
     }
 
+    /// <summary>
+    /// If users have more complex build customizations, they can opt out of the optimization which
+    /// reuses CSC arguments and skips subsequent MSBuild invocations.
+    /// </summary>
+    [Theory, CombinatorialData]
+    public void CscOnly_AfterMSBuild_OptOut(bool canSkipMSBuild, bool inDirectoryBuildProps)
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory(baseDirectory: OutOfTreeBaseDirectory);
+
+        const string propertyName = VirtualProjectBuildingCommand.FileBasedProgramCanSkipMSBuild;
+
+        if (inDirectoryBuildProps)
+        {
+            File.WriteAllText(Path.Join(testInstance.Path, "Directory.Build.props"), $"""
+                <Project>
+                  <PropertyGroup>
+                    <{propertyName}>{canSkipMSBuild}</{propertyName}>
+                  </PropertyGroup>
+                </Project>
+                """);
+        }
+
+        var code = $"""
+            #:property Configuration=Release
+            {(inDirectoryBuildProps ? "" : $"#:property {propertyName}={canSkipMSBuild}")}
+            Console.Write("v1 ");
+            #if !DEBUG
+            Console.Write("Release");
+            #endif
+            """;
+
+        var programPath = Path.Join(testInstance.Path, "Program.cs");
+        File.WriteAllText(programPath, code);
+
+        // Remove artifacts from possible previous runs of this test.
+        var artifactsDir = VirtualProjectBuildingCommand.GetArtifactsPath(programPath);
+        if (Directory.Exists(artifactsDir)) Directory.Delete(artifactsDir, recursive: true);
+
+        Build(testInstance, BuildLevel.All, expectedOutput: "v1 Release");
+
+        code = code.Replace("v1", "v2");
+        File.WriteAllText(programPath, code);
+
+        Build(testInstance, canSkipMSBuild ? BuildLevel.Csc : BuildLevel.All, expectedOutput: "v2 Release");
+    }
+
     private static string ToJson(string s) => JsonSerializer.Serialize(s);
 
     /// <summary>

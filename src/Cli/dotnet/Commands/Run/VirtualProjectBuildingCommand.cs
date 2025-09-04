@@ -45,6 +45,8 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
     /// </summary>
     private const string BuildSuccessCacheFileName = "build-success.cache";
 
+    internal const string FileBasedProgramCanSkipMSBuild = nameof(FileBasedProgramCanSkipMSBuild);
+
     /// <summary>
     /// <c>IsMSBuildFile</c> is <see langword="true"/> if the presence of the implicit build file (even if there are no <see cref="CSharpDirective"/>s)
     /// implies that CSC is not enough and MSBuild is needed to build the project, i.e., the file alone can affect MSBuild props or targets.
@@ -317,7 +319,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                 // Cache run info (to avoid re-evaluating the project instance).
                 cache.CurrentEntry.Run = RunProperties.FromProject(buildRequest.ProjectInstance);
 
-                GetCscArguments(cache, buildResult);
+                GetCscArguments(cache, buildResult, buildRequest.ProjectInstance);
 
                 MarkBuildSuccess(cache);
             }
@@ -395,8 +397,14 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
             return null;
         }
 
-        void GetCscArguments(CacheInfo cache, BuildResult result)
+        void GetCscArguments(CacheInfo cache, BuildResult result, ProjectInstance projectInstance)
         {
+            if (!MSBuildUtilities.ConvertStringToBool(projectInstance.GetPropertyValue(FileBasedProgramCanSkipMSBuild), defaultValue: true))
+            {
+                Reporter.Verbose.WriteLine($"Not saving CSC arguments because there is an opt-out via MSBuild property {FileBasedProgramCanSkipMSBuild}.");
+                return;
+            }
+
             // We cannot reuse CSC arguments from previous run and skip MSBuild if there are project references
             // because we cannot easily detect whether any referenced projects have changed.
             if (Directives.Any(static d => d is CSharpDirective.Project))
