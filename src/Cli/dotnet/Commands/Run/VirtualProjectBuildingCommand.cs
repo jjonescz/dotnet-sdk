@@ -414,7 +414,8 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                 {
                     cache.CurrentEntry.CscArguments = coreCompileResult.Items
                         .Select(static i => i.GetMetadata(Constants.Identity))
-                        .Where(static a => a != "/noconfig")
+                        .Where(static a => a != "/noconfig") // this option cannot be in the rsp file
+                        .Select(Escape)
                         .ToImmutableArray();
                     cache.CurrentEntry.BuildResultFile = buildResultItem.GetMetadata(Constants.FullPath);
                     Reporter.Verbose.WriteLine($"Found CSC arguments ({cache.CurrentEntry.CscArguments.Length}) and build result path: {cache.CurrentEntry.BuildResultFile}");
@@ -423,6 +424,18 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
             else
             {
                 Reporter.Verbose.WriteLine($"No CSC arguments found in targets: {string.Join(", ", result.ResultsByTarget.Keys)}");
+            }
+
+            // Arguments coming from CoreCompile are escaped if they are in the form of `/option:"some path"`
+            // but not if they are standalone paths - we need to escape the latter kind ourselves.
+            static string Escape(string arg)
+            {
+                if (!Patterns.EscapedCompilerOption.IsMatch(arg))
+                {
+                    return CSharpCompilerCommand.EscapePathArgument(arg);
+                }
+
+                return arg;
             }
         }
     }
@@ -1468,6 +1481,9 @@ internal static partial class Patterns
 
     [GeneratedRegex("""[\s@=/]""")]
     public static partial Regex DisallowedNameCharacters { get; }
+
+    [GeneratedRegex("""^/\w+:".*"$""", RegexOptions.Singleline)]
+    public static partial Regex EscapedCompilerOption { get; }
 }
 
 internal struct WhiteSpaceInfo

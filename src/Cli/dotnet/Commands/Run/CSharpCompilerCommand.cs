@@ -52,6 +52,7 @@ internal sealed partial class CSharpCompilerCommand
 
     /// <summary>
     /// Compiler command line arguments to use. If empty, default arguments are used.
+    /// These should be already properly escaped.
     /// </summary>
     public required ImmutableArray<string> CscArguments { get; init; }
 
@@ -155,7 +156,7 @@ internal sealed partial class CSharpCompilerCommand
             {
                 if (arg.StartsWith(outPrefix, StringComparison.OrdinalIgnoreCase) && arg.Length > outPrefix.Length)
                 {
-                    return arg[outPrefix.Length..];
+                    return ArgumentEscaper.RemoveQuotesAndSlashes(arg.AsMemory(outPrefix.Length..)).ToString();
                 }
             }
 
@@ -358,18 +359,18 @@ internal sealed partial class CSharpCompilerCommand
     {
         if (IsPathOption(arg, out var colonIndex))
         {
-            return arg[..(colonIndex + 1)] + EscapeCore(arg[(colonIndex + 1)..]);
+            return arg[..(colonIndex + 1)] + EscapePathArgument(arg[(colonIndex + 1)..]);
         }
 
-        return EscapeCore(arg);
+        return EscapePathArgument(arg);
+    }
 
-        static string EscapeCore(string arg)
+    internal static string EscapePathArgument(string arg)
+    {
+        return ArgumentEscaper.EscapeSingleArg(arg, additionalShouldSurroundWithQuotes: static (string arg) =>
         {
-            return ArgumentEscaper.EscapeSingleArg(arg, additionalShouldSurroundWithQuotes: static (string arg) =>
-            {
-                return arg.ContainsAny(s_additionalShouldSurroundWithQuotes);
-            });
-        }
+            return arg.ContainsAny(s_additionalShouldSurroundWithQuotes);
+        });
     }
 
     public static bool IsPathOption(string arg, out int colonIndex)
