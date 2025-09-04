@@ -1274,7 +1274,9 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         File.WriteAllText(Path.Join(testInstance.Path, "Resources.resx"), s_resx);
         File.WriteAllText(Path.Join(testInstance.Path, $"repo.{ext}"), "");
 
-        new DotnetCommand(Log, "run", "--file", "Program.cs")
+        // Up-to-date check currently doesn't support default items, so we need to pass --no-cache
+        // otherwise other runs of this test theory might cause outdated results.
+        new DotnetCommand(Log, "run", "--no-cache", "--file", "Program.cs")
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Pass()
@@ -2703,6 +2705,31 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .Execute()
             .Should().Fail()
             .And.HaveStdErrContaining(string.Format(CliCommandStrings.CannotCombineOptions, RunCommandParser.NoCacheOption.Name, RunCommandParser.NoBuildOption.Name));
+    }
+
+    /// <summary>
+    /// Up-to-date checks and optimizations currently don't support other included files.
+    /// </summary>
+    [Fact]
+    public void UpToDate_DefaultItems()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), s_programReadingEmbeddedResource);
+        File.WriteAllText(Path.Join(testInstance.Path, "Resources.resx"), s_resx);
+
+        Build(testInstance, BuildLevel.All, expectedOutput: "[MyString, TestValue]");
+
+        // Update the RESX file.
+        File.WriteAllText(Path.Join(testInstance.Path, "Resources.resx"), s_resx.Replace("TestValue", "UpdatedValue"));
+
+        Build(testInstance, BuildLevel.None, expectedOutput: "[MyString, TestValue]"); // note: outdated output (build skipped)
+
+        // Update the C# file.
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), "//v2\n" + s_programReadingEmbeddedResource);
+
+        Build(testInstance, BuildLevel.Csc, expectedOutput: "[MyString, TestValue]"); // note: outdated output (only CSC used)
+
+        Build(testInstance, BuildLevel.All, ["--no-cache"], expectedOutput: "[MyString, UpdatedValue]");
     }
 
     [Fact]
