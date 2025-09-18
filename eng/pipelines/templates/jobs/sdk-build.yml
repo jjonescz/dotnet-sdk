@@ -115,7 +115,7 @@ jobs:
           initDistroRidGlobal "$os" "$arch" ""
 
           . $(Build.SourcesDirectory)/eng/common/build.sh \
-          -restore -build -pack -ci \
+          -restore -build -pack -sign -ci \
           -configuration $(buildConfiguration) \
           ${{ parameters.publishArgument }} \
           ${{ parameters.signArgument }} \
