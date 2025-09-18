@@ -209,6 +209,7 @@ jobs:
             log/$(buildConfiguration)/**/*
             TestResults/$(buildConfiguration)/**/*
             tmp/$(buildConfiguration)/**/*.binlog
+            artifacts/packages/**/*
         TargetFolder: $(Build.ArtifactStagingDirectory)
       continueOnError: true
       condition: always()
