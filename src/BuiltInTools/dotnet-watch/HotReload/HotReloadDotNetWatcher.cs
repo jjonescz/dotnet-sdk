@@ -5,6 +5,7 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using Microsoft.Build.Graph;
 using Microsoft.CodeAnalysis;
+using Microsoft.DotNet.Cli.Commands.Run;
 using Microsoft.DotNet.HotReload;
 using Microsoft.Extensions.Logging;
 
@@ -852,6 +853,8 @@ namespace Microsoft.DotNet.Watch
         {
             List<OutputLine>? capturedOutput = _context.EnvironmentOptions.TestFlags != TestFlags.None ? [] : null;
 
+            bool isFileBasedApp = VirtualProjectBuildingCommand.IsValidEntryPointPath(projectPath);
+
             var processSpec = new ProcessSpec
             {
                 Executable = _context.EnvironmentOptions.MuxerPath,
@@ -871,7 +874,8 @@ namespace Microsoft.DotNet.Watch
                     : null,
 
                 // pass user-specified build arguments last to override defaults:
-                Arguments = ["build", projectPath, "-consoleLoggerParameters:NoSummary;Verbosity=minimal", .. buildArguments]
+                // note: NoSummary is default for file-based apps and they don't support -consoleLoggerParameters
+                Arguments = ["build", projectPath, isFileBasedApp ? "-v:m" : "-consoleLoggerParameters:NoSummary;Verbosity=minimal", .. buildArguments]
             };
 
             _context.BuildLogger.Log(MessageDescriptor.Building, projectPath);

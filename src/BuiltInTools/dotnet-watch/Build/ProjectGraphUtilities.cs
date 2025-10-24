@@ -6,6 +6,8 @@ using Microsoft.Build.Evaluation;
 using Microsoft.Build.Execution;
 using Microsoft.Build.Graph;
 using Microsoft.DotNet.Cli;
+using Microsoft.DotNet.Cli.Commands.Run;
+using Microsoft.DotNet.Cli.Utils;
 using Microsoft.Extensions.Logging;
 using ILogger = Microsoft.Extensions.Logging.ILogger;
 
@@ -23,7 +25,6 @@ internal static class ProjectGraphUtilities
         bool projectGraphRequired,
         CancellationToken cancellationToken)
     {
-        var entryPoint = new ProjectGraphEntryPoint(rootProjectFile, globalOptions);
         try
         {
             // Create a new project collection that does not reuse element cache
@@ -39,11 +40,21 @@ internal static class ProjectGraphUtilities
                 useAsynchronousLogging: false,
                 reuseProjectRootElementCache: false);
 
+            if (VirtualProjectBuildingCommand.IsValidEntryPointPath(rootProjectFile))
+            {
+                var virtualCommand = new VirtualProjectBuildingCommand(
+                    Path.GetFullPath(rootProjectFile),
+                    MSBuildArgs.FromProperties(globalOptions.AsReadOnly()));
+                var projectInstance = virtualCommand.CreateProjectInstance(collection);
+                rootProjectFile = projectInstance.FullPath;
+            }
+
+            var entryPoint = new ProjectGraphEntryPoint(rootProjectFile, globalOptions);
             return new ProjectGraph([entryPoint], collection, projectInstanceFactory: null, cancellationToken);
         }
         catch (Exception e) when (e is not OperationCanceledException)
         {
-            // ProejctGraph aggregates OperationCanceledException exception,
+            // ProjectGraph aggregates OperationCanceledException exception,
             // throw here to propagate the cancellation.
             cancellationToken.ThrowIfCancellationRequested();
 

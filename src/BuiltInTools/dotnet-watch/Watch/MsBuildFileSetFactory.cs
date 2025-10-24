@@ -148,9 +148,7 @@ namespace Microsoft.DotNet.Watch
 
             var arguments = new List<string>
             {
-                "msbuild",
-                "/restore",
-                "/nologo",
+                "build",
                 "/v:m",
                 rootProjectFile,
                 "/t:" + TargetName

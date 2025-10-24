@@ -73,6 +73,7 @@ internal sealed class CommandLineOptions
         // Options we need to know about that are passed through to the subcommand:
         var shortProjectOption = new Option<string>("-p") { Hidden = true, Arity = ArgumentArity.ZeroOrOne, AllowMultipleArgumentsPerToken = false };
         var longProjectOption = new Option<string>("--project") { Hidden = true, Arity = ArgumentArity.ZeroOrOne, AllowMultipleArgumentsPerToken = false };
+        var fileOption = new Option<string>("--file") { Hidden = true, Arity = ArgumentArity.ZeroOrOne, AllowMultipleArgumentsPerToken = false };
         var launchProfileOption = new Option<string>("--launch-profile", "-lp") { Hidden = true, Arity = ArgumentArity.ZeroOrOne, AllowMultipleArgumentsPerToken = false };
         var noLaunchProfileOption = new Option<bool>("--no-launch-profile") { Hidden = true, Arity = ArgumentArity.Zero };
 
@@ -88,6 +89,7 @@ internal sealed class CommandLineOptions
 
         rootCommand.Options.Add(longProjectOption);
         rootCommand.Options.Add(shortProjectOption);
+        rootCommand.Options.Add(fileOption);
         rootCommand.Options.Add(launchProfileOption);
         rootCommand.Options.Add(noLaunchProfileOption);
 
@@ -155,6 +157,14 @@ internal sealed class CommandLineOptions
             {
                 logger.LogWarning(Resources.Warning_ProjectAbbreviationDeprecated);
                 projectValue = projectShortValue;
+            }
+            else
+            {
+                var fileValue = parseResult.GetValue(fileOption);
+                if (!string.IsNullOrEmpty(fileValue))
+                {
+                    projectValue = fileValue;
+                }
             }
         }
 

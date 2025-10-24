@@ -125,8 +125,8 @@
     <comment>{Locked="--project"}</comment>
   </data>
   <data name="Error_NoProjectsFound" xml:space="preserve">
-    <value>Could not find a MSBuild project file in '{0}'. Specify which project to use with the --project option.</value>
-    <comment>{Locked="--project"}</comment>
+    <value>Could not find a MSBuild project file in '{0}'. Specify which project to use with the --project option (or --file for file-based app).</value>
+    <comment>{Locked="--project"}{Locked="--file"}</comment>
   </data>
   <data name="Error_QuietAndVerboseSpecified" xml:space="preserve">
     <value>Cannot specify both '--quiet' and '--verbose' options.</value>

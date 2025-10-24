@@ -8,9 +8,9 @@
         <note>{Locked="--project"}</note>
       </trans-unit>
       <trans-unit id="Error_NoProjectsFound">
-        <source>Could not find a MSBuild project file in '{0}'. Specify which project to use with the --project option.</source>
-        <target state="translated">In '{0}' non è stato possibile trovare alcun file di progetto MSBuild. Per specificare quello desiderato, usare l'opzione --project.</target>
-        <note>{Locked="--project"}</note>
+        <source>Could not find a MSBuild project file in '{0}'. Specify which project to use with the --project option (or --file for file-based app).</source>
+        <target state="needs-review-translation">In '{0}' non è stato possibile trovare alcun file di progetto MSBuild. Per specificare quello desiderato, usare l'opzione --project.</target>
+        <note>{Locked="--project"}{Locked="--file"}</note>
       </trans-unit>
       <trans-unit id="Error_ProjectPath_NotFound">
         <source>The project file '{0}' does not exist.</source>
