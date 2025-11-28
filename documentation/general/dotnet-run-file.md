@@ -213,9 +213,6 @@ The same cleanup can be performed manually via command `dotnet clean-file-based-
 
 It is possible to specify some project metadata via *file-level directives*
 which are [ignored][ignored-directives] by the C# language but recognized by the SDK CLI.
-Directives `sdk`, `package`, `property`, and `project` are translated into
-`<Project Sdk="...">`, `<PackageReference>`, `<PropertyGroup>`, and `<ProjectReference>` project elements, respectively.
-Other directives result in an error, reserving them for future use.
 
 ```cs
 #:sdk Microsoft.NET.Sdk.Web
@@ -223,12 +220,13 @@ Other directives result in an error, reserving them for future use.
 #:property LangVersion=preview
 #:package System.CommandLine@2.0.0-*
 #:project ../MyLibrary
+#:include ./**/*.cs
 ```
 
 Each directive has a kind (e.g., `package`), a name (e.g., `System.CommandLine`), a separator (e.g., `@`), and a value (e.g., the package version).
 The value is required for `#:property`, optional for `#:package`/`#:sdk`, and disallowed for `#:project`.  
 
-The name must be separated from the kind (`package`/`sdk`/`property`) of the directive by whitespace
+The name must be separated from the kind of the directive by whitespace
 and any leading and trailing white space is not considered part of the name and value.
 
 The directives are processed as follows:
@@ -237,16 +235,39 @@ The directives are processed as follows:
   and the subsequent `#:sdk` directive names and values are injected as `<Sdk Name="{0}" Version="{1}" />` elements (or without the `Version` attribute if it has no value).
   It is an error if the name is empty (the version is allowed to be empty, but that results in empty `Version=""`).
 
-- A `#:property` is injected as `<{0}>{1}</{0}>` in a `<PropertyGroup>`.
+- Each `#:property` is injected as `<{0}>{1}</{0}>` in a `<PropertyGroup>`.
   It is an error if property does not have a value or if its name is empty (the value is allowed to be empty) or contains invalid characters.
 
-- A `#:package` is injected as `<PackageReference Include="{0}" Version="{1}">` (or without the `Version` attribute if it has no value) in an `<ItemGroup>`.
+- Each `#:package` is injected as `<PackageReference Include="{0}" Version="{1}">` (or without the `Version` attribute if it has no value) in an `<ItemGroup>`.
   It is an error if its name is empty (the value, i.e., package version, is allowed to be empty, but that results in empty `Version=""`).
 
-- A `#:project` is injected as `<ProjectReference Include="{0}" />` in an `<ItemGroup>`.
+  It is valid to have a `#:package` directive without a version.
+  That's useful when central package management (CPM) is used.
+  NuGet will report an appropriate error if the version is missing and CPM is not enabled.
+
+- Each `#:project` is injected as `<ProjectReference Include="{0}" />` in an `<ItemGroup>`.
+  It is an error if the value is empty.
   If the path points to an existing directory, a project file is found inside that directory and its path is used instead
   (because `ProjectReference` items don't support directory paths).
   An error is reported if zero or more than one projects are found in the directory, just like `dotnet reference add` would do.
+
+- Each `#:include` is injected as `<{1} Include="{0}" />` in an `<ItemGroup>`
+  where `{0}` is the directive's value and `{1}` is determined by its extension:
+
+  - `.cs` &rarr; `Compile`
+  - `.resx` &rarr; `EmbeddedResource`
+  - `.json` or `.razor` &rarr; `Content`
+  - Other extensions currently result in an error. We might support more in the future
+    or introduce an extensibility system where users can specify the mapping.
+
+  It is an error if the value is empty.
+
+  If the value is a glob that matches the entrypoint file (e.g., `./**/*.cs`),
+  the implicit `<Compile Include="{EntryPointFile}" />` is not added to avoid duplicate items.
+
+- Each `#:exclude` is injected similarly to `#:include` but with `Remove="{0}"` instead of `Include="{0}"`.
+
+- Other directive kinds result in an error, reserving them for future use.
 
 Directive values support MSBuild variables (like `$(..)`) normally as they are translated literally and left to MSBuild engine to process.
 However, in `#:project` directives, variables might not be preserved during [grow up](#grow-up),
@@ -274,10 +295,6 @@ Specifically, directives are considered duplicate if their type and name (case i
 Later with deduplication, separate "self-contained" utilities could reference overlapping sets of packages
 even if they end up in the same compilation.
 For example, properties could be concatenated via `;`, more specific package versions could override less specific ones.
-
-It is valid to have a `#:package` directive without a version.
-That's useful when central package management (CPM) is used.
-NuGet will report an appropriate error if the version is missing and CPM is not enabled.
 
 During [grow up](#grow-up), `#:` directives are removed from the `.cs` files and turned into elements in the corresponding `.csproj` files.
 For project-based programs, `#:` directives are an error (reported by Roslyn when it's told it is in "project-based" mode).

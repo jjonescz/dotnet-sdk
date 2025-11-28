@@ -14,6 +14,7 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Xml;
 using Microsoft.Build.Execution;
+using Microsoft.Build.Globbing;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -335,6 +336,7 @@ internal abstract class CSharpDirective(in CSharpDirective.ParseInfo info)
             "property" => Property.Parse(context),
             "package" => Package.Parse(context),
             "project" => Project.Parse(context),
+            "include" or "exclude" => IncludeOrExclude.Parse(context),
             var other => context.Diagnostics.AddError<Named>(context.SourceFile, context.Info.Span, string.Format(FileBasedProgramsResources.UnrecognizedDirective, other)),
         };
     }
@@ -620,6 +622,113 @@ internal abstract class CSharpDirective(in CSharpDirective.ParseInfo info)
         }
 
         public override string ToString() => $"#:project {Name}";
+    }
+
+    public enum IncludeOrExcludeKind
+    {
+        Include,
+        Exclude,
+    }
+
+    /// <summary>
+    /// <c>#:include</c> or <c>#:exclude</c> directive.
+    /// </summary>
+    public sealed class IncludeOrExclude(in ParseInfo info) : Named(info)
+    {
+        private static readonly ImmutableArray<(string Extension, string ItemType)> s_knownExtensions =
+        [
+            (".cs", "Compile"),
+            (".resx", "EmbeddedResource"),
+            (".json", "Content"),
+            (".razor", "Content"),
+        ];
+
+        internal static string KnownExtensions =>
+            field ??= string.Join(", ", s_knownExtensions.Select(m => $"'{m.Extension}'"));
+
+        public required IncludeOrExcludeKind Kind { get; init; }
+
+        public required string ItemType { get; init; }
+
+        public required bool IncludesEntryPointFile { get; init; }
+
+        public static new IncludeOrExclude? Parse(in ParseContext context)
+        {
+            var directiveText = context.DirectiveText;
+            if (directiveText.IsWhiteSpace())
+            {
+                string directiveKind = context.DirectiveKind;
+                return context.Diagnostics.AddError<IncludeOrExclude?>(context.SourceFile, context.Info.Span, string.Format(FileBasedProgramsResources.MissingDirectiveName, directiveKind));
+            }
+
+            string? itemType = null;
+            foreach (var mapping in s_knownExtensions)
+            {
+                if (directiveText.EndsWith(mapping.Extension, StringComparison.OrdinalIgnoreCase))
+                {
+                    itemType = mapping.ItemType;
+                    break;
+                }
+            }
+
+            if (itemType is null)
+            {
+                return context.Diagnostics.AddError<IncludeOrExclude?>(context.SourceFile, context.Info.Span,
+                    string.Format(FileBasedProgramsResources.IncludeOrExcludeDirectiveUnknownFileType, $"#:{context.DirectiveKind}", KnownExtensions));
+            }
+
+            bool includesEntryPointFile;
+            try
+            {
+                var glob = MSBuildGlob.Parse(globRoot: Path.GetDirectoryName(context.SourceFile.Path), fileSpec: directiveText);
+                includesEntryPointFile = glob.IsMatch(context.SourceFile.Path);
+            }
+            catch (Exception ex)
+            {
+                return context.Diagnostics.AddError<IncludeOrExclude?>(context.SourceFile, context.Info.Span,
+                    string.Format(FileBasedProgramsResources.IncludeOrExcludeDirectiveInvalidGlob, $"#:{context.DirectiveKind}", ex.Message), ex);
+            }
+
+            return new IncludeOrExclude(context.Info)
+            {
+                Name = directiveText,
+                Kind = KindFromString(context.DirectiveKind),
+                ItemType = itemType,
+                IncludesEntryPointFile = includesEntryPointFile,
+            };
+        }
+
+        private static IncludeOrExcludeKind KindFromString(string kind)
+        {
+            return kind switch
+            {
+                "include" => IncludeOrExcludeKind.Include,
+                "exclude" => IncludeOrExcludeKind.Exclude,
+                _ => throw new InvalidOperationException($"Unexpected include/exclude directive kind '{kind}'."),
+            };
+        }
+
+        private string KindToString()
+        {
+            return Kind switch
+            {
+                IncludeOrExcludeKind.Include => "include",
+                IncludeOrExcludeKind.Exclude => "exclude",
+                _ => throw new InvalidOperationException($"Unexpected {nameof(IncludeOrExcludeKind)} value '{Kind}'."),
+            };
+        }
+
+        public string KindToMSBuildString()
+        {
+            return Kind switch
+            {
+                IncludeOrExcludeKind.Include => "Include",
+                IncludeOrExcludeKind.Exclude => "Remove",
+                _ => throw new InvalidOperationException($"Unexpected {nameof(IncludeOrExcludeKind)} value '{Kind}'."),
+            };
+        }
+
+        public override string ToString() => $"#:{KindToString()} {Name}";
     }
 }
 

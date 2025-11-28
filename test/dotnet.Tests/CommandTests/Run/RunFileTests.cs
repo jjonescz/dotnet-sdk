@@ -2686,6 +2686,26 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .And.HaveStdOut("Hello");
     }
 
+    [Theory, CombinatorialData]
+    public void IncludeDirective(
+        [CombinatorialValues("Util.cs", "**/*.cs")] string includePattern,
+        [CombinatorialValues("", "#:exclude Program.cs")] string additionalDirectives)
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), $"""
+            #:include {includePattern}
+            {additionalDirectives}
+            {s_programDependingOnUtil}
+            """);
+        File.WriteAllText(Path.Join(testInstance.Path, "Util.cs"), s_util);
+
+        new DotnetCommand(Log, "run", "Program.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut("Hello, String from Util");
+    }
+
     [Theory] // https://github.com/dotnet/aspnetcore/issues/63440
     [InlineData(true, null)]
     [InlineData(false, null)]

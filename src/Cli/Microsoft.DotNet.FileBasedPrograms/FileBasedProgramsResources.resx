@@ -134,6 +134,14 @@
     <value>The property directive needs to have two parts separated by '=' like '#:property PropertyName=PropertyValue'.</value>
     <comment>{Locked="#:property"}</comment>
   </data>
+  <data name="IncludeOrExcludeDirectiveUnknownFileType" xml:space="preserve">
+    <value>Unrecognized file extension in the '{0}' directive. Only these extensions are currently recognized: {1}</value>
+    <comment>{0} is the directive - '#:include' or '#:exclude'. {1} is a comma-separated list of file extensions, like: '.cs', '.resx'</comment>
+  </data>
+  <data name="IncludeOrExcludeDirectiveInvalidGlob" xml:space="preserve">
+    <value>Invalid glob in the '{0}' directive: {1}</value>
+    <comment>{0} is the directive - '#:include' or '#:exclude'. {1} is the inner error message</comment>
+  </data>
   <data name="StaticGraphRestoreNotSupported" xml:space="preserve">
     <value>Static graph restore is not supported for file-based apps. Remove the '#:property'.</value>
     <comment>{Locked="#:property"}</comment>

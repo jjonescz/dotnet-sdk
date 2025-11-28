@@ -1181,6 +1181,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         var propertyDirectives = directives.OfType<CSharpDirective.Property>();
         var packageDirectives = directives.OfType<CSharpDirective.Package>();
         var projectDirectives = directives.OfType<CSharpDirective.Project>();
+        var includeOrExcludeDirectives = directives.OfType<CSharpDirective.IncludeOrExclude>();
 
         const string defaultSdkName = "Microsoft.NET.Sdk";
         string firstSdkName;
@@ -1355,6 +1356,41 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                 """);
         }
 
+        bool entryPointFileIncluded = false;
+        if (includeOrExcludeDirectives.Any())
+        {
+            writer.WriteLine("""
+                  <ItemGroup>
+                """);
+
+            foreach (var includeOrExclude in includeOrExcludeDirectives)
+            {
+                writer.WriteLine($"""
+                        <{includeOrExclude.ItemType} {includeOrExclude.KindToMSBuildString()}="{EscapeValue(includeOrExclude.Name)}" />
+                    """);
+
+                processedDirectives++;
+
+                if (includeOrExclude.IncludesEntryPointFile)
+                {
+                    if (includeOrExclude.Kind == CSharpDirective.IncludeOrExcludeKind.Include)
+                    {
+                        entryPointFileIncluded = true;
+                    }
+                    else
+                    {
+                        Debug.Assert(includeOrExclude.Kind == CSharpDirective.IncludeOrExcludeKind.Exclude); ;
+                        entryPointFileIncluded = false;
+                    }
+                }
+            }
+
+            writer.WriteLine("""
+                  </ItemGroup>
+
+                """);
+        }
+
         if (packageDirectives.Any())
         {
             writer.WriteLine("""
@@ -1412,15 +1448,18 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         {
             Debug.Assert(targetFilePath is not null);
 
-            // Only add explicit Compile item when EnableDefaultCompileItems is not true.
-            // When EnableDefaultCompileItems=true, the file is included via default MSBuild globbing.
-            // See https://github.com/dotnet/sdk/issues/51785
-            writer.WriteLine($"""
-                  <ItemGroup>
-                    <Compile Condition="'$(EnableDefaultCompileItems)' != 'true'" Include="{EscapeValue(targetFilePath)}" />
-                  </ItemGroup>
+            if (!entryPointFileIncluded)
+            {
+                // Only add explicit Compile item when EnableDefaultCompileItems is not true.
+                // When EnableDefaultCompileItems=true, the file is included via default MSBuild globbing.
+                // See https://github.com/dotnet/sdk/issues/51785
+                writer.WriteLine($"""
+                      <ItemGroup>
+                        <Compile Condition="'$(EnableDefaultCompileItems)' != 'true'" Include="{EscapeValue(targetFilePath)}" />
+                      </ItemGroup>
 
-                """);
+                    """);
+            }
 
             if (includeRuntimeConfigInformation)
             {

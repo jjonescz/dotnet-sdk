@@ -1152,6 +1152,87 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     }
 
     [Fact]
+    public void Directives_IncludeExclude()
+    {
+        VerifyConversion(
+            inputCSharp: """
+                #:include A.cs
+                #:include ./**/*.cs
+                #:exclude B.cs
+                #:include C.ReSX
+                #:include D.json
+                #:include E.razor
+                #:include F.cshtml
+                #:exclude **/*
+                #:include |.cs
+                """,
+            expectedProject: $"""
+                <Project Sdk="Microsoft.NET.Sdk">
+
+                  <PropertyGroup>
+                    <OutputType>Exe</OutputType>
+                    <TargetFramework>{ToolsetInfo.CurrentTargetFramework}</TargetFramework>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <Nullable>enable</Nullable>
+                    <PublishAot>true</PublishAot>
+                    <PackAsTool>true</PackAsTool>
+                  </PropertyGroup>
+
+                  <ItemGroup>
+                    <Compile Include="A.cs" />
+                    <Compile Include="./**/*.cs" />
+                    <Compile Remove="B.cs" />
+                    <EmbeddedResource Include="C.ReSX" />
+                    <Content Include="D.json" />
+                    <Content Include="E.razor" />
+                    <Compile Include="|.cs" />
+                  </ItemGroup>
+
+                </Project>
+
+                """,
+            expectedCSharp: """
+                #:include F.cshtml
+                #:exclude **/*
+
+                """,
+            expectedErrors:
+            [
+                (7, string.Format(FileBasedProgramsResources.IncludeOrExcludeDirectiveUnknownFileType, "#:include", CSharpDirective.IncludeOrExclude.KnownExtensions)),
+                (8, string.Format(FileBasedProgramsResources.IncludeOrExcludeDirectiveUnknownFileType, "#:exclude", CSharpDirective.IncludeOrExclude.KnownExtensions)),
+            ]);
+    }
+
+    [Fact]
+    public void Directives_IncludeExclude_FilesCopied()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), """
+            #:include **/*.cs
+            #:include *.json
+            #:exclude my.json
+            #:include */*.resx
+            Console.WriteLine();
+            """);
+        File.WriteAllText(Path.Join(testInstance.Path, "my.json"), "");
+        File.WriteAllText(Path.Join(testInstance.Path, "Resources.resx"), "");
+        File.WriteAllText(Path.Join(testInstance.Path, "Util.cs"), "");
+
+        new DotnetCommand(Log, "project", "convert", "Program.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass();
+
+        new DirectoryInfo(testInstance.Path)
+            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
+            .Should().BeEquivalentTo(["Program", "Program.cs", "Resources.resx", "Util.cs", "my.json"]);
+
+        new DirectoryInfo(Path.Join(testInstance.Path, "Program"))
+            .EnumerateFileSystemInfos().Select(f => f.Name).Order()
+            .Should().BeEquivalentTo(["Program.csproj", "Program.cs", "Util.cs"]);
+    }
+
+    [Fact]
     public void Directives_Separators()
     {
         VerifyConversion(
@@ -1220,7 +1301,7 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
 
     [Theory, CombinatorialData]
     public void Directives_EmptyName(
-        [CombinatorialValues("sdk", "property", "package", "project")] string directive,
+        [CombinatorialValues("sdk", "property", "package", "project", "include", "exclude")] string directive,
         [CombinatorialValues(" ", "")] string value)
     {
         VerifyConversionThrows(

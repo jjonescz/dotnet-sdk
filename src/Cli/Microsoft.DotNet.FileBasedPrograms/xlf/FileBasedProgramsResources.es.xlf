@@ -27,6 +27,16 @@
         <target state="translated">No se admiten directivas duplicadas: {0}</target>
         <note>{0} is the directive type and name.</note>
       </trans-unit>
+      <trans-unit id="IncludeOrExcludeDirectiveInvalidGlob">
+        <source>Invalid glob in the '{0}' directive: {1}</source>
+        <target state="new">Invalid glob in the '{0}' directive: {1}</target>
+        <note>{0} is the directive - '#:include' or '#:exclude'. {1} is the inner error message</note>
+      </trans-unit>
+      <trans-unit id="IncludeOrExcludeDirectiveUnknownFileType">
+        <source>Unrecognized file extension in the '{0}' directive. Only these extensions are currently recognized: {1}</source>
+        <target state="new">Unrecognized file extension in the '{0}' directive. Only these extensions are currently recognized: {1}</target>
+        <note>{0} is the directive - '#:include' or '#:exclude'. {1} is a comma-separated list of file extensions, like: '.cs', '.resx'</note>
+      </trans-unit>
       <trans-unit id="InvalidDirectiveName">
         <source>The directive should contain a name without special characters and an optional value separated by '{1}' like '#:{0} Name{1}Value'.</source>
         <target state="translated">La directiva debe contener un nombre sin caracteres especiales y un valor opcional separado por "{1}" como "#:{0} Nombre{1}Valor".</target>
