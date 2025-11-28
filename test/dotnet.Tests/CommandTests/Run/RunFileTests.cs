@@ -2706,6 +2706,43 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .And.HaveStdOut("Hello, String from Util");
     }
 
+    [Fact]
+    public void IncludeDirective_Transitive()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+
+        File.WriteAllText(Path.Join(testInstance.Path, "A.cs"), $"""
+            #:include $(P1).cs
+            B.M();
+            """);
+
+        File.WriteAllText(Path.Join(testInstance.Path, "B.cs"), $$"""
+            #:include $(P2).cs
+            #:property P1=B
+            #:property P2=C
+            #:property P3=D
+            static class B { public static void M() { C.M(); } }
+            """);
+
+        File.WriteAllText(Path.Join(testInstance.Path, "C.cs"), $$"""
+            #:include $(P3).cs
+            static class C { public static void M() { D.M(); } }
+            """);
+
+        File.WriteAllText(Path.Join(testInstance.Path, "D.cs"), $$"""
+            #:include A.cs
+            static class D { public static void M() { Console.WriteLine("D"); } }
+            """);
+
+        new DotnetCommand(Log, "run", "A.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut("D");
+
+        // TODO: Test conversion too.
+    }
+
     [Theory] // https://github.com/dotnet/aspnetcore/issues/63440
     [InlineData(true, null)]
     [InlineData(false, null)]
