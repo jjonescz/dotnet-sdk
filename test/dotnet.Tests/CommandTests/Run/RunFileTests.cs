@@ -3690,6 +3690,45 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     /// See <see cref="CscOnly_AfterMSBuild"/>.
     /// </summary>
     [Fact]
+    public void CscOnly_AfterMSBuild_ReusingCscArgs()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory(baseDirectory: OutOfTreeBaseDirectory);
+
+        var code = """
+            #:property AllowUnsafeBlocks=$([System.String]::Equals('$(AllowUnsafeBlocks)', 'false'))
+            Console.Write("v1");
+            unsafe { }
+            """;
+
+        var programPath = Path.Join(testInstance.Path, "Program.cs");
+
+        File.WriteAllText(programPath, code);
+
+        // Remove artifacts from possible previous runs of this test.
+        var artifactsDir = VirtualProjectBuildingCommand.GetArtifactsPath(programPath);
+        if (Directory.Exists(artifactsDir)) Directory.Delete(artifactsDir, recursive: true);
+
+        Build(testInstance, BuildLevel.All, expectedOutput: "v1");
+
+        code = code.Replace("v1", "v2");
+        File.WriteAllText(programPath, code);
+
+        Build(testInstance, BuildLevel.Csc, expectedOutput: "v2");
+
+        // This MSBuild will skip CoreBuild so 'dotnet run' copies CSC args from the cache so the next build could be CSC-only.
+        new DotnetCommand(Log, ["run", "Program.cs", "--no-cache"])
+            .WithWorkingDirectory(testInstance.Path)
+            .WithEnvironmentVariable("AllowUnsafeBlocks", "not-false")
+            .Execute()
+            .Should().Fail()
+            // error CS0227: Unsafe code may only appear if compiling with /unsafe
+            .And.HaveStdErrContaining("error CS");
+    }
+
+    /// <summary>
+    /// See <see cref="CscOnly_AfterMSBuild"/>.
+    /// </summary>
+    [Fact]
     public void CscOnly_AfterMSBuild_Args()
     {
         var testInstance = _testAssetsManager.CreateTestDirectory(baseDirectory: OutOfTreeBaseDirectory);
