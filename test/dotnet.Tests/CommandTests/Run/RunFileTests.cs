@@ -2997,25 +2997,24 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
 
-        File.WriteAllText(Path.Join(testInstance.Path, "A.cs"), $"""
+        File.WriteAllText(Path.Join(testInstance.Path, "A.cs"), """
             #:include B.cs
             B.M();
             """);
 
-        File.WriteAllText(Path.Join(testInstance.Path, "B.cs"), $$"""
+        File.WriteAllText(Path.Join(testInstance.Path, "B.cs"), """
             #:include $(P1).cs
             #:property P1=C
             #:property P2=D
             static class B { public static void M() { C.M(); } }
             """);
 
-        File.WriteAllText(Path.Join(testInstance.Path, "C.cs"), $$"""
+        File.WriteAllText(Path.Join(testInstance.Path, "C.cs"), """
             #:include $(P2).cs
             static class C { public static void M() { D.M(); } }
             """);
 
-        File.WriteAllText(Path.Join(testInstance.Path, "D.cs"), $$"""
-            #:include A.cs
+        File.WriteAllText(Path.Join(testInstance.Path, "D.cs"), """
             static class D { public static void M() { Console.WriteLine("D"); } }
             """);
 
