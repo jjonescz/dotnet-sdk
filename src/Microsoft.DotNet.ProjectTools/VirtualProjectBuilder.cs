@@ -9,7 +9,6 @@ using Microsoft.Build.Construction;
 using Microsoft.Build.Definition;
 using Microsoft.Build.Evaluation;
 using Microsoft.Build.Execution;
-using Microsoft.Build.Globbing;
 using Microsoft.CodeAnalysis.Text;
 using Microsoft.DotNet.FileBasedPrograms;
 using Microsoft.DotNet.Utilities;
@@ -139,8 +138,7 @@ internal sealed class VirtualProjectBuilder
     /// <c>#:project</c> directives are resolved to full project file paths
     /// (e.g., if the evaluated value is a directory, finds a project in that directory).
     /// <para/>
-    /// <c>#:include</c>/<c>#:exclude</c> directives have their <see cref="CSharpDirective.IncludeOrExclude.IncludesEntryPointFile"/> flag computed
-    /// and directives from the imported files are added and recursively evaluated.
+    /// Directives from C# files imported through <c>#:include</c>/<c>#:exclude</c> are added and recursively evaluated.
     /// </remarks>
     internal static ImmutableArray<CSharpDirective> EvaluateDirectives(
         ProjectInstance? project,
@@ -178,23 +176,7 @@ internal sealed class VirtualProjectBuilder
 
                     includeOrExcludeDirective = includeOrExcludeDirective.WithDeterminedItemType(sourceFile, reportError);
 
-                    bool includesEntryPointFile;
-                    try
-                    {
-                        var glob = MSBuildGlob.Parse(globRoot: Path.GetDirectoryName(sourceFile.Path), fileSpec: includeOrExcludeDirective.Name);
-                        includesEntryPointFile = glob.IsMatch(sourceFile.Path);
-                    }
-                    catch (Exception ex)
-                    {
-                        reportError(
-                            sourceFile,
-                            directive.Info.Span,
-                            string.Format(FileBasedProgramsResources.IncludeOrExcludeDirectiveInvalidGlob, $"#:{includeOrExcludeDirective.KindToString()}", ex.Message),
-                            ex);
-                        includesEntryPointFile = false;
-                    }
-
-                    builder.Add(includeOrExcludeDirective.WithIncludesEntryPointFile(includesEntryPointFile));
+                    builder.Add(includeOrExcludeDirective);
                     break;
 
                 default:
@@ -220,16 +202,17 @@ internal sealed class VirtualProjectBuilder
             directives = FileLevelDirectiveHelpers.FindDirectives(EntryPointSourceFile, validateAllDirectives, reportError);
         }
 
-        project = CreateProjectInstance(projectCollection, directives, addGlobalProperties);
+        project = CreateProjectInstance(projectForEvaluation: null, projectCollection, directives, addGlobalProperties);
 
         evaluatedDirectives = EvaluateDirectives(project, directives, EntryPointSourceFile, reportError);
         if (evaluatedDirectives != directives)
         {
-            project = CreateProjectInstance(projectCollection, evaluatedDirectives, addGlobalProperties);
+            project = CreateProjectInstance(project, projectCollection, evaluatedDirectives, addGlobalProperties);
         }
     }
 
     private ProjectInstance CreateProjectInstance(
+        ProjectInstance? projectForEvaluation,
         ProjectCollection projectCollection,
         ImmutableArray<CSharpDirective> directives,
         Action<IDictionary<string, string>>? addGlobalProperties = null)
@@ -256,10 +239,11 @@ internal sealed class VirtualProjectBuilder
 
             WriteProjectFile(
                 projectFileWriter,
+                projectForEvaluation,
                 directives,
                 _defaultProperties,
                 isVirtualProject: true,
-                targetFilePath: EntryPointFileFullPath,
+                entryPointFilePath: EntryPointFileFullPath,
                 artifactsPath: ArtifactsPath,
                 includeRuntimeConfigInformation: RequestedTargets?.ContainsAny("Publish", "Pack") != true);
 
@@ -275,10 +259,11 @@ internal sealed class VirtualProjectBuilder
 
     public static void WriteProjectFile(
         TextWriter writer,
+        ProjectInstance? projectForEvaluation,
         ImmutableArray<CSharpDirective> directives,
         IEnumerable<(string name, string value)> defaultProperties,
         bool isVirtualProject,
-        string? targetFilePath = null,
+        string? entryPointFilePath = null,
         string? artifactsPath = null,
         bool includeRuntimeConfigInformation = true,
         string? userSecretsId = null)
@@ -466,7 +451,6 @@ internal sealed class VirtualProjectBuilder
                 """);
         }
 
-        bool entryPointFileIncluded = false;
         if (includeOrExcludeDirectives.Any())
         {
             writer.WriteLine("""
@@ -490,19 +474,6 @@ internal sealed class VirtualProjectBuilder
                 writer.WriteLine($"""
                         <{itemType} {includeOrExclude.KindToMSBuildString()}="{EscapeValue(includeOrExclude.Name)}" />
                     """);
-
-                if (includeOrExclude.IncludesEntryPointFile.GetValueOrDefault())
-                {
-                    if (includeOrExclude.Kind == CSharpDirective.IncludeOrExcludeKind.Include)
-                    {
-                        entryPointFileIncluded = true;
-                    }
-                    else
-                    {
-                        Debug.Assert(includeOrExclude.Kind == CSharpDirective.IncludeOrExcludeKind.Exclude); ;
-                        entryPointFileIncluded = false;
-                    }
-                }
             }
 
             writer.WriteLine("""
@@ -566,16 +537,17 @@ internal sealed class VirtualProjectBuilder
 
         if (isVirtualProject)
         {
-            Debug.Assert(targetFilePath is not null);
+            Debug.Assert(entryPointFilePath is not null);
 
-            if (!entryPointFileIncluded)
+            if (projectForEvaluation is null ||
+                projectForEvaluation.GetItemsByItemTypeAndEvaluatedInclude("Compile", entryPointFilePath).Count() < 2)
             {
                 // Only add explicit Compile item when EnableDefaultCompileItems is not true.
                 // When EnableDefaultCompileItems=true, the file is included via default MSBuild globbing.
                 // See https://github.com/dotnet/sdk/issues/51785
                 writer.WriteLine($"""
                       <ItemGroup>
-                        <Compile Condition="'$(EnableDefaultCompileItems)' != 'true'" Include="{EscapeValue(targetFilePath)}" />
+                        <Compile Condition="'$(EnableDefaultCompileItems)' != 'true'" Include="{EscapeValue(entryPointFilePath)}" />
                       </ItemGroup>
 
                     """);
@@ -583,11 +555,11 @@ internal sealed class VirtualProjectBuilder
 
             if (includeRuntimeConfigInformation)
             {
-                var targetDirectory = Path.GetDirectoryName(targetFilePath) ?? "";
+                var entryPointDirectory = Path.GetDirectoryName(entryPointFilePath) ?? "";
                 writer.WriteLine($"""
                       <ItemGroup>
-                        <RuntimeHostConfigurationOption Include="EntryPointFilePath" Value="{EscapeValue(targetFilePath)}" />
-                        <RuntimeHostConfigurationOption Include="EntryPointFileDirectoryPath" Value="{EscapeValue(targetDirectory)}" />
+                        <RuntimeHostConfigurationOption Include="EntryPointFilePath" Value="{EscapeValue(entryPointFilePath)}" />
+                        <RuntimeHostConfigurationOption Include="EntryPointFileDirectoryPath" Value="{EscapeValue(entryPointDirectory)}" />
                       </ItemGroup>
 
                     """);

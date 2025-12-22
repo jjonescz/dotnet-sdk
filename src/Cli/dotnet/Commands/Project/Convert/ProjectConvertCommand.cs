@@ -73,7 +73,11 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
         {
             using var stream = File.Open(projectFile, FileMode.Create, FileAccess.Write);
             using var writer = new StreamWriter(stream, Encoding.UTF8);
-            VirtualProjectBuilder.WriteProjectFile(writer, UpdateDirectives(evaluatedDirectives), isVirtualProject: false,
+            VirtualProjectBuilder.WriteProjectFile(
+                writer,
+                projectInstance,
+                UpdateDirectives(evaluatedDirectives),
+                isVirtualProject: false,
                 userSecretsId: DetermineUserSecretsId(),
                 defaultProperties: GetDefaultProperties());
         }

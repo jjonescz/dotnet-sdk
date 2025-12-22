@@ -596,8 +596,6 @@ internal abstract class CSharpDirective(in CSharpDirective.ParseInfo info)
 
         public string? ItemType { get; init; }
 
-        public bool? IncludesEntryPointFile { get; init; }
-
         public static new IncludeOrExclude? Parse(in ParseContext context)
         {
             var directiveText = context.DirectiveText;
@@ -641,7 +639,6 @@ internal abstract class CSharpDirective(in CSharpDirective.ParseInfo info)
                 Name = Name,
                 Kind = Kind,
                 ItemType = itemType,
-                IncludesEntryPointFile = IncludesEntryPointFile,
             };
         }
 
@@ -657,19 +654,6 @@ internal abstract class CSharpDirective(in CSharpDirective.ParseInfo info)
                 Name = name,
                 Kind = Kind,
                 ItemType = ItemType,
-                IncludesEntryPointFile = IncludesEntryPointFile,
-            };
-        }
-
-        public IncludeOrExclude WithIncludesEntryPointFile(bool includesEntryPointFile)
-        {
-            Debug.Assert(IncludesEntryPointFile is null);
-            return new IncludeOrExclude(Info)
-            {
-                Name = Name,
-                Kind = Kind,
-                ItemType = ItemType,
-                IncludesEntryPointFile = includesEntryPointFile,
             };
         }
 
