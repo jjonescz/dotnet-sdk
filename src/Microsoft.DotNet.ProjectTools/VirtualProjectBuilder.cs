@@ -131,7 +131,7 @@ internal sealed class VirtualProjectBuilder
     /// <summary>
     /// If there are any <c>#:project</c> <paramref name="directives"/>,
     /// evaluates their values as MSBuild expressions (i.e. substitutes <c>$()</c> and <c>@()</c> with property and item values, etc.) and
-    /// resolves the evaluated values to full project file paths (e.g. if the evaluted value is a directory finds a project in that directory).
+    /// resolves the evaluated values to full project file paths (e.g. if the evaluated value is a directory, finds a project in that directory).
     /// </summary>
     internal static ImmutableArray<CSharpDirective> EvaluateDirectives(
         ProjectInstance? project,

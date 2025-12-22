@@ -312,7 +312,7 @@ internal abstract class CSharpDirective(in CSharpDirective.ParseInfo info)
             default:
                 context.ReportError(context.SourceFile, context.Info.Span, string.Format(FileBasedProgramsResources.UnrecognizedDirective, context.DirectiveKind));
                 return null;
-        };
+        }
     }
 
     private static (string, string?)? ParseOptionalTwoParts(in ParseContext context, char separator)
