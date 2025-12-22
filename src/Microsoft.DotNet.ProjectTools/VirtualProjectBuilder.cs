@@ -202,10 +202,52 @@ internal sealed class VirtualProjectBuilder
 
         project = CreateProjectInstance(projectForEvaluation: null, projectCollection, directives, addGlobalProperties);
 
-        evaluatedDirectives = EvaluateDirectives(project, directives, EntryPointSourceFile, reportError);
-        if (evaluatedDirectives != directives)
+        var seenFiles = new HashSet<string>(1, StringComparer.Ordinal) { EntryPointFileFullPath };
+        var filesToProcess = new Queue<string>();
+        var sourceFile = EntryPointSourceFile;
+        var evaluatedDirectiveBuilder = ImmutableArray.CreateBuilder<CSharpDirective>();
+
+        do
         {
-            project = CreateProjectInstance(project, projectCollection, evaluatedDirectives, addGlobalProperties);
+            var fileEvaluatedDirectives = EvaluateDirectives(project, directives, sourceFile, reportError);
+            if (fileEvaluatedDirectives != directives)
+            {
+                project = CreateProjectInstance(project, projectCollection, fileEvaluatedDirectives, addGlobalProperties);
+
+                var compileItems = project.GetItems("Compile");
+                foreach (var compileItem in compileItems)
+                {
+                    var compilePath = compileItem.EvaluatedInclude;
+                    if (seenFiles.Add(compilePath))
+                    {
+                        filesToProcess.Enqueue(compilePath);
+                    }
+                }
+            }
+
+            evaluatedDirectiveBuilder.AddRange(fileEvaluatedDirectives);
+        }
+        while (TryGetNextFileToProcess());
+
+        evaluatedDirectives = evaluatedDirectiveBuilder.ToImmutable();
+
+        bool TryGetNextFileToProcess()
+        {
+            while (filesToProcess.TryDequeue(out var filePath))
+            {
+                if (!File.Exists(filePath))
+                {
+                    // TODO: Localize and test this error.
+                    reportError(EntryPointSourceFile, default, $"File not found: '{filePath}'");
+                    continue;
+                }
+
+                sourceFile = SourceFile.Load(filePath);
+                directives = FileLevelDirectiveHelpers.FindDirectives(sourceFile, validateAllDirectives, reportError);
+                return true;
+            }
+
+            return false;
         }
     }
 
