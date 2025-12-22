@@ -1059,7 +1059,9 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
     }
 
     public static readonly ErrorReporter ThrowingReporter =
-        static (sourceFile, textSpan, message) => throw new GracefulException($"{sourceFile.GetLocationString(textSpan)}: {FileBasedProgramsResources.DirectiveError}: {message}");
+        static (sourceFile, textSpan, message, innerException) => throw new GracefulException(
+            $"{sourceFile.GetLocationString(textSpan)}: {FileBasedProgramsResources.DirectiveError}: {message}",
+            innerException);
 }
 
 internal sealed class RunFileBuildCacheEntry

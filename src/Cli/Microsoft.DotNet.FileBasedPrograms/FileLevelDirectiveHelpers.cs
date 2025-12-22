@@ -416,7 +416,7 @@ internal abstract class CSharpDirective(in CSharpDirective.ParseInfo info)
             }
             catch (XmlException ex)
             {
-                context.ReportError(context.SourceFile, context.Info.Span, string.Format(FileBasedProgramsResources.PropertyDirectiveInvalidName, ex.Message));
+                context.ReportError(context.SourceFile, context.Info.Span, string.Format(FileBasedProgramsResources.PropertyDirectiveInvalidName, ex.Message), ex);
                 return null;
             }
 
@@ -730,18 +730,18 @@ internal sealed class SimpleDiagnostic
     }
 }
 
-internal delegate void ErrorReporter(SourceFile sourceFile, TextSpan textSpan, string message);
+internal delegate void ErrorReporter(SourceFile sourceFile, TextSpan textSpan, string message, Exception? innerException = null);
 
 internal static partial class ErrorReporters
 {
     public static readonly ErrorReporter IgnoringReporter =
-        static (_, _, _) => { };
+        static (_, _, _, _) => { };
 
     public static ErrorReporter CreateCollectingReporter(out ImmutableArray<SimpleDiagnostic>.Builder builder)
     {
         var capturedBuilder = builder = ImmutableArray.CreateBuilder<SimpleDiagnostic>();
 
-        return (sourceFile, textSpan, message) =>
+        return (sourceFile, textSpan, message, _) =>
             capturedBuilder.Add(new SimpleDiagnostic
             {
                 Location = new SimpleDiagnostic.Position()

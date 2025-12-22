@@ -137,7 +137,7 @@ internal sealed class VirtualProjectBuilder
         ProjectInstance? project,
         ImmutableArray<CSharpDirective> directives,
         SourceFile sourceFile,
-        ErrorReporter errorReporter)
+        ErrorReporter reportError)
     {
         if (directives.OfType<CSharpDirective.Project>().Any())
         {
@@ -156,7 +156,7 @@ internal sealed class VirtualProjectBuilder
 
     public void CreateProjectInstance(
         ProjectCollection projectCollection,
-        ErrorReporter errorReporter,
+        ErrorReporter reportError,
         out ProjectInstance project,
         out ImmutableArray<CSharpDirective> evaluatedDirectives,
         ImmutableArray<CSharpDirective> directives = default,
@@ -165,12 +165,12 @@ internal sealed class VirtualProjectBuilder
     {
         if (directives.IsDefault)
         {
-            directives = FileLevelDirectiveHelpers.FindDirectives(EntryPointSourceFile, validateAllDirectives, errorReporter);
+            directives = FileLevelDirectiveHelpers.FindDirectives(EntryPointSourceFile, validateAllDirectives, reportError);
         }
 
         project = CreateProjectInstance(projectCollection, directives, addGlobalProperties);
 
-        evaluatedDirectives = EvaluateDirectives(project, directives, EntryPointSourceFile, errorReporter);
+        evaluatedDirectives = EvaluateDirectives(project, directives, EntryPointSourceFile, reportError);
         if (evaluatedDirectives != directives)
         {
             project = CreateProjectInstance(projectCollection, evaluatedDirectives, addGlobalProperties);
