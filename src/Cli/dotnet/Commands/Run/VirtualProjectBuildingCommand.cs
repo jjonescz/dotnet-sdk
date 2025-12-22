@@ -1034,8 +1034,6 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
             Directives,
             addGlobalProperties);
 
-        Directives = evaluatedDirectives;
-
         return project;
     }
 
