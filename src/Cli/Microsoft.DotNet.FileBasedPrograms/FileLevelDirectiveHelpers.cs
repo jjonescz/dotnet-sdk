@@ -596,7 +596,7 @@ internal abstract class CSharpDirective(in CSharpDirective.ParseInfo info)
 
         public required string ItemType { get; init; }
 
-        public required bool IncludesEntryPointFile { get; init; }
+        public bool? IncludesEntryPointFile { get; init; }
 
         public static new IncludeOrExclude? Parse(in ParseContext context)
         {
@@ -625,25 +625,22 @@ internal abstract class CSharpDirective(in CSharpDirective.ParseInfo info)
                 return null;
             }
 
-            bool includesEntryPointFile = false;
-            // bool includesEntryPointFile;
-            // try
-            // {
-            //     var glob = MSBuildGlob.Parse(globRoot: Path.GetDirectoryName(context.SourceFile.Path), fileSpec: directiveText);
-            //     includesEntryPointFile = glob.IsMatch(context.SourceFile.Path);
-            // }
-            // catch (Exception ex)
-            // {
-            //     context.ReportError(context.SourceFile, context.Info.Span,
-            //         string.Format(FileBasedProgramsResources.IncludeOrExcludeDirectiveInvalidGlob, $"#:{context.DirectiveKind}", ex.Message), ex);
-            //     return null;
-            // }
-
             return new IncludeOrExclude(context.Info)
             {
                 Name = directiveText,
                 Kind = KindFromString(context.DirectiveKind),
                 ItemType = itemType,
+            };
+        }
+
+        public IncludeOrExclude WithIncludesEntryPointFile(bool includesEntryPointFile)
+        {
+            Debug.Assert(IncludesEntryPointFile is null);
+            return new IncludeOrExclude(Info)
+            {
+                Name = Name,
+                Kind = Kind,
+                ItemType = ItemType,
                 IncludesEntryPointFile = includesEntryPointFile,
             };
         }
@@ -658,7 +655,7 @@ internal abstract class CSharpDirective(in CSharpDirective.ParseInfo info)
             };
         }
 
-        private string KindToString()
+        public string KindToString()
         {
             return Kind switch
             {

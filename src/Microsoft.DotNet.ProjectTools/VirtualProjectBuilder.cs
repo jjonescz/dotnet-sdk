@@ -9,6 +9,7 @@ using Microsoft.Build.Construction;
 using Microsoft.Build.Definition;
 using Microsoft.Build.Evaluation;
 using Microsoft.Build.Execution;
+using Microsoft.Build.Globbing;
 using Microsoft.CodeAnalysis.Text;
 using Microsoft.DotNet.FileBasedPrograms;
 using Microsoft.DotNet.Utilities;
@@ -139,16 +140,49 @@ internal sealed class VirtualProjectBuilder
         SourceFile sourceFile,
         ErrorReporter reportError)
     {
-        if (directives.OfType<CSharpDirective.Project>().Any())
+        if (directives.Any(static d => d is CSharpDirective.Project or CSharpDirective.IncludeOrExclude))
         {
-            return directives
-                .Select(d => d is CSharpDirective.Project p
-                    ? (project is null
-                        ? p
-                        : p.WithName(project.ExpandString(p.Name), CSharpDirective.Project.NameKind.Expanded))
-                       .EnsureProjectFilePath(sourceFile, errorReporter)
-                    : d)
-                .ToImmutableArray();
+            var builder = ImmutableArray.CreateBuilder<CSharpDirective>(directives.Length);
+
+            foreach (var directive in directives)
+            {
+                switch (directive)
+                {
+                    case CSharpDirective.Project projectDirective:
+                        projectDirective = project is null
+                            ? projectDirective
+                            : projectDirective.WithName(project.ExpandString(projectDirective.Name), CSharpDirective.Project.NameKind.Expanded);
+                        projectDirective = projectDirective.EnsureProjectFilePath(sourceFile, reportError);
+                        builder.Add(projectDirective);
+                        break;
+
+                    case CSharpDirective.IncludeOrExclude includeOrExcludeDirective:
+                        bool includesEntryPointFile;
+                        try
+                        {
+                            var glob = MSBuildGlob.Parse(globRoot: Path.GetDirectoryName(sourceFile.Path), fileSpec: includeOrExcludeDirective.Name);
+                            includesEntryPointFile = glob.IsMatch(sourceFile.Path);
+                        }
+                        catch (Exception ex)
+                        {
+                            reportError(
+                                sourceFile,
+                                directive.Info.Span,
+                                string.Format(FileBasedProgramsResources.IncludeOrExcludeDirectiveInvalidGlob, $"#:{includeOrExcludeDirective.KindToString()}", ex.Message),
+                                ex);
+                            includesEntryPointFile = false;
+                        }
+
+                        builder.Add(includeOrExcludeDirective.WithIncludesEntryPointFile(includesEntryPointFile));
+                        break;
+
+                    default:
+                        builder.Add(directive);
+                        break;
+                }
+            }
+
+            return builder.DrainToImmutable();
         }
 
         return directives;
@@ -429,7 +463,7 @@ internal sealed class VirtualProjectBuilder
 
                 processedDirectives++;
 
-                if (includeOrExclude.IncludesEntryPointFile)
+                if (includeOrExclude.IncludesEntryPointFile.GetValueOrDefault())
                 {
                     if (includeOrExclude.Kind == CSharpDirective.IncludeOrExcludeKind.Include)
                     {
