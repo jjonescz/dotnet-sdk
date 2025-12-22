@@ -144,7 +144,7 @@ internal sealed class VirtualProjectBuilder
     /// <c>#:project</c> directives are resolved to full project file paths
     /// (e.g., if the evaluated value is a directory, finds a project in that directory).
     /// <para/>
-    /// Directives from C# files imported through <c>#:include</c>/<c>#:exclude</c> are added and recursively evaluated.
+    /// <c>#:include</c>/<c>#:exclude</c> have their <see cref="CSharpDirective.IncludeOrExclude.ItemType"/> determined.
     /// </remarks>
     private static ImmutableArray<CSharpDirective> EvaluateDirectives(
         ProjectInstance project,
