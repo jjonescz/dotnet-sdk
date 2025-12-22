@@ -4,6 +4,7 @@
 using System.Collections.Immutable;
 using System.Security;
 using System.Text.RegularExpressions;
+using Microsoft.Build.Evaluation;
 using Microsoft.CodeAnalysis.Text;
 using Microsoft.DotNet.Cli.Commands;
 using Microsoft.DotNet.Cli.Commands.Run;
@@ -1052,7 +1053,9 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     [Fact]
     public void Directives()
     {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
         VerifyConversion(
+            baseDirectory: testInstance.Path,
             inputCSharp: """
                 #!/program
                 #:sdk Microsoft.NET.Sdk
@@ -1095,7 +1098,9 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     [Fact]
     public void Directives_AllDefaultOverridden()
     {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
         VerifyConversion(
+            baseDirectory: testInstance.Path,
             inputCSharp: """
                 #!/program
                 #:sdk Microsoft.NET.Web.Sdk
@@ -1132,7 +1137,9 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     [Fact]
     public void Directives_Variable()
     {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
         VerifyConversion(
+            baseDirectory: testInstance.Path,
             inputCSharp: """
                 #:package MyPackage@$(MyProp)
                 #:property MyProp=MyValue
@@ -1169,9 +1176,14 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
         Directory.CreateDirectory(libDir);
         File.WriteAllText(Path.Join(libDir, "Lib.csproj"), "test");
 
+        var appDir = Path.Join(testInstance.Path, "app");
+        Directory.CreateDirectory(appDir);
+
         var slash = Path.DirectorySeparatorChar;
         VerifyConversion(
-            filePath: Path.Join(testInstance.Path, "app", "Program.cs"),
+            baseDirectory: testInstance.Path,
+            filePath: Path.Join(appDir, "Program.cs"),
+            evaluateDirectives: true,
             inputCSharp: """
                 #:project ../lib
                 """,
@@ -1200,7 +1212,10 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     [Fact]
     public void Directives_IncludeExclude()
     {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
         VerifyConversion(
+            baseDirectory: testInstance.Path,
+            evaluateDirectives: true,
             inputCSharp: """
                 #:include A.cs
                 #:include ./**/*.cs
@@ -1237,11 +1252,7 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
                 </Project>
 
                 """,
-            expectedCSharp: """
-                #:include F.cshtml
-                #:exclude **/*
-
-                """,
+            expectedCSharp: "",
             expectedErrors:
             [
                 (7, string.Format(FileBasedProgramsResources.IncludeOrExcludeDirectiveUnknownFileType, "#:include", CSharpDirective.IncludeOrExclude.KnownExtensions)),
@@ -1281,7 +1292,9 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     [Fact]
     public void Directives_Separators()
     {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
         VerifyConversion(
+            baseDirectory: testInstance.Path,
             inputCSharp: """
                 #:property Prop1 = One=a/b
                 #:property Prop2 = Two/a=b
@@ -1326,23 +1339,40 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     [InlineData("SDK")]
     public void Directives_Unknown(string directive)
     {
-        VerifyConversionThrows(
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        VerifyConversion(
+            baseDirectory: testInstance.Path,
             inputCSharp: $"""
                 #:sdk Test
                 #:{directive} Test
                 """,
-            expectedWildcardPattern: RunFileTests.DirectiveError("/app/Program.cs", 2, FileBasedProgramsResources.UnrecognizedDirective, directive));
+            expectedCSharp: $"""
+                #:{directive} Test
+                """,
+            expectedErrors:
+            [
+                (2, string.Format(FileBasedProgramsResources.UnrecognizedDirective, directive)),
+            ]);
     }
 
     [Fact]
     public void Directives_Empty()
     {
-        VerifyConversionThrows(
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        VerifyConversion(
+            baseDirectory: testInstance.Path,
             inputCSharp: """
                 #:
                 #:sdk Test
                 """,
-            expectedWildcardPattern: RunFileTests.DirectiveError("/app/Program.cs", 1, FileBasedProgramsResources.UnrecognizedDirective, ""));
+            expectedCSharp: """
+                #:
+
+                """,
+            expectedErrors:
+            [
+                (1, string.Format(FileBasedProgramsResources.UnrecognizedDirective, "")),
+            ]);
     }
 
     [Theory, CombinatorialData]
@@ -1350,11 +1380,16 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
         [CombinatorialValues("sdk", "property", "package", "project", "include", "exclude")] string directive,
         [CombinatorialValues(" ", "")] string value)
     {
-        VerifyConversionThrows(
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        VerifyConversion(
+            baseDirectory: testInstance.Path,
             inputCSharp: $"""
                 #:{directive}{value}
                 """,
-            expectedWildcardPattern: RunFileTests.DirectiveError("/app/Program.cs", 1, FileBasedProgramsResources.MissingDirectiveName, directive));
+            expectedErrors:
+            [
+                (1, string.Format(FileBasedProgramsResources.MissingDirectiveName, directive)),
+            ]);
     }
 
     [Theory]
@@ -1362,7 +1397,9 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     [InlineData(" ")]
     public void Directives_EmptyValue(string value)
     {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
         VerifyConversion(
+            baseDirectory: testInstance.Path,
             inputCSharp: $"""
                 #:property TargetFramework={value}
                 #:property Prop1={value}
@@ -1394,33 +1431,47 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
                 """,
             expectedCSharp: "");
 
-        VerifyConversionThrows(
+        VerifyConversion(
+            baseDirectory: testInstance.Path,
             inputCSharp: $"""
                 #:project{value}
                 """,
-            expectedWildcardPattern: RunFileTests.DirectiveError("/app/Program.cs", 1, FileBasedProgramsResources.MissingDirectiveName, "project"));
+            expectedErrors:
+            [
+                (1, string.Format(FileBasedProgramsResources.MissingDirectiveName, "project")),
+            ]);
     }
 
     [Fact]
     public void Directives_MissingPropertyValue()
     {
-        VerifyConversionThrows(
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        VerifyConversion(
+            baseDirectory: testInstance.Path,
             inputCSharp: """
                 #:property Test
                 """,
-            expectedWildcardPattern: RunFileTests.DirectiveError("/app/Program.cs", 1, FileBasedProgramsResources.PropertyDirectiveMissingParts));
+            expectedErrors:
+            [
+                (1, FileBasedProgramsResources.PropertyDirectiveMissingParts),
+            ]);
     }
 
     [Fact]
     public void Directives_InvalidPropertyName()
     {
-        VerifyConversionThrows(
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        VerifyConversion(
+            baseDirectory: testInstance.Path,
             inputCSharp: """
                 #:property 123Name=Value
                 """,
-            expectedWildcardPattern: RunFileTests.DirectiveError("/app/Program.cs", 1, FileBasedProgramsResources.PropertyDirectiveInvalidName, """
-                Name cannot begin with the '1' character, hexadecimal value 0x31.
-                """));
+            expectedErrors:
+            [
+                (1, string.Format(FileBasedProgramsResources.PropertyDirectiveInvalidName, """
+                    Name cannot begin with the '1' character, hexadecimal value 0x31.
+                    """)),
+            ]);
     }
 
     [Theory]
@@ -1435,15 +1486,22 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     [InlineData("property", "=", "@")]
     public void Directives_InvalidName(string directiveKind, string expectedSeparator, string actualSeparator)
     {
-        VerifyConversionThrows(
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        VerifyConversion(
+            baseDirectory: testInstance.Path,
             inputCSharp: $"#:{directiveKind} Abc{actualSeparator}Xyz",
-            expectedWildcardPattern: RunFileTests.DirectiveError("/app/Program.cs", 1, FileBasedProgramsResources.InvalidDirectiveName, directiveKind, expectedSeparator));
+            expectedErrors:
+            [
+                (1, string.Format(FileBasedProgramsResources.InvalidDirectiveName, directiveKind, expectedSeparator)),
+            ]);
     }
 
     [Fact]
     public void Directives_Escaping()
     {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
         VerifyConversion(
+            baseDirectory: testInstance.Path,
             inputCSharp: """
                 #:property Prop=<test">
                 #:sdk <test"> @="<>te'st
@@ -1491,7 +1549,9 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     [Fact]
     public void Directives_Whitespace()
     {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
         VerifyConversion(
+            baseDirectory: testInstance.Path,
             inputCSharp: """
                     #:   sdk   TestSdk
                 #:property Name  =  Value   
@@ -1551,7 +1611,9 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
 
             """;
 
+        var testInstance = _testAssetsManager.CreateTestDirectory();
         VerifyConversion(
+            baseDirectory: testInstance.Path,
             inputCSharp: """
                 #:package A@B
 
@@ -1564,6 +1626,7 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
                 """);
 
         VerifyConversion(
+            baseDirectory: testInstance.Path,
             inputCSharp: """
 
                 #:package A@B
@@ -1590,13 +1653,10 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             #:property Prop1=3
             """;
 
-        VerifyConversionThrows(
-            inputCSharp: source,
-            expectedWildcardPattern: RunFileTests.DirectiveError("/app/Program.cs", 5, FileBasedProgramsResources.CannotConvertDirective));
-
+        var testInstance = _testAssetsManager.CreateTestDirectory();
         VerifyConversion(
+            baseDirectory: testInstance.Path,
             inputCSharp: source,
-            force: true,
             expectedProject: $"""
                 <Project Sdk="Microsoft.NET.Sdk">
 
@@ -1618,7 +1678,11 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
                 #define X
                 Console.WriteLine();
                 #:property Prop1=3
-                """);
+                """,
+            expectedErrors:
+            [
+                (5, FileBasedProgramsResources.CannotConvertDirective),
+            ]);
     }
 
     /// <summary>
@@ -1637,13 +1701,10 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             #:property Prop2=4
             """;
 
-        VerifyConversionThrows(
-            inputCSharp: source,
-            expectedWildcardPattern: RunFileTests.DirectiveError("/app/Program.cs", 5, FileBasedProgramsResources.CannotConvertDirective));
-
+        var testInstance = _testAssetsManager.CreateTestDirectory();
         VerifyConversion(
+            baseDirectory: testInstance.Path,
             inputCSharp: source,
-            force: true,
             expectedProject: $"""
                 <Project Sdk="Microsoft.NET.Sdk">
 
@@ -1667,7 +1728,12 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
                 #:property Prop1=3
                 #endif
                 #:property Prop2=4
-                """);
+                """,
+            expectedErrors:
+            [
+                (5, FileBasedProgramsResources.CannotConvertDirective),
+                (7, FileBasedProgramsResources.CannotConvertDirective),
+            ]);
     }
 
     /// <summary>
@@ -1676,7 +1742,9 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     [Fact]
     public void Directives_Comments()
     {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
         VerifyConversion(
+            baseDirectory: testInstance.Path,
             inputCSharp: """
                 // License for this file
                 #:sdk MySdk
@@ -1721,67 +1789,79 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     [Fact]
     public void Directives_Duplicate()
     {
-        VerifyDirectiveConversionErrors(
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        VerifyConversion(
+            baseDirectory: testInstance.Path,
             inputCSharp: """
                 #:property Prop=1
                 #:property Prop=2
                 """,
+            expectedCSharp: "",
             expectedErrors:
             [
                 (2, string.Format(FileBasedProgramsResources.DuplicateDirective, "#:property Prop")),
             ]);
 
-        VerifyDirectiveConversionErrors(
+        VerifyConversion(
+            baseDirectory: testInstance.Path,
             inputCSharp: """
                 #:sdk Name
                 #:sdk Name@X
                 #:sdk Name
                 #:sdk Name2
                 """,
+            expectedCSharp: "",
             expectedErrors:
             [
                 (2, string.Format(FileBasedProgramsResources.DuplicateDirective, "#:sdk Name")),
                 (3, string.Format(FileBasedProgramsResources.DuplicateDirective, "#:sdk Name")),
             ]);
 
-        VerifyDirectiveConversionErrors(
+        VerifyConversion(
+            baseDirectory: testInstance.Path,
             inputCSharp: """
                 #:package Name
                 #:package Name@X
                 #:package Name
                 #:package Name2
                 """,
+            expectedCSharp: "",
             expectedErrors:
             [
                 (2, string.Format(FileBasedProgramsResources.DuplicateDirective, "#:package Name")),
                 (3, string.Format(FileBasedProgramsResources.DuplicateDirective, "#:package Name")),
             ]);
 
-        VerifyDirectiveConversionErrors(
+        VerifyConversion(
+            baseDirectory: testInstance.Path,
             inputCSharp: """
                 #:sdk Prop@1
                 #:property Prop=2
                 """,
-            expectedErrors: []);
+            expectedCSharp: "");
 
-        VerifyDirectiveConversionErrors(
+        VerifyConversion(
+            baseDirectory: testInstance.Path,
             inputCSharp: """
                 #:property Prop=1
                 #:property Prop=2
                 #:property Prop2=3
                 #:property Prop=4
                 """,
+            expectedCSharp: "",
             expectedErrors:
             [
                 (2, string.Format(FileBasedProgramsResources.DuplicateDirective, "#:property Prop")),
                 (4, string.Format(FileBasedProgramsResources.DuplicateDirective, "#:property Prop")),
             ]);
 
-        VerifyDirectiveConversionErrors(
+        VerifyConversion(
+            baseDirectory: testInstance.Path,
             inputCSharp: """
                 #:property prop=1
                 #:property PROP=2
                 """,
+            expectedCSharp: "",
             expectedErrors:
             [
                 (2, string.Format(FileBasedProgramsResources.DuplicateDirective, "#:property prop")),
@@ -1791,7 +1871,9 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     [Fact] // https://github.com/dotnet/sdk/issues/49797
     public void Directives_VersionedSdkFirst()
     {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
         VerifyConversion(
+            baseDirectory: testInstance.Path,
             inputCSharp: """
                 #:sdk Microsoft.NET.Sdk@9.0.0
                 Console.WriteLine();
@@ -1816,62 +1898,95 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
                 """);
     }
 
-    private const string programPath = "/app/Program.cs";
-
-    private static void Convert(string inputCSharp, out string actualProject, out string? actualCSharp, bool force, string? filePath,
-        bool collectDiagnostics, out ImmutableArray<SimpleDiagnostic>.Builder? actualDiagnostics)
+    private static string GetProgramPath(string baseDirectory)
     {
-        var sourceFile = new SourceFile(filePath ?? programPath, SourceText.From(inputCSharp, Encoding.UTF8));
-        actualDiagnostics = null;
-        var diagnosticBag = collectDiagnostics ? ErrorReporters.CreateCollectingReporter(out actualDiagnostics) : VirtualProjectBuildingCommand.ThrowingReporter;
-        var directives = FileLevelDirectiveHelpers.FindDirectives(sourceFile, reportAllErrors: !force, diagnosticBag);
-        directives = VirtualProjectBuilder.EvaluateDirectives(project: null, directives, sourceFile, diagnosticBag);
-        var projectWriter = new StringWriter();
-        VirtualProjectBuilder.WriteProjectFile(projectWriter, projectForEvaluation: null, directives, VirtualProjectBuilder.GetDefaultProperties(VirtualProjectBuildingCommand.TargetFrameworkVersion), isVirtualProject: false);
-        actualProject = projectWriter.ToString();
-        actualCSharp = VirtualProjectBuilder.RemoveDirectivesFromFile(directives, sourceFile.Text)?.ToString();
+        return Path.Join(baseDirectory, "Program.cs");
     }
 
-    /// <param name="expectedCSharp">
-    /// <see langword="null"/> means the conversion should not touch the C# content.
-    /// </param>
-    private static void VerifyConversion(string inputCSharp, string expectedProject, string? expectedCSharp, bool force = false, string? filePath = null,
-        IEnumerable<(int LineNumber, string Message)>? expectedErrors = null)
+    private static void Convert(
+        string inputCSharp,
+        out string actualProject,
+        out string? actualCSharp,
+        string filePath,
+        bool evaluateDirectives,
+        out ImmutableArray<SimpleDiagnostic>.Builder? actualDiagnostics)
     {
-        Convert(inputCSharp, out var actualProject, out var actualCSharp, force: force, filePath: filePath,
-            collectDiagnostics: expectedErrors != null, out var actualDiagnostics);
-        actualProject.Should().Be(expectedProject);
-        actualCSharp.Should().Be(expectedCSharp);
-        VerifyErrors(actualDiagnostics, expectedErrors);
-    }
+        var builder = new VirtualProjectBuilder(
+            entryPointFileFullPath: filePath,
+            targetFrameworkVersion: VirtualProjectBuildingCommand.TargetFrameworkVersion,
+            sourceText: SourceText.From(inputCSharp, Encoding.UTF8));
 
-    private static void VerifyConversionThrows(string inputCSharp, string expectedWildcardPattern)
-    {
-        var convert = () => Convert(inputCSharp, out _, out _, force: false, filePath: null, collectDiagnostics: false, out _);
-        convert.Should().Throw<GracefulException>().WithMessage(expectedWildcardPattern);
-    }
+        var errorReporter = ErrorReporters.CreateCollectingReporter(out actualDiagnostics);
 
-    private static void VerifyDirectiveConversionErrors(string inputCSharp, IEnumerable<(int LineNumber, string Message)> expectedErrors)
-    {
-        var sourceFile = new SourceFile(programPath, SourceText.From(inputCSharp, Encoding.UTF8));
-        FileLevelDirectiveHelpers.FindDirectives(sourceFile, reportAllErrors: true, ErrorReporters.CreateCollectingReporter(out var diagnostics));
-        VerifyErrors(diagnostics, expectedErrors);
-    }
-
-    private static void VerifyErrors(ImmutableArray<SimpleDiagnostic>.Builder? actual, IEnumerable<(int LineNumber, string Message)>? expected)
-    {
-        if (actual is null)
+        ImmutableArray<CSharpDirective> directives;
+        if (evaluateDirectives)
         {
-            Assert.Null(expected);
-        }
-        else if (expected is null)
-        {
-            Assert.Null(actual);
+            builder.CreateProjectInstance(
+                new ProjectCollection(),
+                errorReporter,
+                out _,
+                out directives);
         }
         else
         {
-            Assert.All(actual, d => { Assert.Equal(programPath, d.Location.Path); });
-            actual.Select(d => (d.Location.Span.Start.Line + 1, d.Message)).Should().BeEquivalentTo(expected);
+            directives = FileLevelDirectiveHelpers.FindDirectives(
+                builder.EntryPointSourceFile,
+                reportAllErrors: true,
+                errorReporter);
+        }
+
+        var projectWriter = new StringWriter();
+        VirtualProjectBuilder.WriteProjectFile(
+            projectWriter,
+            projectForEvaluation: null,
+            directives,
+            VirtualProjectBuilder.GetDefaultProperties(VirtualProjectBuildingCommand.TargetFrameworkVersion),
+            isVirtualProject: false);
+
+        actualProject = projectWriter.ToString();
+        actualCSharp = VirtualProjectBuilder.RemoveDirectivesFromFile(directives, builder.EntryPointSourceFile.Text)?.ToString();
+    }
+
+    /// <param name="expectedProject">
+    /// <see langword="null"/> means we don't care about the resulting project in this test.
+    /// </param>
+    /// <param name="expectedCSharp">
+    /// <see langword="null"/> means the conversion should not touch the C# content.
+    /// </param>
+    private static void VerifyConversion(
+        string baseDirectory,
+        string inputCSharp,
+        string? expectedProject = null,
+        string? expectedCSharp = null,
+        string? filePath = null,
+        IEnumerable<(int LineNumber, string Message)>? expectedErrors = null,
+        bool evaluateDirectives = false)
+    {
+        filePath ??= GetProgramPath(baseDirectory);
+
+        Convert(
+            inputCSharp,
+            out var actualProject,
+            out var actualCSharp,
+            filePath: filePath,
+            evaluateDirectives: evaluateDirectives,
+            out var actualDiagnostics);
+
+        if (expectedProject != null) actualProject.Should().Be(expectedProject);
+        actualCSharp.Should().Be(expectedCSharp);
+
+        if (actualDiagnostics is null or [])
+        {
+            Assert.Null(expectedErrors);
+        }
+        else if (expectedErrors is null)
+        {
+            Assert.Null(actualDiagnostics);
+        }
+        else
+        {
+            Assert.All(actualDiagnostics, d => { Assert.Equal(filePath, d.Location.Path); });
+            actualDiagnostics.Select(d => (d.Location.Span.Start.Line + 1, d.Message)).Should().BeEquivalentTo(expectedErrors);
         }
     }
 }

@@ -43,7 +43,8 @@ internal sealed class VirtualProjectBuilder
         string entryPointFileFullPath,
         string targetFrameworkVersion,
         string[]? requestedTargets = null,
-        string? artifactsPath = null)
+        string? artifactsPath = null,
+        SourceText? sourceText = null)
     {
         Debug.Assert(Path.IsPathFullyQualified(entryPointFileFullPath));
 
@@ -51,6 +52,11 @@ internal sealed class VirtualProjectBuilder
         RequestedTargets = requestedTargets;
         ArtifactsPath = artifactsPath;
         _defaultProperties = GetDefaultProperties(targetFrameworkVersion);
+
+        if (sourceText != null)
+        {
+            EntryPointSourceFile = new SourceFile(entryPointFileFullPath, sourceText);
+        }
     }
 
     /// <remarks>
@@ -132,16 +138,16 @@ internal sealed class VirtualProjectBuilder
     /// Evaluates <paramref name="directives"/> against a <paramref name="project"/> and the file system.
     /// </summary>
     /// <remarks>
-    /// If <paramref name="project"/> is not <see langword="null"/>, all directives that need some other evaluation (described below)
-    /// are expanded as MSBuild expressions (i.e., <c>$()</c> and <c>@()</c> are substituted with property and item values, etc.).
+    /// All directives that need some other evaluation (described below) are expanded as MSBuild expressions
+    /// (i.e., <c>$()</c> and <c>@()</c> are substituted with property and item values, etc.).
     /// <para/>
     /// <c>#:project</c> directives are resolved to full project file paths
     /// (e.g., if the evaluated value is a directory, finds a project in that directory).
     /// <para/>
     /// Directives from C# files imported through <c>#:include</c>/<c>#:exclude</c> are added and recursively evaluated.
     /// </remarks>
-    internal static ImmutableArray<CSharpDirective> EvaluateDirectives(
-        ProjectInstance? project,
+    private static ImmutableArray<CSharpDirective> EvaluateDirectives(
+        ProjectInstance project,
         ImmutableArray<CSharpDirective> directives,
         SourceFile sourceFile,
         ErrorReporter reportError)
@@ -158,22 +164,14 @@ internal sealed class VirtualProjectBuilder
             switch (directive)
             {
                 case CSharpDirective.Project projectDirective:
-                    if (project != null)
-                    {
-                        projectDirective = projectDirective.WithName(project.ExpandString(projectDirective.Name), CSharpDirective.Project.NameKind.Expanded);
-                    }
-
+                    projectDirective = projectDirective.WithName(project.ExpandString(projectDirective.Name), CSharpDirective.Project.NameKind.Expanded);
                     projectDirective = projectDirective.EnsureProjectFilePath(sourceFile, reportError);
 
                     builder.Add(projectDirective);
                     break;
 
                 case CSharpDirective.IncludeOrExclude includeOrExcludeDirective:
-                    if (project != null)
-                    {
-                        includeOrExcludeDirective = includeOrExcludeDirective.WithName(project.ExpandString(includeOrExcludeDirective.Name));
-                    }
-
+                    includeOrExcludeDirective = includeOrExcludeDirective.WithName(project.ExpandString(includeOrExcludeDirective.Name));
                     includeOrExcludeDirective = includeOrExcludeDirective.WithDeterminedItemType(sourceFile, reportError);
 
                     builder.Add(includeOrExcludeDirective);
