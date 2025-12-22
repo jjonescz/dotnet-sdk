@@ -200,8 +200,7 @@ internal sealed class VirtualProjectBuilder
             directives = FileLevelDirectiveHelpers.FindDirectives(EntryPointSourceFile, validateAllDirectives, reportError);
         }
 
-        project = CreateProjectInstance(projectForEvaluation: null, projectCollection, directives, addGlobalProperties);
-
+        ProjectInstance? projectForEvaluation = null;
         var seenFiles = new HashSet<string>(1, StringComparer.Ordinal) { EntryPointFileFullPath };
         var filesToProcess = new Queue<string>();
         var sourceFile = EntryPointSourceFile;
@@ -209,26 +208,41 @@ internal sealed class VirtualProjectBuilder
 
         do
         {
-            var fileEvaluatedDirectives = EvaluateDirectives(project, directives, sourceFile, reportError);
+            // Create a project with properties from #:property directives so they can be expanded inside EvaluateDirectives.
+            projectForEvaluation = CreateProjectInstance(
+                projectForEvaluation,
+                projectCollection,
+                [.. evaluatedDirectiveBuilder, .. directives],
+                addGlobalProperties);
+
+            // Evaluate directives, e.g., determine item types for #:include/#:exclude from their file extension.
+            var fileEvaluatedDirectives = EvaluateDirectives(projectForEvaluation, directives, sourceFile, reportError);
+
+            evaluatedDirectiveBuilder.AddRange(fileEvaluatedDirectives);
+
             if (fileEvaluatedDirectives != directives)
             {
-                project = CreateProjectInstance(project, projectCollection, fileEvaluatedDirectives, addGlobalProperties);
+                // This project will contain items from #:include/#:exclude directives which we will traverse recursively.
+                projectForEvaluation = CreateProjectInstance(
+                    projectForEvaluation,
+                    projectCollection,
+                    evaluatedDirectiveBuilder.ToImmutable(),
+                    addGlobalProperties);
 
-                var compileItems = project.GetItems("Compile");
+                var compileItems = projectForEvaluation.GetItems("Compile");
                 foreach (var compileItem in compileItems)
                 {
-                    var compilePath = compileItem.EvaluatedInclude;
+                    var compilePath = Path.GetFullPath(compileItem.EvaluatedInclude);
                     if (seenFiles.Add(compilePath))
                     {
                         filesToProcess.Enqueue(compilePath);
                     }
                 }
             }
-
-            evaluatedDirectiveBuilder.AddRange(fileEvaluatedDirectives);
         }
         while (TryGetNextFileToProcess());
 
+        project = projectForEvaluation;
         evaluatedDirectives = evaluatedDirectiveBuilder.ToImmutable();
 
         bool TryGetNextFileToProcess()
