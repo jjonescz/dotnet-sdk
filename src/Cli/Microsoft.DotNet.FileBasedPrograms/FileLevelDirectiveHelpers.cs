@@ -594,7 +594,7 @@ internal abstract class CSharpDirective(in CSharpDirective.ParseInfo info)
 
         public required IncludeOrExcludeKind Kind { get; init; }
 
-        public required string ItemType { get; init; }
+        public string? ItemType { get; init; }
 
         public bool? IncludesEntryPointFile { get; init; }
 
@@ -608,10 +608,21 @@ internal abstract class CSharpDirective(in CSharpDirective.ParseInfo info)
                 return null;
             }
 
+            return new IncludeOrExclude(context.Info)
+            {
+                Name = directiveText,
+                Kind = KindFromString(context.DirectiveKind),
+            };
+        }
+
+        public IncludeOrExclude WithDeterminedItemType(SourceFile sourceFile, ErrorReporter reportError)
+        {
+            Debug.Assert(ItemType is null);
+
             string? itemType = null;
             foreach (var mapping in s_knownExtensions)
             {
-                if (directiveText.EndsWith(mapping.Extension, StringComparison.OrdinalIgnoreCase))
+                if (Name.EndsWith(mapping.Extension, StringComparison.OrdinalIgnoreCase))
                 {
                     itemType = mapping.ItemType;
                     break;
@@ -620,16 +631,33 @@ internal abstract class CSharpDirective(in CSharpDirective.ParseInfo info)
 
             if (itemType is null)
             {
-                context.ReportError(context.SourceFile, context.Info.Span,
-                    string.Format(FileBasedProgramsResources.IncludeOrExcludeDirectiveUnknownFileType, $"#:{context.DirectiveKind}", KnownExtensions));
-                return null;
+                reportError(sourceFile, Info.Span,
+                    string.Format(FileBasedProgramsResources.IncludeOrExcludeDirectiveUnknownFileType, $"#:{KindToString()}", KnownExtensions));
+                return this;
             }
 
-            return new IncludeOrExclude(context.Info)
+            return new IncludeOrExclude(Info)
             {
-                Name = directiveText,
-                Kind = KindFromString(context.DirectiveKind),
+                Name = Name,
+                Kind = Kind,
                 ItemType = itemType,
+                IncludesEntryPointFile = IncludesEntryPointFile,
+            };
+        }
+
+        public IncludeOrExclude WithName(string name)
+        {
+            if (Name == name)
+            {
+                return this;
+            }
+
+            return new IncludeOrExclude(Info)
+            {
+                Name = name,
+                Kind = Kind,
+                ItemType = ItemType,
+                IncludesEntryPointFile = IncludesEntryPointFile,
             };
         }
 

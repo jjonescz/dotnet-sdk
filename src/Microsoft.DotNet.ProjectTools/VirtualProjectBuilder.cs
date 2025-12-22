@@ -130,10 +130,18 @@ internal sealed class VirtualProjectBuilder
     }
 
     /// <summary>
-    /// If there are any <c>#:project</c> <paramref name="directives"/>,
-    /// evaluates their values as MSBuild expressions (i.e. substitutes <c>$()</c> and <c>@()</c> with property and item values, etc.) and
-    /// resolves the evaluated values to full project file paths (e.g. if the evaluated value is a directory, finds a project in that directory).
+    /// Evaluates <paramref name="directives"/> against a <paramref name="project"/> and the file system.
     /// </summary>
+    /// <remarks>
+    /// If <paramref name="project"/> is not <see langword="null"/>, all directives that need some other evaluation (described below)
+    /// are expanded as MSBuild expressions (i.e., <c>$()</c> and <c>@()</c> are substituted with property and item values, etc.).
+    /// <para/>
+    /// <c>#:project</c> directives are resolved to full project file paths
+    /// (e.g., if the evaluated value is a directory, finds a project in that directory).
+    /// <para/>
+    /// <c>#:include</c>/<c>#:exclude</c> directives have their <see cref="CSharpDirective.IncludeOrExclude.IncludesEntryPointFile"/> flag computed
+    /// and directives from the imported files are added and recursively evaluated.
+    /// </remarks>
     internal static ImmutableArray<CSharpDirective> EvaluateDirectives(
         ProjectInstance? project,
         ImmutableArray<CSharpDirective> directives,
@@ -149,14 +157,24 @@ internal sealed class VirtualProjectBuilder
                 switch (directive)
                 {
                     case CSharpDirective.Project projectDirective:
-                        projectDirective = project is null
-                            ? projectDirective
-                            : projectDirective.WithName(project.ExpandString(projectDirective.Name), CSharpDirective.Project.NameKind.Expanded);
+                        if (project != null)
+                        {
+                            projectDirective = projectDirective.WithName(project.ExpandString(projectDirective.Name), CSharpDirective.Project.NameKind.Expanded);
+                        }
+
                         projectDirective = projectDirective.EnsureProjectFilePath(sourceFile, reportError);
+
                         builder.Add(projectDirective);
                         break;
 
                     case CSharpDirective.IncludeOrExclude includeOrExcludeDirective:
+                        if (project != null)
+                        {
+                            includeOrExcludeDirective = includeOrExcludeDirective.WithName(project.ExpandString(includeOrExcludeDirective.Name));
+                        }
+
+                        includeOrExcludeDirective = includeOrExcludeDirective.WithDeterminedItemType(sourceFile, reportError);
+
                         bool includesEntryPointFile;
                         try
                         {
@@ -457,11 +475,21 @@ internal sealed class VirtualProjectBuilder
 
             foreach (var includeOrExclude in includeOrExcludeDirectives)
             {
-                writer.WriteLine($"""
-                        <{includeOrExclude.ItemType} {includeOrExclude.KindToMSBuildString()}="{EscapeValue(includeOrExclude.Name)}" />
-                    """);
-
                 processedDirectives++;
+
+                var itemType = includeOrExclude.ItemType;
+
+                if (itemType == null)
+                {
+                    // Before directives are evaluated, the item type is null.
+                    // We still need to create the project (so that we can evaluate $() properties),
+                    // but we can skip the items.
+                    continue;
+                }
+
+                writer.WriteLine($"""
+                        <{itemType} {includeOrExclude.KindToMSBuildString()}="{EscapeValue(includeOrExclude.Name)}" />
+                    """);
 
                 if (includeOrExclude.IncludesEntryPointFile.GetValueOrDefault())
                 {
@@ -546,9 +574,9 @@ internal sealed class VirtualProjectBuilder
                 // When EnableDefaultCompileItems=true, the file is included via default MSBuild globbing.
                 // See https://github.com/dotnet/sdk/issues/51785
                 writer.WriteLine($"""
-                    <ItemGroup>
+                      <ItemGroup>
                         <Compile Condition="'$(EnableDefaultCompileItems)' != 'true'" Include="{EscapeValue(targetFilePath)}" />
-                    </ItemGroup>
+                      </ItemGroup>
 
                     """);
             }

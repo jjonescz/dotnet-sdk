@@ -2973,13 +2973,14 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
 
     [Theory, CombinatorialData]
     public void IncludeDirective(
-        [CombinatorialValues("Util.cs", "**/*.cs")] string includePattern,
-        [CombinatorialValues("", "#:exclude Program.cs")] string additionalDirectives)
+        [CombinatorialValues("Util.cs", "**/*.cs", "**/*.$(MyProp1)")] string includePattern,
+        [CombinatorialValues("", "#:exclude Program.$(MyProp1)")] string additionalDirectives)
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
         File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), $"""
             #:include {includePattern}
             {additionalDirectives}
+            #:property MyProp1=cs
             {s_programDependingOnUtil}
             """);
         File.WriteAllText(Path.Join(testInstance.Path, "Util.cs"), s_util);
