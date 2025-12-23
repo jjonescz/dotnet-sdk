@@ -4495,7 +4495,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         File.WriteAllText(programPath, """
             #!/program
             #:sdk Microsoft.NET.Sdk
-            #:sdk Aspire.Hosting.Sdk@9.1.0
+            #:sdk Aspire.AppHost.Sdk@9.1.0
             #:property TargetFramework=net11.0
             #:package System.CommandLine@2.0.0-beta4.22272.1
             #:property LangVersion=preview
@@ -4533,7 +4533,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
                       </ItemGroup>
 
                       <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
-                      <Import Project="Sdk.props" Sdk="Aspire.Hosting.Sdk" Version="9.1.0" />
+                      <Import Project="Sdk.props" Sdk="Aspire.AppHost.Sdk" Version="9.1.0" />
 
                       <PropertyGroup>
                         <TargetFramework>net11.0</TargetFramework>
@@ -4547,7 +4547,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
                       </ItemGroup>
 
                       <ItemGroup>
-                        <Compile Condition="'$(EnableDefaultCompileItems)' != 'true'" Include="{programPath}" />
+                        <Compile Include="{programPath}" Exclude="@(Compile)" />
                       </ItemGroup>
 
                       <ItemGroup>
@@ -4556,7 +4556,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
                       </ItemGroup>
 
                       <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
-                      <Import Project="Sdk.targets" Sdk="Aspire.Hosting.Sdk" Version="9.1.0" />
+                      <Import Project="Sdk.targets" Sdk="Aspire.AppHost.Sdk" Version="9.1.0" />
 
                     </Project>
 
@@ -4614,7 +4614,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
                       </PropertyGroup>
 
                       <ItemGroup>
-                        <Compile Condition="'$(EnableDefaultCompileItems)' != 'true'" Include="{programPath}" />
+                        <Compile Include="{programPath}" Exclude="@(Compile)" />
                       </ItemGroup>
 
                       <ItemGroup>
@@ -4684,7 +4684,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
                       </PropertyGroup>
 
                       <ItemGroup>
-                        <Compile Condition="'$(EnableDefaultCompileItems)' != 'true'" Include="{programPath}" />
+                        <Compile Include="{programPath}" Exclude="@(Compile)" />
                       </ItemGroup>
 
                       <ItemGroup>
