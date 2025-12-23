@@ -149,7 +149,6 @@ internal sealed class VirtualProjectBuilder
     private static ImmutableArray<CSharpDirective> EvaluateDirectives(
         ProjectInstance project,
         ImmutableArray<CSharpDirective> directives,
-        SourceFile sourceFile,
         ErrorReporter reportError)
     {
         if (!directives.Any(static d => d is CSharpDirective.Project or CSharpDirective.IncludeOrExclude))
@@ -165,14 +164,14 @@ internal sealed class VirtualProjectBuilder
             {
                 case CSharpDirective.Project projectDirective:
                     projectDirective = projectDirective.WithName(project.ExpandString(projectDirective.Name), CSharpDirective.Project.NameKind.Expanded);
-                    projectDirective = projectDirective.EnsureProjectFilePath(sourceFile, reportError);
+                    projectDirective = projectDirective.EnsureProjectFilePath(reportError);
 
                     builder.Add(projectDirective);
                     break;
 
                 case CSharpDirective.IncludeOrExclude includeOrExcludeDirective:
                     includeOrExcludeDirective = includeOrExcludeDirective.WithName(project.ExpandString(includeOrExcludeDirective.Name));
-                    includeOrExcludeDirective = includeOrExcludeDirective.WithDeterminedItemType(sourceFile, reportError);
+                    includeOrExcludeDirective = includeOrExcludeDirective.WithDeterminedItemType(reportError);
 
                     builder.Add(includeOrExcludeDirective);
                     break;
@@ -214,7 +213,7 @@ internal sealed class VirtualProjectBuilder
                 addGlobalProperties);
 
             // Evaluate directives, e.g., determine item types for #:include/#:exclude from their file extension.
-            var fileEvaluatedDirectives = EvaluateDirectives(project, directives, sourceFile, reportError);
+            var fileEvaluatedDirectives = EvaluateDirectives(project, directives, reportError);
 
             evaluatedDirectiveBuilder.AddRange(fileEvaluatedDirectives);
 
