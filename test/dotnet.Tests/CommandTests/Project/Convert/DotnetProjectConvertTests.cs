@@ -595,14 +595,18 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     public void DefaultItems_ImplicitBuildFileInDirectory()
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
-        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), """
+
+        var srcDir = Path.Join(testInstance.Path, "src");
+        Directory.CreateDirectory(srcDir);
+
+        File.WriteAllText(Path.Join(srcDir, "Program.cs"), """
             #:sdk Microsoft.NET.Sdk.Web
             Console.WriteLine(Util.GetText());
             """);
-        File.WriteAllText(Path.Join(testInstance.Path, "Util.cs"), """
+        File.WriteAllText(Path.Join(srcDir, "Util.cs"), """
             class Util { public static string GetText() => "Hi from Util"; }
             """);
-        File.WriteAllText(Path.Join(testInstance.Path, "Directory.Build.props"), """
+        File.WriteAllText(Path.Join(srcDir, "Directory.Build.props"), """
             <Project>
                 <ItemGroup>
                     <Compile Include="Util.cs" />
@@ -613,29 +617,40 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
         // The app works before conversion.
         string expectedOutput = "Hi from Util";
         new DotnetCommand(Log, "run", "Program.cs")
-            .WithWorkingDirectory(testInstance.Path)
+            .WithWorkingDirectory(srcDir)
             .Execute()
             .Should().Pass()
             .And.HaveStdOut(expectedOutput);
 
         // Convert.
-        new DotnetCommand(Log, "project", "convert", "Program.cs")
-            .WithWorkingDirectory(testInstance.Path)
+        new DotnetCommand(Log, "project", "convert", "Program.cs", "-o", "../out")
+            .WithWorkingDirectory(srcDir)
             .Execute()
             .Should().Pass();
 
-        new DirectoryInfo(testInstance.Path)
+        new DirectoryInfo(srcDir)
             .EnumerateFileSystemInfos().Select(f => f.Name).Order()
-            .Should().BeEquivalentTo(["Directory.Build.props", "Program", "Program.cs", "Util.cs"]);
+            .Should().BeEquivalentTo(["Directory.Build.props", "Program.cs", "Util.cs"]);
+
+        var outDir = Path.Join(testInstance.Path, "out");
 
         // Directory.Build.props is included as it's a None item.
-        new DirectoryInfo(Path.Join(testInstance.Path, "Program"))
+        new DirectoryInfo(outDir)
             .EnumerateFileSystemInfos().Select(f => f.Name).Order()
             .Should().BeEquivalentTo(["Directory.Build.props", "Program.csproj", "Program.cs", "Util.cs"]);
 
-        // The app works after conversion.
-        new DotnetCommand(Log, "run", "Program/Program.cs")
-            .WithWorkingDirectory(testInstance.Path)
+        // The app doesn't work immediately after conversion due to the Directory.Build.props file.
+        new DotnetCommand(Log, "run")
+            .WithWorkingDirectory(outDir)
+            .Execute()
+            .Should().Fail()
+            // error NETSDK1022: Duplicate 'Compile' items were included.
+            .And.HaveStdOutContaining("NETSDK1022");
+
+        File.Delete(Path.Join(outDir, "Directory.Build.props"));
+
+        new DotnetCommand(Log, "run")
+            .WithWorkingDirectory(outDir)
             .Execute()
             .Should().Pass()
             .And.HaveStdOut(expectedOutput);
@@ -645,7 +660,8 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     public void DefaultItems_ImplicitBuildFileOutsideDirectory()
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
-        var subdir = Path.Join(testInstance.Path, "subdir");
+        var srcDir = Path.Join(testInstance.Path, "src");
+        var subdir = Path.Join(srcDir, "subdir");
         Directory.CreateDirectory(subdir);
         File.WriteAllText(Path.Join(subdir, "Program.cs"), """
             Console.WriteLine(Util.GetText());
@@ -653,7 +669,7 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
         File.WriteAllText(Path.Join(subdir, "Util.cs"), """
             class Util { public static string GetText() => "Hi from Util"; }
             """);
-        File.WriteAllText(Path.Join(testInstance.Path, "Directory.Build.props"), """
+        File.WriteAllText(Path.Join(srcDir, "Directory.Build.props"), """
             <Project>
                 <ItemGroup>
                     <Compile Include="$(MSBuildThisFileDirectory)subdir\Util.cs" />
@@ -670,22 +686,24 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .And.HaveStdOut(expectedOutput);
 
         // Convert.
-        new DotnetCommand(Log, "project", "convert", "Program.cs")
+        new DotnetCommand(Log, "project", "convert", "Program.cs", "-o", "../../out")
             .WithWorkingDirectory(subdir)
             .Execute()
             .Should().Pass();
 
         new DirectoryInfo(subdir)
             .EnumerateFileSystemInfos().Select(f => f.Name).Order()
-            .Should().BeEquivalentTo(["Program", "Program.cs", "Util.cs"]);
+            .Should().BeEquivalentTo(["Program.cs", "Util.cs"]);
 
-        new DirectoryInfo(Path.Join(subdir, "Program"))
+        var outDir = Path.Join(testInstance.Path, "out");
+
+        new DirectoryInfo(outDir)
             .EnumerateFileSystemInfos().Select(f => f.Name).Order()
             .Should().BeEquivalentTo(["Program.csproj", "Program.cs", "Util.cs"]);
 
         // The app works after conversion.
-        new DotnetCommand(Log, "run", "Program/Program.cs")
-            .WithWorkingDirectory(subdir)
+        new DotnetCommand(Log, "run")
+            .WithWorkingDirectory(outDir)
             .Execute()
             .Should().Pass()
             .And.HaveStdOut(expectedOutput);
@@ -695,15 +713,16 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     public void DefaultItems_ImplicitBuildFileAndUtilOutsideDirectory()
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
-        var subdir = Path.Join(testInstance.Path, "subdir");
+        var srcDir = Path.Join(testInstance.Path, "src");
+        var subdir = Path.Join(srcDir, "subdir");
         Directory.CreateDirectory(subdir);
         File.WriteAllText(Path.Join(subdir, "Program.cs"), """
             Console.WriteLine(Util.GetText());
             """);
-        File.WriteAllText(Path.Join(testInstance.Path, "Util.cs"), """
+        File.WriteAllText(Path.Join(srcDir, "Util.cs"), """
             class Util { public static string GetText() => "Hi from Util"; }
             """);
-        File.WriteAllText(Path.Join(testInstance.Path, "Directory.Build.props"), """
+        File.WriteAllText(Path.Join(srcDir, "Directory.Build.props"), """
             <Project>
                 <ItemGroup>
                     <Compile Include="$(MSBuildThisFileDirectory)Util.cs" />
@@ -720,22 +739,24 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .And.HaveStdOut(expectedOutput);
 
         // Convert.
-        new DotnetCommand(Log, "project", "convert", "Program.cs")
+        new DotnetCommand(Log, "project", "convert", "Program.cs", "-o", "../../out")
             .WithWorkingDirectory(subdir)
             .Execute()
             .Should().Pass();
 
         new DirectoryInfo(subdir)
             .EnumerateFileSystemInfos().Select(f => f.Name).Order()
-            .Should().BeEquivalentTo(["Program", "Program.cs"]);
+            .Should().BeEquivalentTo(["Program.cs"]);
 
-        new DirectoryInfo(Path.Join(subdir, "Program"))
+        var outDir = Path.Join(testInstance.Path, "out");
+
+        new DirectoryInfo(outDir)
             .EnumerateFileSystemInfos().Select(f => f.Name).Order()
-            .Should().BeEquivalentTo(["Program.csproj", "Program.cs"]);
+            .Should().BeEquivalentTo(["Program.csproj", "Program.cs", "Util.cs"]);
 
         // The app works after conversion.
-        new DotnetCommand(Log, "run", "Program/Program.cs")
-            .WithWorkingDirectory(subdir)
+        new DotnetCommand(Log, "run")
+            .WithWorkingDirectory(outDir)
             .Execute()
             .Should().Pass()
             .And.HaveStdOut(expectedOutput);
