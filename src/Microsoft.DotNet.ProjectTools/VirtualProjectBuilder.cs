@@ -225,15 +225,15 @@ internal sealed class VirtualProjectBuilder
                     projectCollection,
                     evaluatedDirectiveBuilder.ToImmutable(),
                     addGlobalProperties);
+            }
 
-                var compileItems = project.GetItems("Compile");
-                foreach (var compileItem in compileItems)
+            var compileItems = project.GetItems("Compile");
+            foreach (var compileItem in compileItems)
+            {
+                var compilePath = Path.GetFullPath(compileItem.EvaluatedInclude);
+                if (seenFiles.Add(compilePath))
                 {
-                    var compilePath = Path.GetFullPath(compileItem.EvaluatedInclude);
-                    if (seenFiles.Add(compilePath))
-                    {
-                        filesToProcess.Enqueue(compilePath);
-                    }
+                    filesToProcess.Enqueue(compilePath);
                 }
             }
         }

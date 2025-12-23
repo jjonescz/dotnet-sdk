@@ -891,6 +891,44 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     }
 
     /// <summary>
+    /// Directives in other files are considered even if those files are included via manual MSBuild rather than <c>#:include</c>.
+    /// </summary>
+    [Fact]
+    public void MultipleFiles_DirectivesInOtherFiles()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        File.WriteAllText(Path.Join(testInstance.Path, "A.cs"), """
+            Console.WriteLine(B.M());
+            #if !DEBUG
+            Console.WriteLine("Release config");
+            #endif
+            """);
+        File.WriteAllText(Path.Join(testInstance.Path, "B.cs"), """
+            #:property Configuration=Release
+            public static class B
+            {
+                public static string M() => "String from Util";
+            }
+            """);
+        File.WriteAllText(Path.Join(testInstance.Path, "Directory.Build.props"), """
+            <Project>
+              <ItemGroup>
+                <Compile Include="B.cs" />
+              </ItemGroup>
+            </Project>
+            """);
+
+        new DotnetCommand(Log, "run", "A.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut("""
+                String from Util
+                Release config
+                """);
+    }
+
+    /// <summary>
     /// <c>dotnet run util.cs</c> fails if <c>util.cs</c> is not the entry-point.
     /// </summary>
     [Fact]
