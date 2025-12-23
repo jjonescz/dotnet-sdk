@@ -75,7 +75,6 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
             using var writer = new StreamWriter(stream, Encoding.UTF8);
             VirtualProjectBuilder.WriteProjectFile(
                 writer,
-                projectInstance,
                 UpdateDirectives(evaluatedDirectives),
                 isVirtualProject: false,
                 userSecretsId: DetermineUserSecretsId(),

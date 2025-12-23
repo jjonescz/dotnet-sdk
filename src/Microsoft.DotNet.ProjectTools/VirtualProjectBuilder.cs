@@ -200,7 +200,6 @@ internal sealed class VirtualProjectBuilder
             directives = FileLevelDirectiveHelpers.FindDirectives(EntryPointSourceFile, validateAllDirectives, reportError);
         }
 
-        ProjectInstance? projectForEvaluation = null;
         var seenFiles = new HashSet<string>(1, StringComparer.Ordinal) { EntryPointFileFullPath };
         var filesToProcess = new Queue<string>();
         var sourceFile = EntryPointSourceFile;
@@ -209,27 +208,25 @@ internal sealed class VirtualProjectBuilder
         do
         {
             // Create a project with properties from #:property directives so they can be expanded inside EvaluateDirectives.
-            projectForEvaluation = CreateProjectInstance(
-                projectForEvaluation,
+            project = CreateProjectInstance(
                 projectCollection,
                 [.. evaluatedDirectiveBuilder, .. directives],
                 addGlobalProperties);
 
             // Evaluate directives, e.g., determine item types for #:include/#:exclude from their file extension.
-            var fileEvaluatedDirectives = EvaluateDirectives(projectForEvaluation, directives, sourceFile, reportError);
+            var fileEvaluatedDirectives = EvaluateDirectives(project, directives, sourceFile, reportError);
 
             evaluatedDirectiveBuilder.AddRange(fileEvaluatedDirectives);
 
             if (fileEvaluatedDirectives != directives)
             {
                 // This project will contain items from #:include/#:exclude directives which we will traverse recursively.
-                projectForEvaluation = CreateProjectInstance(
-                    projectForEvaluation,
+                project = CreateProjectInstance(
                     projectCollection,
                     evaluatedDirectiveBuilder.ToImmutable(),
                     addGlobalProperties);
 
-                var compileItems = projectForEvaluation.GetItems("Compile");
+                var compileItems = project.GetItems("Compile");
                 foreach (var compileItem in compileItems)
                 {
                     var compilePath = Path.GetFullPath(compileItem.EvaluatedInclude);
@@ -242,7 +239,6 @@ internal sealed class VirtualProjectBuilder
         }
         while (TryGetNextFileToProcess());
 
-        project = projectForEvaluation;
         evaluatedDirectives = evaluatedDirectiveBuilder.ToImmutable();
 
         bool TryGetNextFileToProcess()
@@ -266,7 +262,6 @@ internal sealed class VirtualProjectBuilder
     }
 
     private ProjectInstance CreateProjectInstance(
-        ProjectInstance? projectForEvaluation,
         ProjectCollection projectCollection,
         ImmutableArray<CSharpDirective> directives,
         Action<IDictionary<string, string>>? addGlobalProperties = null)
@@ -293,7 +288,6 @@ internal sealed class VirtualProjectBuilder
 
             WriteProjectFile(
                 projectFileWriter,
-                projectForEvaluation,
                 directives,
                 _defaultProperties,
                 isVirtualProject: true,
@@ -313,7 +307,6 @@ internal sealed class VirtualProjectBuilder
 
     public static void WriteProjectFile(
         TextWriter writer,
-        ProjectInstance? projectForEvaluation,
         ImmutableArray<CSharpDirective> directives,
         IEnumerable<(string name, string value)> defaultProperties,
         bool isVirtualProject,
@@ -593,19 +586,16 @@ internal sealed class VirtualProjectBuilder
         {
             Debug.Assert(entryPointFilePath is not null);
 
-            if (projectForEvaluation is null ||
-                projectForEvaluation.GetItemsByItemTypeAndEvaluatedInclude("Compile", entryPointFilePath).Count() < 2)
-            {
-                // Only add explicit Compile item when EnableDefaultCompileItems is not true.
-                // When EnableDefaultCompileItems=true, the file is included via default MSBuild globbing.
-                // See https://github.com/dotnet/sdk/issues/51785
-                writer.WriteLine($"""
-                      <ItemGroup>
-                        <Compile Condition="'$(EnableDefaultCompileItems)' != 'true'" Include="{EscapeValue(entryPointFilePath)}" />
-                      </ItemGroup>
+            // Only add explicit Compile item when EnableDefaultCompileItems is not true.
+            // When EnableDefaultCompileItems=true, the file is included via default MSBuild globbing.
+            // See https://github.com/dotnet/sdk/issues/51785
+            // We also Exclude existing Compile items (added above via #:include/#:exclude directives).
+            writer.WriteLine($"""
+                  <ItemGroup>
+                    <Compile Condition="'$(EnableDefaultCompileItems)' != 'true'" Include="{EscapeValue(entryPointFilePath)}" Exclude="@(Compile)" />
+                  </ItemGroup>
 
-                    """);
-            }
+                """);
 
             if (includeRuntimeConfigInformation)
             {

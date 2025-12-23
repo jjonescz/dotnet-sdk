@@ -1938,7 +1938,6 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
         var projectWriter = new StringWriter();
         VirtualProjectBuilder.WriteProjectFile(
             projectWriter,
-            projectForEvaluation: null,
             directives,
             VirtualProjectBuilder.GetDefaultProperties(VirtualProjectBuildingCommand.TargetFrameworkVersion),
             isVirtualProject: false);

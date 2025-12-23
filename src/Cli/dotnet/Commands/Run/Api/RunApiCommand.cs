@@ -72,18 +72,16 @@ internal abstract class RunApiInput
 
             var errorReporter = ErrorReporters.CreateCollectingReporter(out var diagnostics);
 
-            var projectCollection = new ProjectCollection();
             builder.CreateProjectInstance(
-                projectCollection,
+                new ProjectCollection(),
                 errorReporter,
-                out var project,
+                out _,
                 out var evaluatedDirectives,
                 validateAllDirectives: true);
 
             var csprojWriter = new StringWriter();
             VirtualProjectBuilder.WriteProjectFile(
                 csprojWriter,
-                project,
                 evaluatedDirectives,
                 VirtualProjectBuilder.GetDefaultProperties(VirtualProjectBuildingCommand.TargetFrameworkVersion),
                 isVirtualProject: true,
