@@ -3067,13 +3067,6 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .Execute()
             .Should().Pass();
 
-        // Run the converted project.
-        //new DotnetCommand(Log, "run")
-        //    .WithWorkingDirectory(Path.Join(testInstance.Path, "src/A"))
-        //    .Execute()
-        //    .Should().Pass()
-        //    .And.HaveStdOut(expectedOutput);
-
         new DirectoryInfo(testInstance.Path)
             .Should().HaveSubtree("""
                 src/
@@ -3099,13 +3092,16 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
                     <UserSecretsId>A-*</UserSecretsId>
                   </PropertyGroup>
 
-                  <ItemGroup>
-                    <Compile Include="B.cs" />
-                  </ItemGroup>
-
                 </Project>
 
                 """);
+
+        // Run the converted project.
+        new DotnetCommand(Log, "run")
+            .WithWorkingDirectory(Path.Join(testInstance.Path, "src/A"))
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut(expectedOutput);
     }
 
     [Fact]
@@ -3162,13 +3158,6 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .Execute()
             .Should().Pass();
 
-        // Run the converted project.
-        //new DotnetCommand(Log, "run")
-        //    .WithWorkingDirectory(Path.Join(testInstance.Path, "A"))
-        //    .Execute()
-        //    .Should().Pass()
-        //    .And.HaveStdOut(expectedOutput);
-
         new DirectoryInfo(testInstance.Path)
             .Should().HaveSubtree("""
                 A.cs
@@ -3201,15 +3190,16 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
                     <P2>D</P2>
                   </PropertyGroup>
 
-                  <ItemGroup>
-                    <Compile Include="B.cs" />
-                    <Compile Include="C.cs" />
-                    <Compile Include="D.cs" />
-                  </ItemGroup>
-
                 </Project>
 
                 """);
+
+        // Run the converted project.
+        new DotnetCommand(Log, "run")
+            .WithWorkingDirectory(Path.Join(testInstance.Path, "A"))
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut(expectedOutput);
     }
 
     [Fact]

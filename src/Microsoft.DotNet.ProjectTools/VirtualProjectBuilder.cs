@@ -498,7 +498,13 @@ internal sealed class VirtualProjectBuilder
                 """);
         }
 
-        if (includeOrExcludeDirectives.Any())
+        if (!isVirtualProject)
+        {
+            // In the real project, files are included by the conversion copying them to the output directory,
+            // hence we don't need to transfer the #:include/#:exclude directives over.
+            processedDirectives += includeOrExcludeDirectives.Count();
+        }
+        else if (includeOrExcludeDirectives.Any())
         {
             writer.WriteLine("""
                   <ItemGroup>
