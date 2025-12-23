@@ -3031,6 +3031,29 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     }
 
     [Fact]
+    public void IncludeDirective_WorkingDirectory()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+
+        var srcDir = Path.Join(testInstance.Path, "src");
+        Directory.CreateDirectory(srcDir);
+
+        File.WriteAllText(Path.Join(srcDir, "A.cs"), """
+            #:include B.cs
+            Console.WriteLine(B.M());
+            """);
+        File.WriteAllText(Path.Join(srcDir, "B.cs"), """
+            static class B { public static string M() => "Hello from B"; }
+            """);
+
+        new DotnetCommand(Log, "run", "src/A.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut("Hello from B");
+    }
+
+    [Fact]
     public void IncludeDirective_Transitive()
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();

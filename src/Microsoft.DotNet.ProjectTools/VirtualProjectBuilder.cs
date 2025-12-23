@@ -230,7 +230,9 @@ internal sealed class VirtualProjectBuilder
             var compileItems = project.GetItems("Compile");
             foreach (var compileItem in compileItems)
             {
-                var compilePath = Path.GetFullPath(compileItem.EvaluatedInclude);
+                var compilePath = Path.GetFullPath(
+                    path: compileItem.EvaluatedInclude,
+                    basePath: Path.GetDirectoryName(sourceFile.Path)!);
                 if (seenFiles.Add(compilePath))
                 {
                     filesToProcess.Enqueue(compilePath);
