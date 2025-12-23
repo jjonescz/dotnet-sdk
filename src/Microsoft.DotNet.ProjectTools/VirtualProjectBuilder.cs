@@ -144,7 +144,8 @@ internal sealed class VirtualProjectBuilder
     /// <c>#:project</c> directives are resolved to full project file paths
     /// (e.g., if the evaluated value is a directory, finds a project in that directory).
     /// <para/>
-    /// <c>#:include</c>/<c>#:exclude</c> have their <see cref="CSharpDirective.IncludeOrExclude.ItemType"/> determined.
+    /// <c>#:include</c>/<c>#:exclude</c> have their <see cref="CSharpDirective.IncludeOrExclude.ItemType"/> determined
+    /// and relative paths resolved relative to their containing file.
     /// </remarks>
     private static ImmutableArray<CSharpDirective> EvaluateDirectives(
         ProjectInstance project,
@@ -170,7 +171,9 @@ internal sealed class VirtualProjectBuilder
                     break;
 
                 case CSharpDirective.IncludeOrExclude includeOrExcludeDirective:
-                    includeOrExcludeDirective = includeOrExcludeDirective.WithName(project.ExpandString(includeOrExcludeDirective.Name));
+                    var expandedPath = project.ExpandString(includeOrExcludeDirective.Name);
+                    var fullPath = Path.GetFullPath(path: expandedPath, basePath: Path.GetDirectoryName(includeOrExcludeDirective.Info.SourceFile.Path)!);
+                    includeOrExcludeDirective = includeOrExcludeDirective.WithName(fullPath);
                     includeOrExcludeDirective = includeOrExcludeDirective.WithDeterminedItemType(reportError);
 
                     builder.Add(includeOrExcludeDirective);
@@ -201,7 +204,6 @@ internal sealed class VirtualProjectBuilder
 
         var seenFiles = new HashSet<string>(1, StringComparer.Ordinal) { EntryPointFileFullPath };
         var filesToProcess = new Queue<string>();
-        var sourceFile = EntryPointSourceFile;
         var evaluatedDirectiveBuilder = ImmutableArray.CreateBuilder<CSharpDirective>();
 
         do
@@ -230,8 +232,8 @@ internal sealed class VirtualProjectBuilder
             foreach (var compileItem in compileItems)
             {
                 var compilePath = Path.GetFullPath(
-                    path: compileItem.EvaluatedInclude,
-                    basePath: Path.GetDirectoryName(sourceFile.Path)!);
+                    path: compileItem.GetMetadataValue("FullPath"),
+                    basePath: Path.GetDirectoryName(compileItem.Project.FullPath)!);
                 if (seenFiles.Add(compilePath))
                 {
                     filesToProcess.Enqueue(compilePath);
@@ -252,7 +254,7 @@ internal sealed class VirtualProjectBuilder
                     continue;
                 }
 
-                sourceFile = SourceFile.Load(filePath);
+                var sourceFile = SourceFile.Load(filePath);
                 directives = FileLevelDirectiveHelpers.FindDirectives(sourceFile, validateAllDirectives, reportError);
                 return true;
             }

@@ -3109,12 +3109,15 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
 
+        Directory.CreateDirectory(Path.Join(testInstance.Path, "dir1/dir2"));
+        Directory.CreateDirectory(Path.Join(testInstance.Path, "dir3"));
+
         var a = """
             B.M();
             """;
 
-        File.WriteAllText(Path.Join(testInstance.Path, "A.cs"), $"""
-            #:include B.cs
+        File.WriteAllText(Path.Join(testInstance.Path, "dir1/A.cs"), $"""
+            #:include dir2/B.cs
             {a}
             """);
 
@@ -3122,10 +3125,10 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             static class B { public static void M() { C.M(); } }
             """;
 
-        File.WriteAllText(Path.Join(testInstance.Path, "B.cs"), $"""
+        File.WriteAllText(Path.Join(testInstance.Path, "dir1/dir2/B.cs"), $"""
             #:include $(P1).cs
-            #:property P1=C
-            #:property P2=D
+            #:property P1=../../dir3/C
+            #:property P2=../D
             {b}
             """);
 
@@ -3133,7 +3136,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             static class C { public static void M() { D.M(); } }
             """;
 
-        File.WriteAllText(Path.Join(testInstance.Path, "C.cs"), $"""
+        File.WriteAllText(Path.Join(testInstance.Path, "dir3/C.cs"), $"""
             #:include $(P2).cs
             {c}
             """);
@@ -3147,26 +3150,21 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         var expectedOutput = "D";
 
         new DotnetCommand(Log, "run", "A.cs")
-            .WithWorkingDirectory(testInstance.Path)
+            .WithWorkingDirectory(Path.Join(testInstance.Path, "dir1"))
             .Execute()
             .Should().Pass()
             .And.HaveStdOut(expectedOutput);
 
         // Convert to a project.
         new DotnetCommand(Log, "project", "convert", "A.cs")
-            .WithWorkingDirectory(testInstance.Path)
+            .WithWorkingDirectory(Path.Join(testInstance.Path, "dir1"))
             .Execute()
             .Should().Pass();
 
-        new DirectoryInfo(testInstance.Path)
+        new DirectoryInfo(Path.Join(testInstance.Path, "dir1/A"))
             .Should().HaveSubtree("""
                 A.cs
-                A/
-                A/A.cs
-                A/A.csproj
-                A/B.cs
-                A/C.cs
-                A/D.cs
+                A.csproj
                 B.cs
                 C.cs
                 D.cs
@@ -3196,7 +3194,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
 
         // Run the converted project.
         new DotnetCommand(Log, "run")
-            .WithWorkingDirectory(Path.Join(testInstance.Path, "A"))
+            .WithWorkingDirectory(Path.Join(testInstance.Path, "dir1/A"))
             .Execute()
             .Should().Pass()
             .And.HaveStdOut(expectedOutput);

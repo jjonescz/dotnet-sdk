@@ -272,8 +272,7 @@ The directives are processed as follows:
 
   It is an error if the value is empty.
 
-  If the value is a glob that matches the entrypoint file (e.g., `./**/*.cs`),
-  the implicit `<Compile Include="{EntryPointFile}" />` is not added to avoid duplicate items.
+  Relative paths are resolved relative to the file containing the directive.
 
 - Each `#:exclude` is injected similarly to `#:include` but with `Remove="{0}"` instead of `Include="{0}"`.
 
