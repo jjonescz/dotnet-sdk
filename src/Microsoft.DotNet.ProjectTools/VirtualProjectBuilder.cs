@@ -586,13 +586,12 @@ internal sealed class VirtualProjectBuilder
         {
             Debug.Assert(entryPointFilePath is not null);
 
-            // Only add explicit Compile item when EnableDefaultCompileItems is not true.
-            // When EnableDefaultCompileItems=true, the file is included via default MSBuild globbing.
-            // See https://github.com/dotnet/sdk/issues/51785
-            // We also Exclude existing Compile items (added above via #:include/#:exclude directives).
+            // We Exclude existing Compile items (which could be added e.g.
+            // in Microsoft.NET.Sdk.DefaultItems.props when user sets EnableDefaultCompileItems=true,
+            // or above via #:include/#:exclude directives).
             writer.WriteLine($"""
                   <ItemGroup>
-                    <Compile Condition="'$(EnableDefaultCompileItems)' != 'true'" Include="{EscapeValue(entryPointFilePath)}" Exclude="@(Compile)" />
+                    <Compile Include="{EscapeValue(entryPointFilePath)}" Exclude="@(Compile)" />
                   </ItemGroup>
 
                 """);
