@@ -647,29 +647,37 @@ internal sealed class VirtualProjectBuilder
         }
     }
 
-    public static SourceText? RemoveDirectivesFromFile(ImmutableArray<CSharpDirective> directives, SourceText text)
+    public static SourceFile RemoveDirectivesFromFile(ImmutableArray<CSharpDirective> directives, SourceFile sourceFile)
     {
         if (directives.Length == 0)
         {
-            return null;
+            return sourceFile;
         }
 
-        Debug.Assert(directives.OrderBy(d => d.Info.Span.Start).SequenceEqual(directives), "Directives should be ordered by source location.");
+#if DEBUG
+        var filteredDirectives = directives.Where(d => d.Info.SourceFile.Path == sourceFile.Path);
+        Debug.Assert(
+            filteredDirectives.OrderBy(static d => d.Info.Span.Start).SequenceEqual(filteredDirectives),
+            "Directives should be ordered by source location.");
+#endif
+
+        var text = sourceFile.Text;
 
         for (int i = directives.Length - 1; i >= 0; i--)
         {
             var directive = directives[i];
-            text = text.Replace(directive.Info.Span, string.Empty);
+            if (directive.Info.SourceFile.Path == sourceFile.Path)
+            {
+                text = text.Replace(directive.Info.Span, string.Empty);
+            }
         }
 
-        return text;
+        return sourceFile.WithText(text);
     }
 
-    public static void RemoveDirectivesFromFile(ImmutableArray<CSharpDirective> directives, SourceText text, string filePath)
+    public static void RemoveDirectivesFromFile(ImmutableArray<CSharpDirective> directives, SourceFile sourceFile, string targetFilePath)
     {
-        if (RemoveDirectivesFromFile(directives, text) is { } modifiedText)
-        {
-            new SourceFile(filePath, modifiedText).Save();
-        }
+        var modifiedFile = RemoveDirectivesFromFile(directives, sourceFile);
+        modifiedFile.WithPath(targetFilePath).Save();
     }
 }

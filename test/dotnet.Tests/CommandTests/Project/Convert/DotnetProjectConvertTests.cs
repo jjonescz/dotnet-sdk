@@ -9,7 +9,6 @@ using Microsoft.CodeAnalysis.Text;
 using Microsoft.DotNet.Cli.Commands;
 using Microsoft.DotNet.Cli.Commands.Run;
 using Microsoft.DotNet.Cli.Run.Tests;
-using Microsoft.DotNet.Cli.Utils;
 using Microsoft.DotNet.FileBasedPrograms;
 using Microsoft.DotNet.ProjectTools;
 
@@ -1943,7 +1942,9 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             isVirtualProject: false);
 
         actualProject = projectWriter.ToString();
-        actualCSharp = VirtualProjectBuilder.RemoveDirectivesFromFile(directives, builder.EntryPointSourceFile.Text)?.ToString();
+
+        var convertedFile = VirtualProjectBuilder.RemoveDirectivesFromFile(directives, builder.EntryPointSourceFile);
+        actualCSharp = convertedFile.Text != builder.EntryPointSourceFile.Text ? convertedFile.Text.ToString() : null;
     }
 
     /// <param name="expectedProject">

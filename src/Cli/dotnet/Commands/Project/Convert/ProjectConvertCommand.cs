@@ -60,7 +60,7 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
         }
         else
         {
-            VirtualProjectBuilder.RemoveDirectivesFromFile(evaluatedDirectives, builder.EntryPointSourceFile.Text, targetFile);
+            VirtualProjectBuilder.RemoveDirectivesFromFile(evaluatedDirectives, builder.EntryPointSourceFile, targetFile);
         }
 
         // Create project file.
@@ -94,7 +94,24 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
 
             string targetItemDirectory = Path.GetDirectoryName(targetItemFullPath)!;
             CreateDirectory(targetItemDirectory);
-            CopyFile(item.FullPath, targetItemFullPath);
+
+            if (item.ItemType == "Compile")
+            {
+                if (dryRun)
+                {
+                    Reporter.Output.WriteLine(CliCommandStrings.ProjectConvertWouldCopyFile, item.FullPath, targetItemFullPath);
+                    Reporter.Output.WriteLine(CliCommandStrings.ProjectConvertWouldConvertFile, targetItemFullPath);
+                }
+                else
+                {
+                    var sourceFile = SourceFile.Load(item.FullPath);
+                    VirtualProjectBuilder.RemoveDirectivesFromFile(evaluatedDirectives, sourceFile, targetItemFullPath);
+                }
+            }
+            else
+            {
+                CopyFile(item.FullPath, targetItemFullPath);
+            }
         }
 
         return 0;
@@ -126,7 +143,7 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
             }
         }
 
-        IEnumerable<(string FullPath, string RelativePath)> FindIncludedItems()
+        IEnumerable<(string ItemType, string FullPath, string RelativePath)> FindIncludedItems()
         {
             string entryPointFileDirectory = PathUtility.EnsureTrailingSlash(Path.GetDirectoryName(file)!);
 
@@ -157,7 +174,7 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
                 }
 
                 string itemRelativePath = Path.GetRelativePath(relativeTo: entryPointFileDirectory, path: itemFullPath);
-                yield return (FullPath: itemFullPath, RelativePath: itemRelativePath);
+                yield return (item.ItemType, FullPath: itemFullPath, RelativePath: itemRelativePath);
             }
         }
 

@@ -2697,7 +2697,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
                 Message: 'First1'
                 """);
 
-        new DotnetCommand(Log, "run", "-v", "q",  "Second.cs")
+        new DotnetCommand(Log, "run", "-v", "q", "Second.cs")
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Pass()
@@ -3038,19 +3038,74 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         var srcDir = Path.Join(testInstance.Path, "src");
         Directory.CreateDirectory(srcDir);
 
-        File.WriteAllText(Path.Join(srcDir, "A.cs"), """
-            #:include B.cs
+        var a = """
             Console.WriteLine(B.M());
+            """;
+
+        File.WriteAllText(Path.Join(srcDir, "A.cs"), $"""
+            #:include B.cs
+            {a}
             """);
-        File.WriteAllText(Path.Join(srcDir, "B.cs"), """
+
+        var b = """
             static class B { public static string M() => "Hello from B"; }
-            """);
+            """;
+
+        File.WriteAllText(Path.Join(srcDir, "B.cs"), b);
+
+        var expectedOutput = "Hello from B";
 
         new DotnetCommand(Log, "run", "src/A.cs")
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Pass()
-            .And.HaveStdOut("Hello from B");
+            .And.HaveStdOut(expectedOutput);
+
+        // Convert to a project.
+        new DotnetCommand(Log, "project", "convert", "src/A.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass();
+
+        // Run the converted project.
+        //new DotnetCommand(Log, "run")
+        //    .WithWorkingDirectory(Path.Join(testInstance.Path, "src/A"))
+        //    .Execute()
+        //    .Should().Pass()
+        //    .And.HaveStdOut(expectedOutput);
+
+        new DirectoryInfo(testInstance.Path)
+            .Should().HaveSubtree("""
+                src/
+                src/A.cs
+                src/A/
+                src/A/A.cs
+                src/A/A.csproj
+                src/A/B.cs
+                src/B.cs
+                """)
+            .And.HaveFileContent("src/A/A.cs", a)
+            .And.HaveFileContent("src/A/B.cs", b)
+            .And.HaveFileContentPattern("src/A/A.csproj", """
+                <Project Sdk="Microsoft.NET.Sdk">
+
+                  <PropertyGroup>
+                    <OutputType>Exe</OutputType>
+                    <TargetFramework>net10.0</TargetFramework>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <Nullable>enable</Nullable>
+                    <PublishAot>true</PublishAot>
+                    <PackAsTool>true</PackAsTool>
+                    <UserSecretsId>A-*</UserSecretsId>
+                  </PropertyGroup>
+
+                  <ItemGroup>
+                    <Compile Include="B.cs" />
+                  </ItemGroup>
+
+                </Project>
+
+                """);
     }
 
     [Fact]
@@ -3058,34 +3113,103 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
 
-        File.WriteAllText(Path.Join(testInstance.Path, "A.cs"), """
-            #:include B.cs
+        var a = """
             B.M();
+            """;
+
+        File.WriteAllText(Path.Join(testInstance.Path, "A.cs"), $"""
+            #:include B.cs
+            {a}
             """);
 
-        File.WriteAllText(Path.Join(testInstance.Path, "B.cs"), """
+        var b = """
+            static class B { public static void M() { C.M(); } }
+            """;
+
+        File.WriteAllText(Path.Join(testInstance.Path, "B.cs"), $"""
             #:include $(P1).cs
             #:property P1=C
             #:property P2=D
-            static class B { public static void M() { C.M(); } }
+            {b}
             """);
 
-        File.WriteAllText(Path.Join(testInstance.Path, "C.cs"), """
-            #:include $(P2).cs
+        var c = """
             static class C { public static void M() { D.M(); } }
+            """;
+
+        File.WriteAllText(Path.Join(testInstance.Path, "C.cs"), $"""
+            #:include $(P2).cs
+            {c}
             """);
 
-        File.WriteAllText(Path.Join(testInstance.Path, "D.cs"), """
+        var d = """
             static class D { public static void M() { Console.WriteLine("D"); } }
-            """);
+            """;
+
+        File.WriteAllText(Path.Join(testInstance.Path, "D.cs"), d);
+
+        var expectedOutput = "D";
 
         new DotnetCommand(Log, "run", "A.cs")
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Pass()
-            .And.HaveStdOut("D");
+            .And.HaveStdOut(expectedOutput);
 
-        // TODO: Test conversion too.
+        // Convert to a project.
+        new DotnetCommand(Log, "project", "convert", "A.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass();
+
+        // Run the converted project.
+        //new DotnetCommand(Log, "run")
+        //    .WithWorkingDirectory(Path.Join(testInstance.Path, "A"))
+        //    .Execute()
+        //    .Should().Pass()
+        //    .And.HaveStdOut(expectedOutput);
+
+        new DirectoryInfo(testInstance.Path)
+            .Should().HaveSubtree("""
+                A.cs
+                A/
+                A/A.cs
+                A/A.csproj
+                A/B.cs
+                A/C.cs
+                A/D.cs
+                B.cs
+                C.cs
+                D.cs
+                """)
+            .And.HaveFileContent("A/A.cs", a)
+            .And.HaveFileContent("A/B.cs", b)
+            .And.HaveFileContent("A/C.cs", c)
+            .And.HaveFileContent("A/D.cs", d)
+            .And.HaveFileContentPattern("A/A.csproj", """
+                <Project Sdk="Microsoft.NET.Sdk">
+
+                  <PropertyGroup>
+                    <OutputType>Exe</OutputType>
+                    <TargetFramework>net10.0</TargetFramework>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <Nullable>enable</Nullable>
+                    <PublishAot>true</PublishAot>
+                    <PackAsTool>true</PackAsTool>
+                    <UserSecretsId>A-*</UserSecretsId>
+                    <P1>C</P1>
+                    <P2>D</P2>
+                  </PropertyGroup>
+
+                  <ItemGroup>
+                    <Compile Include="B.cs" />
+                    <Compile Include="C.cs" />
+                    <Compile Include="D.cs" />
+                  </ItemGroup>
+
+                </Project>
+
+                """);
     }
 
     [Fact]
