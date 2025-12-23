@@ -249,8 +249,7 @@ internal sealed class VirtualProjectBuilder
             {
                 if (!File.Exists(filePath))
                 {
-                    // TODO: Localize and test this error.
-                    reportError(EntryPointSourceFile, default, $"File not found: '{filePath}'");
+                    reportError(EntryPointSourceFile, default, string.Format(Resources.IncludedFileNotFound, filePath));
                     continue;
                 }
 

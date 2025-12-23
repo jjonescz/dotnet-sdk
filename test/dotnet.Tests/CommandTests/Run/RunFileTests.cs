@@ -3088,6 +3088,25 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         // TODO: Test conversion too.
     }
 
+    [Fact]
+    public void IncludeDirective_FileNotFound()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+
+        var programPath = Path.Join(testInstance.Path, "A.cs");
+
+        File.WriteAllText(programPath, """
+            #:include B.cs
+            Console.WriteLine("Hello");
+            """);
+
+        new DotnetCommand(Log, "run", "A.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            .And.HaveStdErrContaining(DirectiveError(programPath, 1, Resources.IncludedFileNotFound, Path.Join(testInstance.Path, "B.cs")));
+    }
+
     [Theory] // https://github.com/dotnet/aspnetcore/issues/63440
     [InlineData(true, null)]
     [InlineData(false, null)]
