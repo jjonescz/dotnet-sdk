@@ -166,13 +166,7 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
                     continue;
                 }
 
-                // Exclude items that are not contained within the entry point file directory
-                // - except Compile items, we need to remove directives from those.
                 string itemFullPath = Path.GetFullPath(path: item.GetMetadataValue("FullPath"), basePath: entryPointFileDirectory);
-                if (item.ItemType != "Compile" && !itemFullPath.StartsWith(entryPointFileDirectory, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
 
                 // Exclude items that do not exist.
                 if (!File.Exists(itemFullPath))
@@ -182,13 +176,12 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
 
                 string itemRelativePath = Path.GetRelativePath(relativeTo: entryPointFileDirectory, path: itemFullPath);
 
-                // Files outside the source directory should be copied into the target directory top-level.
+                // Files outside the source directory should be copied into the target directory at the top level.
                 // Possibly with a number suffix to avoid conflicts.
+                // For C# files, this is needed so we can remove directives from them.
+                // For others, this is consistent but also we can omit the item groups from the converted project file and keep it simple.
                 if (itemRelativePath.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
                 {
-                    Debug.Assert(item.ItemType == "Compile",
-                        "Only Compile items are allowed to be outside the source directory, others are excluded above.");
-
                     itemRelativePath = Path.GetFileName(itemFullPath);
                     string fileNameWithoutExtension;
                     string extension;

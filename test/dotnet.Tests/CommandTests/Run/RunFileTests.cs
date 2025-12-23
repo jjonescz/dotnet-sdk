@@ -3141,12 +3141,26 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             """);
 
         var d = """
-            static class D { public static void M() { Console.WriteLine("D"); } }
+            static class D
+            {
+                public static void M()
+                {
+                    var asm = System.Reflection.Assembly.GetExecutingAssembly();
+                    using var stream = asm.GetManifestResourceStream($"{asm.GetName().Name}.Resources.resources")!;
+                    using var reader = new System.Resources.ResourceReader(stream);
+                    Console.WriteLine(reader.Cast<System.Collections.DictionaryEntry>().Single());
+                }
+            }
             """;
 
-        File.WriteAllText(Path.Join(testInstance.Path, "C.cs"), d);
+        File.WriteAllText(Path.Join(testInstance.Path, "C.cs"), $"""
+            #:include Resources.resx
+            {d}
+            """);
 
-        var expectedOutput = "D";
+        File.WriteAllText(Path.Join(testInstance.Path, "Resources.resx"), s_resx);
+
+        var expectedOutput = "[MyString, TestValue]";
 
         new DotnetCommand(Log, "run", "A.cs")
             .WithWorkingDirectory(Path.Join(testInstance.Path, "dir1"))
@@ -3166,6 +3180,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
                 A.csproj
                 C.cs
                 C_2.cs
+                Resources.resx
                 dir2/
                 dir2/B.cs
                 """)
@@ -3173,6 +3188,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .And.HaveFileContent("dir2/B.cs", b)
             .And.HaveFileContent("C.cs", c)
             .And.HaveFileContent("C_2.cs", d)
+            .And.HaveFileContent("Resources.resx", s_resx)
             .And.HaveFileContentPattern("A.csproj", """
                 <Project Sdk="Microsoft.NET.Sdk">
 
