@@ -94,7 +94,7 @@ internal sealed class VirtualProjectBuilder
 
         if (string.IsNullOrEmpty(directory))
         {
-            throw new InvalidOperationException(FileBasedProgramsResources.EmptyTempPath);
+            throw new InvalidOperationException(Resources.EmptyTempPath);
         }
 
         return Path.Join(directory, "dotnet", "runfile");
