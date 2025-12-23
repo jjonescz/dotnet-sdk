@@ -4748,7 +4748,8 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             Console.WriteLine();
             """);
 
-        File.WriteAllText(Path.Join(testInstance.Path, "B.cs"), "");
+        var bPath = Path.Join(testInstance.Path, "B.cs");
+        File.WriteAllText(bPath, "");
 
         new DotnetCommand(Log, "run-api")
             .WithStandardInput($$"""
@@ -4791,7 +4792,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
                       </PropertyGroup>
 
                       <ItemGroup>
-                        <Compile Include="B.cs" />
+                        <Compile Include="{bPath}" />
                       </ItemGroup>
 
                       <ItemGroup>
