@@ -595,8 +595,17 @@ internal abstract class CSharpDirective(in CSharpDirective.ParseInfo info)
             (".razor", "Content"),
         ];
 
-        internal static string KnownExtensions =>
-            field ??= string.Join(", ", s_knownExtensions.Select(m => $"'{m.Extension}'"));
+        internal static IEnumerable<string> KnownItemTypes
+            => s_knownExtensions.Select(static t => t.ItemType);
+
+        internal static string KnownExtensions
+            => field ??= string.Join(", ", s_knownExtensions.Select(static t => $"'{t.Extension}'"));
+
+        /// <summary>
+        /// Preserved across <see cref="WithName"/> calls, i.e.,
+        /// this is the original directive text as entered by the user.
+        /// </summary>
+        public required string OriginalName { get; init; }
 
         public required IncludeOrExcludeKind Kind { get; init; }
 
@@ -614,6 +623,7 @@ internal abstract class CSharpDirective(in CSharpDirective.ParseInfo info)
 
             return new IncludeOrExclude(context.Info)
             {
+                OriginalName = directiveText,
                 Name = directiveText,
                 Kind = KindFromString(context.DirectiveKind),
             };
@@ -642,6 +652,7 @@ internal abstract class CSharpDirective(in CSharpDirective.ParseInfo info)
 
             return new IncludeOrExclude(Info)
             {
+                OriginalName = OriginalName,
                 Name = Name,
                 Kind = Kind,
                 ItemType = itemType,
@@ -657,6 +668,7 @@ internal abstract class CSharpDirective(in CSharpDirective.ParseInfo info)
 
             return new IncludeOrExclude(Info)
             {
+                OriginalName = OriginalName,
                 Name = name,
                 Kind = Kind,
                 ItemType = ItemType,

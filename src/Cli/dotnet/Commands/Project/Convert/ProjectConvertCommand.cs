@@ -149,7 +149,13 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
 
             // Include only items we know are files.
             string[] itemTypes = ["Content", "None", "Compile", "EmbeddedResource"];
+
+            Debug.Assert(CSharpDirective.IncludeOrExclude.KnownItemTypes.All(t => itemTypes.Contains(t)),
+                "We currently rely on conversion being able to copy files supported by include/exclude directives.");
+
             var items = itemTypes.SelectMany(t => projectInstance.GetItems(t));
+
+            var topLevelFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var item in items)
             {
@@ -160,9 +166,10 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
                     continue;
                 }
 
-                // Exclude items that are not contained within the entry point file directory.
+                // Exclude items that are not contained within the entry point file directory
+                // - except Compile items, we need to remove directives from those.
                 string itemFullPath = Path.GetFullPath(path: item.GetMetadataValue("FullPath"), basePath: entryPointFileDirectory);
-                if (!itemFullPath.StartsWith(entryPointFileDirectory, StringComparison.OrdinalIgnoreCase))
+                if (item.ItemType != "Compile" && !itemFullPath.StartsWith(entryPointFileDirectory, StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
@@ -174,6 +181,32 @@ internal sealed class ProjectConvertCommand(ParseResult parseResult) : CommandBa
                 }
 
                 string itemRelativePath = Path.GetRelativePath(relativeTo: entryPointFileDirectory, path: itemFullPath);
+
+                // Files outside the source directory should be copied into the target directory top-level.
+                // Possibly with a number suffix to avoid conflicts.
+                if (itemRelativePath.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+                {
+                    Debug.Assert(item.ItemType == "Compile",
+                        "Only Compile items are allowed to be outside the source directory, others are excluded above.");
+
+                    itemRelativePath = Path.GetFileName(itemFullPath);
+                    string fileNameWithoutExtension;
+                    string extension;
+                    if (!topLevelFileNames.Add(itemRelativePath))
+                    {
+                        fileNameWithoutExtension = Path.GetFileNameWithoutExtension(itemRelativePath);
+                        extension = Path.GetExtension(itemRelativePath);
+
+                        var counter = 1;
+                        do
+                        {
+                            counter++;
+                            itemRelativePath = $"{fileNameWithoutExtension}_{counter}{extension}";
+                        }
+                        while (!topLevelFileNames.Add(itemRelativePath));
+                    }
+                }
+
                 yield return (item.ItemType, FullPath: itemFullPath, RelativePath: itemRelativePath);
             }
         }

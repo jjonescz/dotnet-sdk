@@ -3126,9 +3126,8 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             """;
 
         File.WriteAllText(Path.Join(testInstance.Path, "dir1/dir2/B.cs"), $"""
-            #:include $(P1).cs
-            #:property P1=../../dir3/C
-            #:property P2=../D
+            #:include ../../dir3/$(P1).cs
+            #:property P1=C
             {b}
             """);
 
@@ -3137,7 +3136,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             """;
 
         File.WriteAllText(Path.Join(testInstance.Path, "dir3/C.cs"), $"""
-            #:include $(P2).cs
+            #:include ../$(P1).cs
             {c}
             """);
 
@@ -3145,7 +3144,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             static class D { public static void M() { Console.WriteLine("D"); } }
             """;
 
-        File.WriteAllText(Path.Join(testInstance.Path, "D.cs"), d);
+        File.WriteAllText(Path.Join(testInstance.Path, "C.cs"), d);
 
         var expectedOutput = "D";
 
@@ -3165,15 +3164,16 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .Should().HaveSubtree("""
                 A.cs
                 A.csproj
-                B.cs
                 C.cs
-                D.cs
+                C_2.cs
+                dir2/
+                dir2/B.cs
                 """)
-            .And.HaveFileContent("A/A.cs", a)
-            .And.HaveFileContent("A/B.cs", b)
-            .And.HaveFileContent("A/C.cs", c)
-            .And.HaveFileContent("A/D.cs", d)
-            .And.HaveFileContentPattern("A/A.csproj", """
+            .And.HaveFileContent("A.cs", a)
+            .And.HaveFileContent("dir2/B.cs", b)
+            .And.HaveFileContent("C.cs", c)
+            .And.HaveFileContent("C_2.cs", d)
+            .And.HaveFileContentPattern("A.csproj", """
                 <Project Sdk="Microsoft.NET.Sdk">
 
                   <PropertyGroup>
@@ -3185,7 +3185,6 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
                     <PackAsTool>true</PackAsTool>
                     <UserSecretsId>A-*</UserSecretsId>
                     <P1>C</P1>
-                    <P2>D</P2>
                   </PropertyGroup>
 
                 </Project>
