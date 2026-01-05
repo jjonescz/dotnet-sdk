@@ -367,9 +367,12 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
 
         static Action<IDictionary<string, string>> AddRestoreGlobalProperties(ReadOnlyDictionary<string, string>? restoreProperties)
         {
+            // Compute the session ID outside the lambda to ensure it's the same for all project instances
+            // (since there can be multiple project instances created while evaluating file-level directives).
+            var sessionId = Guid.NewGuid().ToString("D");
             return globalProperties =>
             {
-                globalProperties["MSBuildRestoreSessionId"] = Guid.NewGuid().ToString("D");
+                globalProperties["MSBuildRestoreSessionId"] = sessionId;
                 globalProperties["MSBuildIsRestoring"] = bool.TrueString;
                 foreach (var (key, value) in RestoringCommand.RestoreOptimizationProperties)
                 {
