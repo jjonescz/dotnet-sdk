@@ -205,11 +205,12 @@ internal sealed class VirtualProjectBuilder
         var seenFiles = new HashSet<string>(1, StringComparer.Ordinal) { EntryPointFileFullPath };
         var filesToProcess = new Queue<string>();
         var evaluatedDirectiveBuilder = ImmutableArray.CreateBuilder<CSharpDirective>();
+        (string ProjectFileText, ProjectInstance ProjectInstance)? lastProject = null;
 
         do
         {
             // Create a project with properties from #:property directives so they can be expanded inside EvaluateDirectives.
-            project = CreateProjectInstance(
+            project = CreateProjectInstanceNoEvaluation(
                 projectCollection,
                 [.. evaluatedDirectiveBuilder, .. directives],
                 addGlobalProperties);
@@ -222,7 +223,7 @@ internal sealed class VirtualProjectBuilder
             if (fileEvaluatedDirectives != directives)
             {
                 // This project will contain items from #:include/#:exclude directives which we will traverse recursively.
-                project = CreateProjectInstance(
+                project = CreateProjectInstanceNoEvaluation(
                     projectCollection,
                     evaluatedDirectiveBuilder.ToImmutable(),
                     addGlobalProperties);
@@ -261,31 +262,12 @@ internal sealed class VirtualProjectBuilder
 
             return false;
         }
-    }
 
-    private ProjectInstance CreateProjectInstance(
-        ProjectCollection projectCollection,
-        ImmutableArray<CSharpDirective> directives,
-        Action<IDictionary<string, string>>? addGlobalProperties = null)
-    {
-        var projectRoot = CreateProjectRootElement(projectCollection);
-
-        var globalProperties = projectCollection.GlobalProperties;
-        if (addGlobalProperties is not null)
+        ProjectInstance CreateProjectInstanceNoEvaluation(
+            ProjectCollection projectCollection,
+            ImmutableArray<CSharpDirective> directives,
+            Action<IDictionary<string, string>>? addGlobalProperties = null)
         {
-            globalProperties = new Dictionary<string, string>(projectCollection.GlobalProperties, StringComparer.OrdinalIgnoreCase);
-            addGlobalProperties(globalProperties);
-        }
-
-        return ProjectInstance.FromProjectRootElement(projectRoot, new ProjectOptions
-        {
-            ProjectCollection = projectCollection,
-            GlobalProperties = globalProperties,
-        });
-
-        ProjectRootElement CreateProjectRootElement(ProjectCollection projectCollection)
-        {
-            var projectFileFullPath = Path.ChangeExtension(EntryPointFileFullPath, ".csproj");
             var projectFileWriter = new StringWriter();
 
             WriteProjectFile(
@@ -299,11 +281,39 @@ internal sealed class VirtualProjectBuilder
 
             var projectFileText = projectFileWriter.ToString();
 
-            using var reader = new StringReader(projectFileText);
-            using var xmlReader = XmlReader.Create(reader);
-            var projectRoot = ProjectRootElement.Create(xmlReader, projectCollection);
-            projectRoot.FullPath = projectFileFullPath;
-            return projectRoot;
+            // If nothing changed, reuse the previous project instance to avoid unnecessary re-evaluations.
+            if (lastProject is { } cachedProject && cachedProject.ProjectFileText == projectFileText)
+            {
+                return cachedProject.ProjectInstance;
+            }
+
+            var projectRoot = CreateProjectRootElement(projectFileText, projectCollection);
+
+            var globalProperties = projectCollection.GlobalProperties;
+            if (addGlobalProperties is not null)
+            {
+                globalProperties = new Dictionary<string, string>(projectCollection.GlobalProperties, StringComparer.OrdinalIgnoreCase);
+                addGlobalProperties(globalProperties);
+            }
+
+            var result = ProjectInstance.FromProjectRootElement(projectRoot, new ProjectOptions
+            {
+                ProjectCollection = projectCollection,
+                GlobalProperties = globalProperties,
+            });
+
+            lastProject = (projectFileText, result);
+
+            return result;
+
+            ProjectRootElement CreateProjectRootElement(string projectFileText, ProjectCollection projectCollection)
+            {
+                using var reader = new StringReader(projectFileText);
+                using var xmlReader = XmlReader.Create(reader);
+                var projectRoot = ProjectRootElement.Create(xmlReader, projectCollection);
+                projectRoot.FullPath = Path.ChangeExtension(EntryPointFileFullPath, ".csproj");
+                return projectRoot;
+            }
         }
     }
 
