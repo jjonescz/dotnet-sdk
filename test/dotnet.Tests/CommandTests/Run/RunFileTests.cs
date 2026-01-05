@@ -1463,7 +1463,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     }
 
     /// <summary>
-    /// <c>dotnet run --bl file.cs</c> produces a binary log.
+    /// <c>dotnet run -bl file.cs</c> produces a binary log.
     /// </summary>
     [Theory, CombinatorialData]
     public void BinaryLog_Run(bool beforeFile)
@@ -1616,10 +1616,43 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
 
         var records = BinaryLog.ReadRecords(binaryLogPath).ToList();
 
-        // There should be at least two - one for restore, one for build.
-        // But the restore targets might re-evaluate the project via inner MSBuild task invocations.
-        records.Count(static r => r.Args is ProjectEvaluationStartedEventArgs).Should().BeGreaterThanOrEqualTo(2);
-        records.Count(static r => r.Args is ProjectEvaluationFinishedEventArgs).Should().BeGreaterThanOrEqualTo(2);
+        // There should be exactly three - two for restore, one for build.
+        var expectedCount = 3;
+        records.Count(static r => r.Args is ProjectEvaluationStartedEventArgs).Should().Be(expectedCount);
+        records.Count(static r => r.Args is ProjectEvaluationFinishedEventArgs).Should().Be(expectedCount);
+    }
+
+    /// <summary>
+    /// Binary logs from our in-memory projects should have evaluation data.
+    /// </summary>
+    [Fact]
+    public void BinaryLog_EvaluationData_MultiFile()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"),
+            $"""
+            #:include *.cs
+            {s_programDependingOnUtil}
+            """);
+
+        File.WriteAllText(Path.Join(testInstance.Path, "Util.cs"), s_util);
+
+        new DotnetCommand(Log, "run", "--no-cache", "Program.cs", "-bl")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut("Hello, String from Util");
+
+        string binaryLogPath = Path.Join(testInstance.Path, "msbuild.binlog");
+        new FileInfo(binaryLogPath).Should().Exist();
+
+        var records = BinaryLog.ReadRecords(binaryLogPath).ToList();
+
+        // There should be exactly five - two for restore, one for build as usual, plus one for restore and one for build from directive evaluation.
+        var expectedCount = 5;
+        records.Count(static r => r.Args is ProjectEvaluationStartedEventArgs).Should().Be(expectedCount);
+        records.Count(static r => r.Args is ProjectEvaluationFinishedEventArgs).Should().Be(expectedCount);
     }
 
     [Theory, CombinatorialData]
