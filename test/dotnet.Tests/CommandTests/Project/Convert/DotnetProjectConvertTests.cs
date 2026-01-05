@@ -1259,16 +1259,6 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
                     <PackAsTool>true</PackAsTool>
                   </PropertyGroup>
 
-                  <ItemGroup>
-                    <Compile Include="A.cs" />
-                    <Compile Include="./**/*.cs" />
-                    <Compile Remove="B.cs" />
-                    <EmbeddedResource Include="C.ReSX" />
-                    <Content Include="D.json" />
-                    <Content Include="E.razor" />
-                    <Compile Include="|.cs" />
-                  </ItemGroup>
-
                 </Project>
 
                 """,
@@ -1277,6 +1267,8 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             [
                 (7, string.Format(FileBasedProgramsResources.IncludeOrExcludeDirectiveUnknownFileType, "#:include", CSharpDirective.IncludeOrExclude.KnownExtensions)),
                 (8, string.Format(FileBasedProgramsResources.IncludeOrExcludeDirectiveUnknownFileType, "#:exclude", CSharpDirective.IncludeOrExclude.KnownExtensions)),
+                (1, string.Format(Resources.IncludedFileNotFound, Path.Join(testInstance.Path, "A.cs"))),
+                (1, string.Format(Resources.IncludedFileNotFound, Path.Join(testInstance.Path, "|.cs"))),
             ]);
     }
 
