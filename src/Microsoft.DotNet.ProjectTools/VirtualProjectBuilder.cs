@@ -174,6 +174,9 @@ internal sealed class VirtualProjectBuilder
                     var expandedPath = project.ExpandString(includeOrExcludeDirective.Name);
                     var fullPath = Path.GetFullPath(path: expandedPath, basePath: Path.GetDirectoryName(includeOrExcludeDirective.Info.SourceFile.Path)!);
                     includeOrExcludeDirective = includeOrExcludeDirective.WithName(fullPath);
+
+                    // NOTE: In the future, instead of using only hard-coded item types here,
+                    //       we could read some user/sdk-defined MSBuild property from `project` for additional mapping.
                     includeOrExcludeDirective = includeOrExcludeDirective.WithDeterminedItemType(reportError);
 
                     builder.Add(includeOrExcludeDirective);
