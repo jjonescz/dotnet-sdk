@@ -3819,6 +3819,9 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         Build(testInstance, BuildLevel.Csc);
     }
 
+    /// <param name="needsEvaluation">
+    /// <see langword="null"/> means <see langword="true"/> for <see cref="BuildLevel.All"/> and <see langword="false"/> otherwise.
+    /// </param>
     private void Build(
         TestDirectory testInstance,
         BuildLevel expectedLevel,
@@ -3826,7 +3829,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         string expectedOutput = "Hello from Program",
         string programFileName = "Program.cs",
         string? workDir = null,
-        bool needsEvaluation = true)
+        bool? needsEvaluation = null)
     {
         string prefix = expectedLevel switch
         {
@@ -3857,14 +3860,14 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         {
             if (expectedLevel is BuildLevel.None or BuildLevel.Csc)
             {
-                if (!needsEvaluation)
+                if (needsEvaluation != true)
                 {
                     return [];
                 }
             }
             else if (expectedLevel is BuildLevel.All)
             {
-                if (!needsEvaluation)
+                if (needsEvaluation == false)
                 {
                     throw new InvalidOperationException($"{nameof(expectedLevel)}={expectedLevel} is inconsistent with {nameof(needsEvaluation)}={needsEvaluation}.");
                 }
@@ -4051,7 +4054,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         // Update the C# file.
         File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), "//v2\n" + code);
 
-        Build(testInstance, optOut ? BuildLevel.All : BuildLevel.Csc, expectedOutput: "[MyString, UpdatedValue]");
+        Build(testInstance, optOut ? BuildLevel.All : BuildLevel.Csc, needsEvaluation: true, expectedOutput: "[MyString, UpdatedValue]");
 
         Build(testInstance, BuildLevel.All, ["--no-cache"], expectedOutput: "[MyString, UpdatedValue]");
     }
@@ -4080,7 +4083,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         // Update the C# file.
         File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), "//v2\n" + code);
 
-        Build(testInstance, optOut ? BuildLevel.All : BuildLevel.Csc, expectedOutput: "[MyString, TestValue]");
+        Build(testInstance, optOut ? BuildLevel.All : BuildLevel.Csc, needsEvaluation: true, expectedOutput: "[MyString, TestValue]");
 
         // Update the RESX file.
         File.WriteAllText(Path.Join(testInstance.Path, "Resources.resx"), s_resx.Replace("TestValue", "UpdatedValue"));
@@ -4090,7 +4093,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         // Update the C# file.
         File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), "//v3\n" + code);
 
-        Build(testInstance, optOut ? BuildLevel.All : BuildLevel.Csc, expectedOutput: "[MyString, UpdatedValue]");
+        Build(testInstance, optOut ? BuildLevel.All : BuildLevel.Csc, needsEvaluation: true, expectedOutput: "[MyString, UpdatedValue]");
 
         Build(testInstance, BuildLevel.All, ["--no-cache"], expectedOutput: "[MyString, UpdatedValue]");
     }
@@ -4108,7 +4111,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         var artifactsDir = VirtualProjectBuilder.GetArtifactsPath(Path.Join(testInstance.Path, "Program.cs"));
         if (Directory.Exists(artifactsDir)) Directory.Delete(artifactsDir, recursive: true);
 
-        Build(testInstance, BuildLevel.Csc, needsEvaluation: false, expectedOutput: "v1");
+        Build(testInstance, BuildLevel.Csc, expectedOutput: "v1");
 
         File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), """
             Console.WriteLine("v2");
@@ -4117,7 +4120,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             #endif
             """);
 
-        Build(testInstance, BuildLevel.Csc, needsEvaluation: false, expectedOutput: "v2");
+        Build(testInstance, BuildLevel.Csc, expectedOutput: "v2");
 
         // Customizing a property forces MSBuild to be used.
         Build(testInstance, BuildLevel.All, args: ["-c", "Release"], expectedOutput: """
