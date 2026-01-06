@@ -205,6 +205,7 @@ internal sealed class VirtualProjectBuilder
             directives = FileLevelDirectiveHelpers.FindDirectives(EntryPointSourceFile, validateAllDirectives, reportError);
         }
 
+        var entryPointDirectory = Path.GetDirectoryName(EntryPointFileFullPath)!;
         var seenFiles = new HashSet<string>(1, StringComparer.Ordinal) { EntryPointFileFullPath };
         var filesToProcess = new Queue<string>();
         var evaluatedDirectiveBuilder = ImmutableArray.CreateBuilder<CSharpDirective>();
@@ -237,7 +238,7 @@ internal sealed class VirtualProjectBuilder
             {
                 var compilePath = Path.GetFullPath(
                     path: compileItem.GetMetadataValue("FullPath"),
-                    basePath: Path.GetDirectoryName(compileItem.Project.FullPath)!);
+                    basePath: entryPointDirectory);
                 if (seenFiles.Add(compilePath))
                 {
                     filesToProcess.Enqueue(compilePath);
