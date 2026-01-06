@@ -1649,7 +1649,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
 
         var records = BinaryLog.ReadRecords(binaryLogPath).ToList();
 
-        // There should be exactly five - two for restore, one for build as usual, plus one for restore and one for build from directive evaluation.
+        // There should be exactly five - two for restore and one for build as usual, plus one for restore and one for build from directive evaluation.
         var expectedCount = 5;
         records.Count(static r => r.Args is ProjectEvaluationStartedEventArgs).Should().Be(expectedCount);
         records.Count(static r => r.Args is ProjectEvaluationFinishedEventArgs).Should().Be(expectedCount);
