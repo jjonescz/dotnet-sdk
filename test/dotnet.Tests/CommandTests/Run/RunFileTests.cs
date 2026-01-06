@@ -4108,7 +4108,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         var artifactsDir = VirtualProjectBuilder.GetArtifactsPath(Path.Join(testInstance.Path, "Program.cs"));
         if (Directory.Exists(artifactsDir)) Directory.Delete(artifactsDir, recursive: true);
 
-        Build(testInstance, BuildLevel.Csc, expectedOutput: "v1");
+        Build(testInstance, BuildLevel.Csc, needsEvaluation: false, expectedOutput: "v1");
 
         File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), """
             Console.WriteLine("v2");
@@ -4117,7 +4117,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             #endif
             """);
 
-        Build(testInstance, BuildLevel.Csc, expectedOutput: "v2");
+        Build(testInstance, BuildLevel.Csc, needsEvaluation: false, expectedOutput: "v2");
 
         // Customizing a property forces MSBuild to be used.
         Build(testInstance, BuildLevel.All, args: ["-c", "Release"], expectedOutput: """
