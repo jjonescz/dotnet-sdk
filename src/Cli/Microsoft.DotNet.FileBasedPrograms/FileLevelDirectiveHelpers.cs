@@ -596,7 +596,7 @@ internal abstract class CSharpDirective(in CSharpDirective.ParseInfo info)
         ];
 
         internal static IEnumerable<string> KnownItemTypes
-            => s_knownExtensions.Select(static t => t.ItemType);
+            => field ??= s_knownExtensions.Select(static t => t.ItemType).Distinct();
 
         internal static string KnownExtensions
             => field ??= string.Join(", ", s_knownExtensions.Select(static t => $"'{t.Extension}'"));
