@@ -3819,7 +3819,14 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         Build(testInstance, BuildLevel.Csc);
     }
 
-    private void Build(TestDirectory testInstance, BuildLevel expectedLevel, ReadOnlySpan<string> args = default, string expectedOutput = "Hello from Program", string programFileName = "Program.cs", string? workDir = null)
+    private void Build(
+        TestDirectory testInstance,
+        BuildLevel expectedLevel,
+        ReadOnlySpan<string> args = default,
+        string expectedOutput = "Hello from Program",
+        string programFileName = "Program.cs",
+        string? workDir = null,
+        bool needsEvaluation = true)
     {
         string prefix = expectedLevel switch
         {
@@ -3839,17 +3846,35 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .EnumerateFiles("*.binlog", SearchOption.TopDirectoryOnly);
 
         binlogs.Select(f => f.Name)
-            .Should().BeEquivalentTo(
-                expectedLevel switch
-                {
-                    BuildLevel.None or BuildLevel.Csc => [],
-                    BuildLevel.All => ["msbuild.binlog"],
-                    _ => throw new ArgumentOutOfRangeException(paramName: nameof(expectedLevel), message: expectedLevel.ToString()),
-                });
+            .Should().BeEquivalentTo(GetExpectedBinlogs());
 
         foreach (var binlog in binlogs)
         {
             binlog.Delete();
+        }
+
+        IEnumerable<string> GetExpectedBinlogs()
+        {
+            if (expectedLevel is BuildLevel.None or BuildLevel.Csc)
+            {
+                if (!needsEvaluation)
+                {
+                    return [];
+                }
+            }
+            else if (expectedLevel is BuildLevel.All)
+            {
+                if (!needsEvaluation)
+                {
+                    throw new InvalidOperationException($"{nameof(expectedLevel)}={expectedLevel} is inconsistent with {nameof(needsEvaluation)}={needsEvaluation}.");
+                }
+            }
+            else
+            {
+                throw new ArgumentOutOfRangeException(paramName: nameof(expectedLevel), message: expectedLevel.ToString());
+            }
+
+            return ["msbuild.binlog"];
         }
     }
 
@@ -4001,9 +4026,10 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     }
 
     /// <summary>
-    /// Up-to-date checks and optimizations currently don't support other included files.
+    /// Up-to-date check considers default items.
+    /// See <see href="https://github.com/dotnet/sdk/issues/50912"/>.
     /// </summary>
-    [Theory, CombinatorialData] // https://github.com/dotnet/sdk/issues/50912
+    [Theory, CombinatorialData]
     public void UpToDate_DefaultItems(bool optOut)
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
@@ -4020,12 +4046,12 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         // Update the RESX file.
         File.WriteAllText(Path.Join(testInstance.Path, "Resources.resx"), s_resx.Replace("TestValue", "UpdatedValue"));
 
-        Build(testInstance, optOut ? BuildLevel.All : BuildLevel.None, expectedOutput: optOut ? "[MyString, UpdatedValue]" : "[MyString, TestValue]"); // note: outdated output (build skipped)
+        Build(testInstance, BuildLevel.All, expectedOutput: "[MyString, UpdatedValue]");
 
         // Update the C# file.
         File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), "//v2\n" + code);
 
-        Build(testInstance, optOut ? BuildLevel.All : BuildLevel.Csc, expectedOutput: optOut ? "[MyString, UpdatedValue]" : "[MyString, TestValue]"); // note: outdated output (only CSC used)
+        Build(testInstance, optOut ? BuildLevel.All : BuildLevel.Csc, expectedOutput: "[MyString, UpdatedValue]");
 
         Build(testInstance, BuildLevel.All, ["--no-cache"], expectedOutput: "[MyString, UpdatedValue]");
     }
@@ -4036,7 +4062,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     /// <remarks>
     /// Note: we cannot test <see cref="CscOnly"/> because that optimization doesn't support neither <c>#:property</c> nor <c>#:sdk</c> which we need to enable default items.
     /// </remarks>
-    [Theory, CombinatorialData] // https://github.com/dotnet/sdk/issues/50912
+    [Theory, CombinatorialData]
     public void UpToDate_DefaultItems_CscOnly_AfterMSBuild(bool optOut)
     {
         var testInstance = _testAssetsManager.CreateTestDirectory(baseDirectory: OutOfTreeBaseDirectory);
@@ -4054,17 +4080,17 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         // Update the C# file.
         File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), "//v2\n" + code);
 
-        Build(testInstance, optOut ? BuildLevel.All : BuildLevel.Csc, expectedOutput: optOut ? "[MyString, TestValue]" : "[MyString, TestValue]");
+        Build(testInstance, optOut ? BuildLevel.All : BuildLevel.Csc, expectedOutput: "[MyString, TestValue]");
 
         // Update the RESX file.
         File.WriteAllText(Path.Join(testInstance.Path, "Resources.resx"), s_resx.Replace("TestValue", "UpdatedValue"));
 
-        Build(testInstance, optOut ? BuildLevel.All : BuildLevel.None, expectedOutput: optOut ? "[MyString, UpdatedValue]" : "[MyString, TestValue]");
+        Build(testInstance, BuildLevel.All, expectedOutput: "[MyString, UpdatedValue]");
 
         // Update the C# file.
         File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), "//v3\n" + code);
 
-        Build(testInstance, optOut ? BuildLevel.All : BuildLevel.Csc, expectedOutput: optOut ? "[MyString, UpdatedValue]" : "[MyString, TestValue]");
+        Build(testInstance, optOut ? BuildLevel.All : BuildLevel.Csc, expectedOutput: "[MyString, UpdatedValue]");
 
         Build(testInstance, BuildLevel.All, ["--no-cache"], expectedOutput: "[MyString, UpdatedValue]");
     }
