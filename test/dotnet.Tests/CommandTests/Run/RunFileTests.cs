@@ -1655,6 +1655,46 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         records.Count(static r => r.Args is ProjectEvaluationFinishedEventArgs).Should().Be(expectedCount);
     }
 
+    /// <summary>
+    /// Even if we don't actually build, we might create binlogs due to needing to evaluate the project for up-to-date checks.
+    /// </summary>
+    [Fact]
+    public void BinaryLog_EvaluationData_UpToDate()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+
+        var programPath = Path.Join(testInstance.Path, "Program.cs");
+        File.WriteAllText(programPath, s_program);
+
+        var expectedOutput = "Hello from Program";
+
+        new DotnetCommand(Log, "run", "--no-cache", "Program.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut(expectedOutput);
+
+        string binaryLogPath = Path.Join(testInstance.Path, "msbuild.binlog");
+        new FileInfo(binaryLogPath).Should().NotExist();
+
+        new DotnetCommand(Log, "run", "Program.cs", "-bl")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut($"""
+                {CliCommandStrings.NoBinaryLogBecauseUpToDate}
+                {expectedOutput}
+                """);
+
+        new FileInfo(binaryLogPath).Should().Exist();
+
+        var records = BinaryLog.ReadRecords(binaryLogPath).ToList();
+
+        var expectedCount = 1;
+        records.Count(static r => r.Args is ProjectEvaluationStartedEventArgs).Should().Be(expectedCount);
+        records.Count(static r => r.Args is ProjectEvaluationFinishedEventArgs).Should().Be(expectedCount);
+    }
+
     [Theory, CombinatorialData]
     public void TerminalLogger(bool on)
     {
