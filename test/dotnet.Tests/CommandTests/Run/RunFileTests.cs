@@ -1617,10 +1617,13 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         string binaryLogPath = Path.Join(testInstance.Path, "msbuild.binlog");
         new FileInfo(binaryLogPath).Should().Exist();
 
-        var records = BinaryLog.ReadRecords(binaryLogPath).ToList();
-
         // There should be exactly three - two for restore, one for build.
-        var expectedCount = 3;
+        VerifyBinLogEvaluationDataCount(binaryLogPath, expectedCount: 3);
+    }
+
+    private static void VerifyBinLogEvaluationDataCount(string binaryLogPath, int expectedCount)
+    {
+        var records = BinaryLog.ReadRecords(binaryLogPath).ToList();
         records.Count(static r => r.Args is ProjectEvaluationStartedEventArgs).Should().Be(expectedCount);
         records.Count(static r => r.Args is ProjectEvaluationFinishedEventArgs).Should().Be(expectedCount);
     }
@@ -1639,23 +1642,35 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             {s_programDependingOnUtil}
             """);
 
-        File.WriteAllText(Path.Join(testInstance.Path, "Util.cs"), s_util);
+        var utilPath = Path.Join(testInstance.Path, "Util.cs");
+        File.WriteAllText(utilPath, s_util);
 
-        new DotnetCommand(Log, "run", "--no-cache", "Program.cs", "-bl")
+        new DotnetCommand(Log, "run", "--no-cache", "Program.cs", "-bl:first.binlog")
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Pass()
             .And.HaveStdOut("Hello, String from Util");
 
-        string binaryLogPath = Path.Join(testInstance.Path, "msbuild.binlog");
+        string binaryLogPath = Path.Join(testInstance.Path, "first.binlog");
         new FileInfo(binaryLogPath).Should().Exist();
 
-        var records = BinaryLog.ReadRecords(binaryLogPath).ToList();
-
-        // There should be exactly four - two for restore and one for build as usual, plus one for for initial directive evaluation.
+        // There should be exactly four - two for restore and one for build as usual, plus one for for up-to-date check.
         var expectedCount = 4;
-        records.Count(static r => r.Args is ProjectEvaluationStartedEventArgs).Should().Be(expectedCount);
-        records.Count(static r => r.Args is ProjectEvaluationFinishedEventArgs).Should().Be(expectedCount);
+        VerifyBinLogEvaluationDataCount(binaryLogPath, expectedCount: expectedCount);
+
+        File.WriteAllText(utilPath, s_util.Replace("String from Util", "v2"));
+
+        new DotnetCommand(Log, "run", "Program.cs", "-bl:second.binlog")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut("Hello, v2");
+
+        binaryLogPath = Path.Join(testInstance.Path, "second.binlog");
+        new FileInfo(binaryLogPath).Should().Exist();
+
+        // After rebuild, there should be the same number of evaluations.
+        VerifyBinLogEvaluationDataCount(binaryLogPath, expectedCount: expectedCount);
     }
 
     /// <summary>
@@ -1691,11 +1706,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
 
         new FileInfo(binaryLogPath).Should().Exist();
 
-        var records = BinaryLog.ReadRecords(binaryLogPath).ToList();
-
-        var expectedCount = 1;
-        records.Count(static r => r.Args is ProjectEvaluationStartedEventArgs).Should().Be(expectedCount);
-        records.Count(static r => r.Args is ProjectEvaluationFinishedEventArgs).Should().Be(expectedCount);
+        VerifyBinLogEvaluationDataCount(binaryLogPath, expectedCount: 1);
     }
 
     [Theory, CombinatorialData]
