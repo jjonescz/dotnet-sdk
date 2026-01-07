@@ -3310,6 +3310,39 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .And.HaveStdErrContaining(DirectiveError(programPath, 1, Resources.IncludedFileNotFound, Path.Join(testInstance.Path, "B.cs")));
     }
 
+    /// <summary>
+    /// Combination of <see cref="UpToDate"/> optimization and <c>#:include</c> directive.
+    /// </summary>
+    [Fact]
+    public void IncludeDirective_UpToDate()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+
+        var programPath = Path.Join(testInstance.Path, "Program.cs");
+        File.WriteAllText(programPath, $"""
+            #:include *.cs
+            {s_programDependingOnUtil}
+            """);
+
+        var utilPath = Path.Join(testInstance.Path, "Util.cs");
+        var utilCode = s_util;
+        File.WriteAllText(utilPath, utilCode);
+
+        var artifactsDir = VirtualProjectBuilder.GetArtifactsPath(programPath);
+        if (Directory.Exists(artifactsDir)) Directory.Delete(artifactsDir, recursive: true);
+
+        var expectedOutput = "Hello, String from Util";
+
+        Build(testInstance, BuildLevel.All, expectedOutput: expectedOutput);
+
+        Build(testInstance, BuildLevel.None, needsEvaluation: true, expectedOutput: expectedOutput);
+
+        utilCode = utilCode.Replace("String from Util", "v2");
+        File.WriteAllText(utilPath, utilCode);
+
+        Build(testInstance, BuildLevel.All, expectedOutput: "Hello, v2");
+    }
+
     [Theory] // https://github.com/dotnet/aspnetcore/issues/63440
     [InlineData(true, null)]
     [InlineData(false, null)]
