@@ -1064,6 +1064,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
 
         Build(testInstance,
             expectedLevel: BuildLevel.Csc,
+            needsEvaluation: !cscOnly,
             programFileName: programPath,
             workDir: workDir,
             expectedOutput: GetExpectedOutput("v2", workDir));
@@ -1110,6 +1111,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
 
         Build(testInstance,
             expectedLevel: BuildLevel.None,
+            needsEvaluation: true,
             programFileName: programPath,
             workDir: workDir,
             expectedOutput: GetExpectedOutput("v1", workDir));
@@ -1119,6 +1121,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
 
         Build(testInstance,
             expectedLevel: BuildLevel.Csc,
+            needsEvaluation: true,
             programFileName: programPath,
             workDir: workDir,
             expectedOutput: GetExpectedOutput("v2", workDir));
@@ -3369,7 +3372,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         code = code.Replace("v1", "v2");
         File.WriteAllText(programPath, code);
 
-        Build(testInstance, BuildLevel.Csc, expectedOutput: """
+        Build(testInstance, BuildLevel.Csc, needsEvaluation: true, expectedOutput: """
             v2
             MySecret=MyValue (JsonConfigurationProvider for 'secrets.json' (Optional))
             """);
@@ -3782,7 +3785,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             Custom define
             """);
 
-        Build(testInstance, BuildLevel.None, expectedOutput: """
+        Build(testInstance, BuildLevel.None, needsEvaluation: true, expectedOutput: """
             Hello from Program
             Custom define
             """);
@@ -3810,7 +3813,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             </Project>
             """);
 
-        Build(testInstance, BuildLevel.None);
+        Build(testInstance, BuildLevel.None, needsEvaluation: true);
 
         // Force rebuild.
         Build(testInstance, BuildLevel.All, args: ["--no-cache"], expectedOutput: """
@@ -3962,12 +3965,12 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
 
         Build(testInstance, BuildLevel.All, expectedOutput: "v1", programFileName: programFileName);
 
-        Build(testInstance, BuildLevel.None, expectedOutput: "v1", programFileName: programFileName);
+        Build(testInstance, BuildLevel.None, needsEvaluation: true, expectedOutput: "v1", programFileName: programFileName);
 
         code = code.Replace("v1", "v2");
         File.WriteAllText(originalPath, code, utf8NoBom);
 
-        Build(testInstance, BuildLevel.Csc, expectedOutput: "v2", programFileName: programFileName);
+        Build(testInstance, BuildLevel.Csc, needsEvaluation: true, expectedOutput: "v2", programFileName: programFileName);
     }
 
     /// <summary>
@@ -4002,12 +4005,12 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
 
         Build(testInstance, BuildLevel.All, expectedOutput: "v1", programFileName: programFileName);
 
-        Build(testInstance, BuildLevel.None, expectedOutput: "v1", programFileName: programFileName);
+        Build(testInstance, BuildLevel.None, needsEvaluation: true, expectedOutput: "v1", programFileName: programFileName);
 
         code = code.Replace("v1", "v2");
         File.WriteAllText(originalPath, code, utf8NoBom);
 
-        Build(testInstance, BuildLevel.Csc, expectedOutput: "v2", programFileName: programFileName);
+        Build(testInstance, BuildLevel.Csc, needsEvaluation: true, expectedOutput: "v2", programFileName: programFileName);
     }
 
     /// <summary>
@@ -4440,17 +4443,17 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
 
         Build(testInstance, BuildLevel.All, expectedOutput: "v1 Release");
 
-        Build(testInstance, BuildLevel.None, expectedOutput: "v1 Release");
+        Build(testInstance, BuildLevel.None, needsEvaluation: true, expectedOutput: "v1 Release");
 
         code = code.Replace("v1", "v2");
         File.WriteAllText(programPath, code);
 
-        Build(testInstance, BuildLevel.Csc, expectedOutput: "v2 Release");
+        Build(testInstance, BuildLevel.Csc, needsEvaluation: true, expectedOutput: "v2 Release");
 
         code = code.Replace("v2", "v3");
         File.WriteAllText(programPath, code);
 
-        Build(testInstance, BuildLevel.Csc, expectedOutput: "v3 Release");
+        Build(testInstance, BuildLevel.Csc, needsEvaluation: true, expectedOutput: "v3 Release");
 
         // Customizing a property forces MSBuild to be used.
         code = code.Replace("Configuration=Release", "Configuration=Debug");
@@ -4464,7 +4467,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         code = code.Replace("v3", "v4");
         File.WriteAllText(programPath, code);
 
-        Build(testInstance, BuildLevel.Csc, expectedOutput: "v4 ");
+        Build(testInstance, BuildLevel.Csc, needsEvaluation: true, expectedOutput: "v4 ");
 
         // Customizing a property on the command-line forces MSBuild to be used.
         Build(testInstance, BuildLevel.All, args: ["-c", "Release"], expectedOutput: "v4 Release");
@@ -4502,7 +4505,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         code = code.Replace("v1", "v2");
         File.WriteAllText(programPath, code);
 
-        Build(testInstance, BuildLevel.Csc, expectedOutput: "v2 Release", programFileName: programFileName);
+        Build(testInstance, BuildLevel.Csc, needsEvaluation: true, expectedOutput: "v2 Release", programFileName: programFileName);
     }
 
     /// <summary>
@@ -4534,7 +4537,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         code = code.Replace("Hello", "Hi");
         File.WriteAllText(programPath, code);
 
-        Build(testInstance, BuildLevel.Csc, ["test", "args"], expectedOutput: """
+        Build(testInstance, BuildLevel.Csc, needsEvaluation: true, args: ["test", "args"], expectedOutput: """
             echo args:test;args
             Hi from Program
             Release config
@@ -4569,7 +4572,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         code = code.Replace("Hello", "Hi");
         File.WriteAllText(programPath, code);
 
-        Build(testInstance, BuildLevel.Csc, expectedOutput: "Hi from Program");
+        Build(testInstance, BuildLevel.Csc, needsEvaluation: true, expectedOutput: "Hi from Program");
     }
 
     /// <summary>
@@ -4603,7 +4606,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         code = code.Replace("v1", "v2");
         File.WriteAllText(originalPath, code, utf8NoBom);
 
-        Build(testInstance, BuildLevel.Csc, expectedOutput: "v2", programFileName: programFileName);
+        Build(testInstance, BuildLevel.Csc, needsEvaluation: true, expectedOutput: "v2", programFileName: programFileName);
     }
 
     /// <summary>
@@ -4759,7 +4762,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         code = code.Replace("v1", "v2");
         File.WriteAllText(programPath, code);
 
-        Build(testInstance, canSkipMSBuild ? BuildLevel.Csc : BuildLevel.All, expectedOutput: "v2 Release");
+        Build(testInstance, canSkipMSBuild ? BuildLevel.Csc : BuildLevel.All, needsEvaluation: true, expectedOutput: "v2 Release");
     }
 
     /// <summary>
@@ -4791,7 +4794,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         File.WriteAllText(programPath, code);
 
         // Reusing CSC args from previous run here.
-        Build(testInstance, BuildLevel.Csc, expectedOutput: "v2 Release");
+        Build(testInstance, BuildLevel.Csc, needsEvaluation: true, expectedOutput: "v2 Release");
 
         code = code.Replace("v2", "v3");
         code = code.Replace("#:property Configuration=Release", "");
