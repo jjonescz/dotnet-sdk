@@ -896,6 +896,9 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         }
 
         // Check that additional sources are not modified.
+        // NOTE: We currently don't support the CSC-reuse optimization through additional sources (i.e., we don't set `CanUseCscViaPreviousArguments=true` here).
+        //       If that changes, we will also need to make sure `RunFileBuildCacheEntry.Directives` contains directives from other files
+        //       (as that is used to determine whether we can reuse CSC args, see `GetReasonToNotReuseCscArguments`).
         foreach (var additionalSourcePath in previousCacheEntry.AdditionalSources)
         {
             var additionalSourceFileInfo = ResolveLinkTargetOrSelf(new FileInfo(additionalSourcePath));
@@ -1178,7 +1181,7 @@ internal sealed class RunFileBuildCacheEntry
     public HashSet<string> ImplicitBuildFiles { get; }
 
     /// <summary>
-    /// <see cref="CSharpDirective"/>s recognized by the SDK (i.e., except shebang).
+    /// <see cref="CSharpDirective"/>s from the entry point file recognized by the SDK (i.e., except shebang).
     /// </summary>
     public ImmutableArray<string> Directives { get; set; } = [];
 
