@@ -27,11 +27,6 @@
         <target state="translated">不支援重複的指示詞: {0}</target>
         <note>{0} is the directive type and name.</note>
       </trans-unit>
-      <trans-unit id="IncludeOrExcludeDirectiveInvalidGlob">
-        <source>Invalid glob in the '{0}' directive: {1}</source>
-        <target state="new">Invalid glob in the '{0}' directive: {1}</target>
-        <note>{0} is the directive - '#:include' or '#:exclude'. {1} is the inner error message</note>
-      </trans-unit>
       <trans-unit id="IncludeOrExcludeDirectiveUnknownFileType">
         <source>Unrecognized file extension in the '{0}' directive. Only these extensions are currently recognized: {1}</source>
         <target state="new">Unrecognized file extension in the '{0}' directive. Only these extensions are currently recognized: {1}</target>
