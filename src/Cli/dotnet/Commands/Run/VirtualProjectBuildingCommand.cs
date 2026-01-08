@@ -1116,7 +1116,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
             projectCollection,
             ThrowingReporter,
             out var project,
-            out var evaluatedDirectives,
+            out _,
             Directives,
             addGlobalProperties);
 
