@@ -19,7 +19,7 @@ internal sealed class VirtualProjectBuilder
 {
     private readonly IEnumerable<(string name, string value)> _defaultProperties;
 
-    private ImmutableArray<CSharpDirective> _evaluatedDirectives;
+    private (ImmutableArray<CSharpDirective> Original, ImmutableArray<CSharpDirective> Evaluated)? _evaluatedDirectives;
 
     public string EntryPointFileFullPath { get; }
 
@@ -212,9 +212,10 @@ internal sealed class VirtualProjectBuilder
         // If we evaluated directives previously (e.g., during restore), reuse them.
         // We don't use the additional properties from `addGlobalProperties`
         // during directive evaluation anyway, so the directives can be reused safely.
-        if (!_evaluatedDirectives.IsDefault)
+        if (_evaluatedDirectives is { } cached &&
+            cached.Original.SequenceEqual(directives))
         {
-            evaluatedDirectives = _evaluatedDirectives;
+            evaluatedDirectives = cached.Evaluated;
             project = CreateProjectInstanceNoEvaluation(
                 projectCollection,
                 evaluatedDirectives,
@@ -263,7 +264,8 @@ internal sealed class VirtualProjectBuilder
         }
         while (TryGetNextFileToProcess());
 
-        _evaluatedDirectives = evaluatedDirectives = evaluatedDirectiveBuilder.ToImmutable();
+        evaluatedDirectives = evaluatedDirectiveBuilder.ToImmutable();
+        _evaluatedDirectives = (directives, evaluatedDirectives);
 
         bool TryGetNextFileToProcess()
         {
