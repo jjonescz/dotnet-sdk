@@ -4148,6 +4148,37 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         Build(testInstance, BuildLevel.All, expectedOutput: "[MyString, UpdatedValue2]");
     }
 
+    /// <summary>
+    /// Similar to <see cref="UpToDate_DefaultItems"/> but for <c>.razor</c> files instead of <c>.resx</c> files.
+    /// </summary>
+    [Fact]
+    public void UpToDate_DefaultItems_Razor()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        var programFileName = "MyRazorApp.cs";
+        File.WriteAllText(Path.Join(testInstance.Path, programFileName), """
+            #:sdk Microsoft.NET.Sdk.Web
+            _ = new MyRazorApp.MyCoolApp();
+            Console.WriteLine("Hello from Program");
+            """);
+
+        var razorFilePath = Path.Join(testInstance.Path, "MyCoolApp.razor");
+        File.WriteAllText(razorFilePath, "");
+
+        Build(testInstance, BuildLevel.All, programFileName: programFileName);
+
+        Build(testInstance, BuildLevel.None, programFileName: programFileName);
+
+        File.Delete(razorFilePath);
+
+        new DotnetCommand(Log, "run", programFileName)
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Fail()
+            // error CS0246: The type or namespace name 'MyRazorApp' could not be found
+            .And.HaveStdOutContaining("error CS0246");
+    }
+
     [Fact]
     public void CscOnly()
     {
