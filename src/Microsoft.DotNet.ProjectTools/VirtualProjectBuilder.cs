@@ -202,6 +202,8 @@ internal sealed class VirtualProjectBuilder
         Action<IDictionary<string, string>>? addGlobalProperties = null,
         bool validateAllDirectives = false)
     {
+        var directivesOriginal = directives;
+
         if (directives.IsDefault)
         {
             directives = FileLevelDirectiveHelpers.FindDirectives(EntryPointSourceFile, validateAllDirectives, reportError);
@@ -213,7 +215,7 @@ internal sealed class VirtualProjectBuilder
         // We don't use the additional properties from `addGlobalProperties`
         // during directive evaluation anyway, so the directives can be reused safely.
         if (_evaluatedDirectives is { } cached &&
-            cached.Original.SequenceEqual(directives))
+            cached.Original == directivesOriginal)
         {
             evaluatedDirectives = cached.Evaluated;
             project = CreateProjectInstanceNoEvaluation(
@@ -265,7 +267,7 @@ internal sealed class VirtualProjectBuilder
         while (TryGetNextFileToProcess());
 
         evaluatedDirectives = evaluatedDirectiveBuilder.ToImmutable();
-        _evaluatedDirectives = (directives, evaluatedDirectives);
+        _evaluatedDirectives = (directivesOriginal, evaluatedDirectives);
 
         bool TryGetNextFileToProcess()
         {
