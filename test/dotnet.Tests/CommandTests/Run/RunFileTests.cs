@@ -1651,7 +1651,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         string binaryLogPath = Path.Join(testInstance.Path, "first.binlog");
         new FileInfo(binaryLogPath).Should().Exist();
 
-        // There should be exactly four - two for restore and one for build as usual, plus one for for up-to-date check.
+        // There should be exactly four - two for restore and one for build as usual, plus one for initial directive evaluation.
         var expectedCount = 4;
         VerifyBinLogEvaluationDataCount(binaryLogPath, expectedCount: expectedCount);
 
@@ -1671,7 +1671,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
     }
 
     /// <summary>
-    /// Even if we don't actually build, we might create binlogs due to needing to evaluate the project for up-to-date checks.
+    /// If we skip build due to up-to-date check, no binlog should be created.
     /// </summary>
     [Fact]
     public void BinaryLog_EvaluationData_UpToDate()
@@ -1701,9 +1701,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
                 {expectedOutput}
                 """);
 
-        new FileInfo(binaryLogPath).Should().Exist();
-
-        VerifyBinLogEvaluationDataCount(binaryLogPath, expectedCount: 1);
+        new FileInfo(binaryLogPath).Should().NotExist();
     }
 
     [Theory, CombinatorialData]
