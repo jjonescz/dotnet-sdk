@@ -154,6 +154,99 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
             : CommonRunHelpers.GetConsoleLogger(MSBuildArgs.CloneWithExplicitArgs([$"--verbosity:{verbosity}", .. MSBuildArgs.OtherMSBuildArgs]));
         var binaryLogger = GetBinaryLogger(MSBuildArgs.OtherMSBuildArgs);
 
+        CacheInfo? cache = null;
+
+        if (msbuildGet)
+        {
+            LastBuild = (BuildLevel.None, Cache: null);
+        }
+        else if (NoBuild)
+        {
+            // This is reached only during `restore`, not `run --no-build`
+            // (in the latter case, this virtual building command is not executed at all).
+            Debug.Assert(!NoRestore);
+
+            LastBuild = (BuildLevel.None, Cache: null);
+
+            if (!NoWriteBuildMarkers)
+            {
+                CreateTempSubdirectory(Builder.ArtifactsPath);
+                MarkArtifactsFolderUsed();
+            }
+        }
+        else
+        {
+            if (NoCache)
+            {
+                cache = ComputeCacheEntry();
+                cache.CurrentEntry.BuildLevel = BuildLevel.All;
+                LastBuild = (BuildLevel.All, cache);
+            }
+            else
+            {
+                var buildLevel = GetBuildLevel(out cache);
+                cache.CurrentEntry.BuildLevel = buildLevel;
+                LastBuild = (buildLevel, cache);
+
+                if (buildLevel is BuildLevel.None)
+                {
+                    if (binaryLogger is not null)
+                    {
+                        Reporter.Output.WriteLine(CliCommandStrings.NoBinaryLogBecauseUpToDate.Yellow());
+                    }
+
+                    // No rebuild, can reuse run properties.
+                    cache.CurrentEntry.Run = cache.PreviousEntry?.Run;
+
+                    MarkArtifactsFolderUsed();
+                    return 0;
+                }
+
+                if (buildLevel is BuildLevel.Csc)
+                {
+                    if (binaryLogger is not null)
+                    {
+                        Reporter.Output.WriteLine(CliCommandStrings.NoBinaryLogBecauseRunningJustCsc.Yellow());
+                    }
+
+                    MarkBuildStart();
+
+                    // Execute CSC.
+                    int result = new CSharpCompilerCommand
+                    {
+                        EntryPointFileFullPath = Builder.EntryPointFileFullPath,
+                        ArtifactsPath = Builder.ArtifactsPath,
+                        CanReuseAuxiliaryFiles = cache.DetermineFinalCanReuseAuxiliaryFiles(),
+                        CscArguments = cache.PreviousEntry?.CscArguments ?? [],
+                        BuildResultFile = cache.PreviousEntry?.BuildResultFile,
+                    }
+                    .Execute(out bool fallbackToNormalBuild);
+
+                    if (!fallbackToNormalBuild)
+                    {
+                        if (result == 0)
+                        {
+                            ReuseInfoFromPreviousCacheEntry(cache);
+                            MarkBuildSuccess(cache);
+                        }
+
+                        return result;
+                    }
+
+                    Debug.Assert(result != 0);
+                }
+
+                Debug.Assert(buildLevel is BuildLevel.All or BuildLevel.Csc);
+            }
+
+            MarkBuildStart();
+        }
+
+        if (!NoWriteBuildMarkers && !msbuildGet)
+        {
+            CleanFileBasedAppArtifactsCommand.StartAutomaticCleanupIfNeeded();
+        }
+
         Dictionary<string, string?> savedEnvironmentVariables = [];
         try
         {
@@ -164,101 +257,27 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                 Environment.SetEnvironmentVariable(key, value);
             }
 
-            CacheInfo? cache = null;
-
-            if (msbuildGet)
+            // Set environment variables.
+            foreach (var (key, value) in MSBuildForwardingAppWithoutLogging.GetMSBuildRequiredEnvironmentVariables())
             {
-                LastBuild = (BuildLevel.None, Cache: null);
-            }
-            else if (NoBuild)
-            {
-                // This is reached only during `restore`, not `run --no-build`
-                // (in the latter case, this virtual building command is not executed at all).
-                Debug.Assert(!NoRestore);
-
-                LastBuild = (BuildLevel.None, Cache: null);
-
-                if (!NoWriteBuildMarkers)
-                {
-                    CreateTempSubdirectory(Builder.ArtifactsPath);
-                    MarkArtifactsFolderUsed();
-                }
-            }
-            else
-            {
-                if (NoCache)
-                {
-                    cache = ComputeCacheEntry(SetupMSBuild);
-                    cache.CurrentEntry.BuildLevel = BuildLevel.All;
-                    LastBuild = (BuildLevel.All, cache);
-                }
-                else
-                {
-                    var buildLevel = GetBuildLevel(SetupMSBuild, out cache);
-                    cache.CurrentEntry.BuildLevel = buildLevel;
-                    LastBuild = (buildLevel, cache);
-
-                    if (buildLevel is BuildLevel.None)
-                    {
-                        if (binaryLogger is not null)
-                        {
-                            Reporter.Output.WriteLine(CliCommandStrings.NoBinaryLogBecauseUpToDate.Yellow());
-                        }
-
-                        // No rebuild, can reuse run properties.
-                        cache.CurrentEntry.Run = cache.PreviousEntry?.Run;
-
-                        MarkArtifactsFolderUsed();
-                        return 0;
-                    }
-
-                    if (buildLevel is BuildLevel.Csc)
-                    {
-                        if (binaryLogger is not null)
-                        {
-                            Reporter.Output.WriteLine(CliCommandStrings.NoBinaryLogBecauseRunningJustCsc.Yellow());
-                        }
-
-                        MarkBuildStart();
-
-                        // Execute CSC.
-                        int result = new CSharpCompilerCommand
-                        {
-                            EntryPointFileFullPath = Builder.EntryPointFileFullPath,
-                            ArtifactsPath = Builder.ArtifactsPath,
-                            CanReuseAuxiliaryFiles = cache.DetermineFinalCanReuseAuxiliaryFiles(),
-                            CscArguments = cache.PreviousEntry?.CscArguments ?? [],
-                            BuildResultFile = cache.PreviousEntry?.BuildResultFile,
-                        }
-                        .Execute(out bool fallbackToNormalBuild);
-
-                        if (!fallbackToNormalBuild)
-                        {
-                            if (result == 0)
-                            {
-                                MarkBuildSuccess(cache);
-                            }
-
-                            return result;
-                        }
-
-                        Debug.Assert(result != 0);
-                    }
-
-                    Debug.Assert(buildLevel is BuildLevel.All or BuildLevel.Csc);
-                }
-
-                MarkBuildStart();
+                savedEnvironmentVariables[key] = Environment.GetEnvironmentVariable(key);
+                Environment.SetEnvironmentVariable(key, value);
             }
 
-            if (!NoWriteBuildMarkers && !msbuildGet)
+            // Set up MSBuild.
+            ReadOnlySpan<ILogger> binaryLoggers = binaryLogger is null ? [] : [binaryLogger.Value];
+            IEnumerable<ILogger> loggers = [.. binaryLoggers, consoleLogger];
+            var projectCollection = new ProjectCollection(
+                MSBuildArgs.GlobalProperties,
+                loggers,
+                ToolsetDefinitionLocations.Default);
+            var parameters = new BuildParameters(projectCollection)
             {
-                CleanFileBasedAppArtifactsCommand.StartAutomaticCleanupIfNeeded();
-            }
+                Loggers = loggers,
+                LogTaskInputs = binaryLoggers.Length != 0,
+            };
 
-            var (projectCollection, buildParameters) = cache?.MSBuildSetup ?? SetupMSBuild();
-
-            BuildManager.DefaultBuildManager.BeginBuild(buildParameters);
+            BuildManager.DefaultBuildManager.BeginBuild(parameters);
 
             int exitCode = 0;
             ProjectInstance? projectInstance = null;
@@ -273,7 +292,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                     CreateProjectInstance(projectCollection, addGlobalProperties: AddRestoreGlobalProperties(MSBuildArgs.RestoreGlobalProperties)),
                     targetsToBuild: ["Restore"],
                     hostServices: null,
-                    BuildRequestDataFlags.SkipNonexistentTargets | BuildRequestDataFlags.IgnoreMissingEmptyAndInvalidImports | BuildRequestDataFlags.FailOnUnresolvedSdk);
+                    BuildRequestDataFlags.ClearCachesAfterBuild | BuildRequestDataFlags.SkipNonexistentTargets | BuildRequestDataFlags.IgnoreMissingEmptyAndInvalidImports | BuildRequestDataFlags.FailOnUnresolvedSdk);
 
                 var restoreResult = BuildManager.DefaultBuildManager.BuildRequest(restoreRequest);
                 if (restoreResult.OverallResult != BuildResultCode.Success)
@@ -289,7 +308,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
             if (exitCode == 0 && !NoBuild && !evalOnly)
             {
                 var buildRequest = new BuildRequestData(
-                    cache?.ProjectInstance ?? CreateProjectInstance(projectCollection),
+                    CreateProjectInstance(projectCollection),
                     targetsToBuild: Builder.RequestedTargets ?? [Constants.Build, Constants.CoreCompile]);
 
                 var buildResult = BuildManager.DefaultBuildManager.BuildRequest(buildRequest);
@@ -315,6 +334,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                     else
                     {
                         CacheCscArguments(cache, buildResult);
+                        CollectAdditionalSources(cache, buildRequest.ProjectInstance);
 
                         MarkBuildSuccess(cache);
                     }
@@ -352,22 +372,6 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
 
             if (binaryLogger?.IsValueCreated == true) binaryLogger.Value.ReallyShutdown();
             consoleLogger?.Shutdown();
-        }
-
-        (ProjectCollection, BuildParameters) SetupMSBuild()
-        {
-            ReadOnlySpan<ILogger> binaryLoggers = binaryLogger is null ? [] : [binaryLogger.Value];
-            IEnumerable<ILogger> loggers = [.. binaryLoggers, consoleLogger];
-            var projectCollection = new ProjectCollection(
-                MSBuildArgs.GlobalProperties,
-                loggers,
-                ToolsetDefinitionLocations.Default);
-            var parameters = new BuildParameters(projectCollection)
-            {
-                Loggers = loggers,
-                LogTaskInputs = binaryLoggers.Length != 0,
-            };
-            return (projectCollection, parameters);
         }
 
         static Action<IDictionary<string, string>> AddRestoreGlobalProperties(ReadOnlyDictionary<string, string>? restoreProperties)
@@ -473,6 +477,48 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
 
                 return arg;
             }
+        }
+
+        void ReuseInfoFromPreviousCacheEntry(CacheInfo cache)
+        {
+            Debug.Assert(cache.CurrentEntry.AdditionalSources.Count == 0);
+
+            if (cache.PreviousEntry != null)
+            {
+                foreach (var file in cache.PreviousEntry.AdditionalSources)
+                {
+                    cache.CurrentEntry.AdditionalSources.Add(file);
+                }
+            }
+        }
+
+        void CollectAdditionalSources(CacheInfo cache, ProjectInstance projectInstance)
+        {
+            // We intentionally ignore new additional sources in up-to-date check
+            // to avoid the overhead of MSBuild evaluation every time (even if the app is up to date).
+            // That can lead to missed changes but we are fine with that in rare cases
+            // (another example: we ignore changes to implicit build files imported transitively).
+            // Therefore, during up-to-date check, we only check the previously cached list of additional sources,
+            // and collect new ones only here after a re-build.
+
+            Debug.Assert(cache.CurrentEntry.AdditionalSources.Count == 0);
+
+            var entryPointFileDirectory = Path.GetDirectoryName(Builder.EntryPointFileFullPath);
+            Debug.Assert(entryPointFileDirectory != null);
+
+            foreach (var itemType in CSharpDirective.IncludeOrExclude.KnownItemTypes)
+            {
+                foreach (var item in projectInstance.GetItems(itemType))
+                {
+                    var fullPath = Path.GetFullPath(
+                        path: item.GetMetadataValue("FullPath"),
+                        basePath: entryPointFileDirectory);
+
+                    cache.CurrentEntry.AdditionalSources.Add(fullPath);
+                }
+            }
+
+            cache.CurrentEntry.AdditionalSources.Remove(Builder.EntryPointFileFullPath);
         }
 
         void PrintBuildInformation(ProjectCollection projectCollection, ProjectInstance projectInstance, BuildResult? buildOrRestoreResult)
@@ -632,11 +678,6 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         /// </summary>
         public bool CanUseCscViaPreviousArguments { get; set; }
 
-        // If we need to create a project instance to evaluate additional sources,
-        // the following properties are set so they can be reused by the rest of the build.
-        public required (ProjectCollection, BuildParameters)? MSBuildSetup { get; init; }
-        public required ProjectInstance? ProjectInstance { get; init; }
-
         public bool DetermineFinalCanReuseAuxiliaryFiles()
         {
             if (PreviousEntry?.CscArguments.IsDefaultOrEmpty == false)
@@ -669,7 +710,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
     /// <item>if we have to build, we need to have the cache entry to write it to the success cache file</item>
     /// </list>
     /// </summary>
-    private CacheInfo ComputeCacheEntry(Func<(ProjectCollection, BuildParameters)> setupMSBuild)
+    private CacheInfo ComputeCacheEntry()
     {
         var cacheEntry = new RunFileBuildCacheEntry(MSBuildArgs.GlobalProperties?.ToDictionary(StringComparer.OrdinalIgnoreCase) ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase))
         {
@@ -688,56 +729,12 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         // Collect current implicit build files.
         CollectImplicitBuildFiles(entryPointFileDirectory, cacheEntry.ImplicitBuildFiles, out var exampleMSBuildFile);
 
-        // Collect additional sources. We can skip this if there are no directives and implicit build files
-        // (because then no other source files can possibly be included).
-        (ProjectCollection, BuildParameters)? msbuildSetup = null;
-        ProjectInstance? projectInstance = null;
-        if (NeedToCollectAdditionalSources())
-        {
-            var (projectCollection, buildParameters) = setupMSBuild();
-            msbuildSetup = (projectCollection, buildParameters);
-            projectInstance = CreateProjectInstance(projectCollection);
-
-            foreach (var itemType in CSharpDirective.IncludeOrExclude.KnownItemTypes)
-            {
-                foreach (var item in projectInstance.GetItems(itemType))
-                {
-                    var fullPath = Path.GetFullPath(
-                        path: item.GetMetadataValue("FullPath"),
-                        basePath: entryPointFileDirectory.FullName);
-
-                    cacheEntry.AdditionalSources.Add(fullPath);
-                }
-            }
-
-            cacheEntry.AdditionalSources.Remove(Builder.EntryPointFileFullPath);
-        }
-
         return new CacheInfo
         {
             EntryPointFile = entryPointFile,
             CurrentEntry = cacheEntry,
             ExampleMSBuildFile = exampleMSBuildFile,
-            MSBuildSetup = msbuildSetup,
-            ProjectInstance = projectInstance,
         };
-
-        bool NeedToCollectAdditionalSources()
-        {
-            if (cacheEntry.Directives is [var exampleDirective, ..])
-            {
-                Reporter.Verbose.WriteLine($"Collecting additional sources because there are directives, e.g., '{exampleDirective}'.");
-                return true;
-            }
-
-            if (exampleMSBuildFile != null)
-            {
-                Reporter.Verbose.WriteLine($"Collecting additional sources because there are implicit build files, e.g., '{exampleMSBuildFile}'.");
-                return true;
-            }
-
-            return false;
-        }
     }
 
     // internal for testing
@@ -762,9 +759,9 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         }
     }
 
-    private bool NeedsToBuild(Func<(ProjectCollection, BuildParameters)> setupMSBuild, out CacheInfo cache)
+    private bool NeedsToBuild(out CacheInfo cache)
     {
-        cache = ComputeCacheEntry(setupMSBuild);
+        cache = ComputeCacheEntry();
 
         if (Directives.Any(static d => d is CSharpDirective.Project))
         {
@@ -896,7 +893,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         }
 
         // Check that additional sources are not modified.
-        // NOTE: We currently don't support the CSC-reuse optimization through additional sources (i.e., we don't set `CanUseCscViaPreviousArguments=true` here).
+        // NOTE: We currently don't support the CSC-arg-reuse optimization through additional sources (i.e., we don't set `CanUseCscViaPreviousArguments=true` here).
         //       If that changes, we will also need to make sure `RunFileBuildCacheEntry.Directives` contains directives from other files
         //       (as that is used to determine whether we can reuse CSC args, see `GetReasonToNotReuseCscArguments`).
         foreach (var additionalSourcePath in previousCacheEntry.AdditionalSources)
@@ -905,16 +902,6 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
             if (!additionalSourceFileInfo.Exists || additionalSourceFileInfo.LastWriteTimeUtc > buildTimeUtc)
             {
                 Reporter.Verbose.WriteLine("Building because additional source file is missing or modified: " + additionalSourceFileInfo.FullName);
-                return true;
-            }
-        }
-
-        // Check that no new additional sources are present.
-        foreach (var additionalSourcePath in cacheEntry.AdditionalSources)
-        {
-            if (!previousCacheEntry.AdditionalSources.Contains(additionalSourcePath))
-            {
-                Reporter.Verbose.WriteLine("Building because new additional source file is present: " + additionalSourcePath);
                 return true;
             }
         }
@@ -993,9 +980,9 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         }
     }
 
-    private BuildLevel GetBuildLevel(Func<(ProjectCollection, BuildParameters)> setupMSBuild, out CacheInfo cache)
+    private BuildLevel GetBuildLevel(out CacheInfo cache)
     {
-        if (!NeedsToBuild(setupMSBuild, out cache))
+        if (!NeedsToBuild(out cache))
         {
             Reporter.Verbose.WriteLine("No need to build, the output is up to date. Cache: " + Builder.ArtifactsPath);
             return BuildLevel.None;
