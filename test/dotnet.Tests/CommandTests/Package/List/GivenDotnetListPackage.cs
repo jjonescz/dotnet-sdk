@@ -460,5 +460,27 @@ class Program
                 .Should()
                 .Pass();
         }
+
+        [Fact]
+        public void FileBasedApp()
+        {
+            var testInstance = _testAssetsManager.CreateTestDirectory();
+
+            var packageId = "Newtonsoft.Json";
+            var packageVersion = ToolsetInfo.GetNewtonsoftJsonPackageVersion();
+
+            var file = Path.Join(testInstance.Path, "app.cs");
+            File.WriteAllText(file, $"""
+                #:package {packageId}@{packageVersion}
+                Console.WriteLine();
+                """);
+
+            new DotnetCommand(Log, "list", "app.cs", "package")
+                .WithWorkingDirectory(testInstance.Path)
+                .Execute()
+                .Should().Pass()
+                .And.HaveStdOutContaining(packageId)
+                .And.HaveStdOutContaining(packageVersion);
+        }
     }
 }
