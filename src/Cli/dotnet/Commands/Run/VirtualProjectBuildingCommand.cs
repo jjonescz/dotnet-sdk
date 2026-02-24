@@ -6,6 +6,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Build.Construction;
 using Microsoft.Build.Evaluation;
 using Microsoft.Build.Execution;
 using Microsoft.Build.Framework;
@@ -18,6 +19,7 @@ using Microsoft.DotNet.Cli.Utils;
 using Microsoft.DotNet.Cli.Utils.Extensions;
 using Microsoft.DotNet.FileBasedPrograms;
 using Microsoft.DotNet.ProjectTools;
+using NuGet.CommandLine.XPlat;
 
 namespace Microsoft.DotNet.Cli.Commands.Run;
 
@@ -107,6 +109,8 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
     /// </summary>
     public bool NoWriteBuildMarkers { get; init; }
 
+    public bool NoConsoleLogger { get; init; }
+
     public VirtualProjectBuilder Builder { get; }
     public MSBuildArgs MSBuildArgs { get; }
 
@@ -150,7 +154,9 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         bool minimizeStdOut = msbuildGet && MSBuildArgs.GetResultOutputFile is null or [];
 
         var verbosity = MSBuildArgs.Verbosity ?? MSBuildForwardingAppWithoutLogging.DefaultVerbosity;
-        var consoleLogger = minimizeStdOut
+        var consoleLogger = NoConsoleLogger
+            ? null
+            : minimizeStdOut
             ? new SimpleErrorLogger()
             : CommonRunHelpers.GetConsoleLogger(MSBuildArgs.CloneWithExplicitArgs([$"--verbosity:{verbosity}", .. MSBuildArgs.OtherMSBuildArgs]));
         var binaryLogger = GetBinaryLogger(MSBuildArgs.OtherMSBuildArgs);
@@ -259,7 +265,8 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
 
             // Set up MSBuild.
             ReadOnlySpan<ILogger> binaryLoggers = binaryLogger is null ? [] : [binaryLogger.Value];
-            IEnumerable<ILogger> loggers = [.. binaryLoggers, consoleLogger];
+            ReadOnlySpan<ILogger> consoleLoggers = consoleLogger is null ? [] : [consoleLogger];
+            IEnumerable<ILogger> loggers = [.. binaryLoggers, .. consoleLoggers];
             var projectCollection = new ProjectCollection(
                 MSBuildArgs.GlobalProperties,
                 loggers,
@@ -1080,6 +1087,31 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
     public static readonly ErrorReporter ThrowingReporter =
         static (text, path, textSpan, message) =>
             throw new GracefulException($"{new SourceFile(path, text).GetLocationString(textSpan)}: {FileBasedProgramsResources.DirectiveError}: {message}");
+}
+
+/// <summary>
+/// Used by NuGet.CommandLine.XPlat.dll via reflection. Needs to be public.
+/// </summary>
+public sealed class NuGetVirtualProjectBuilder : IVirtualProjectBuilder
+{
+    public bool IsValidEntryPointPath(string entryPointFilePath) => VirtualProjectBuilder.IsValidEntryPointPath(entryPointFilePath);
+
+    public ProjectRootElement CreateProjectRootElement(string entryPointFilePath, ProjectCollection projectCollection)
+    {
+        var fullPath = Path.GetFullPath(entryPointFilePath);
+
+        var builder = new VirtualProjectBuilder(fullPath, VirtualProjectBuildingCommand.TargetFramework);
+
+        builder.CreateProjectInstance(
+            projectCollection,
+            static (text, path, textSpan, message) => throw new InvalidOperationException(
+                $"{new SourceFile(path, text).GetLocationString(textSpan)}: {FileBasedProgramsResources.DirectiveError}: {message}"),
+            out _,
+            out var projectRootElement,
+            out _);
+
+        return projectRootElement;
+    }
 }
 
 internal sealed class RunFileBuildCacheEntry
