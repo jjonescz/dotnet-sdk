@@ -481,6 +481,7 @@ public sealed class VirtualProjectBuilder
                     <FileBasedProgramsItemMapping>{CSharpDirective.IncludeOrExclude.DefaultMappingString}</FileBasedProgramsItemMapping>
                     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
                     <DisableDefaultItemsInProjectFolder>true</DisableDefaultItemsInProjectFolder>
+                    <AssemblyName>{EscapeValue(Path.GetFileNameWithoutExtension(entryPointFilePath!))}</AssemblyName>
                 """);
 
             // Only set these to false when using the default SDK with no additional SDKs
