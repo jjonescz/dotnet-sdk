@@ -88,7 +88,7 @@ public sealed class VirtualProjectBuilder
     private const string CsprojExtension = ".csproj";
 
     public static string GetVirtualProjectPath(string entryPointFilePath)
-        => entryPointFilePath + CsprojExtension;
+        => entryPointFilePath;
 
     public static bool TryGetEntryPointFilePathFromVirtualProjectPath(string projectPath, [NotNullWhen(returnValue: true)] out string? entryPointFilePath)
     {

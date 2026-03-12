@@ -1917,7 +1917,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .WithWorkingDirectory(testInstance.Path)
             .Execute()
             .Should().Fail()
-            .And.HaveStdOutContaining("Program.cs.csproj : error NU1101");
+            .And.HaveStdOutContaining("Program.cs : error NU1101");
     }
 
     [Fact]
@@ -6215,7 +6215,7 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
         var projectBasedFiles = ReadFiles();
 
         fileBasedResult.StdOut.Should().Be(projectBasedResult.StdOut);
-        fileBasedResult.StdErr!.Replace("Program.cs.csproj", "Program.csproj").Should().Be(projectBasedResult.StdErr);
+        fileBasedResult.StdErr!.Replace("Program.cs", "Program.csproj").Should().Be(projectBasedResult.StdErr);
         fileBasedResult.ExitCode.Should().Be(projectBasedResult.ExitCode).And.Be(success ? 0 : 1);
         fileBasedFiles.Should().Equal(projectBasedFiles);
 
