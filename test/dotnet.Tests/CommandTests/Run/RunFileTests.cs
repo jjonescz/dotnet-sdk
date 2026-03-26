@@ -1815,6 +1815,107 @@ public sealed class RunFileTests(ITestOutputHelper log) : SdkTest(log)
             .And.HaveStdErrContaining(CliCommandStrings.RunCommandException);
     }
 
+    [Fact]
+    public void MissingShebangWarning()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+
+        File.WriteAllText(Path.Join(testInstance.Path, "Directory.Build.props"), """
+            <Project>
+              <PropertyGroup>
+                <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+              </PropertyGroup>
+            </Project>
+            """);
+
+        // Without shebang, IDE0400 warning should be reported.
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), """
+            Console.WriteLine("hello");
+            """);
+
+        new DotnetCommand(Log, "run", "Program.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOutContaining("Program.cs(1,1): warning IDE0400")
+            .And.HaveStdOutContaining("hello");
+
+        // With shebang, no IDE0400 warning should be reported.
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), """
+            #!/usr/bin/env dotnet
+            Console.WriteLine("hello");
+            """);
+
+        new DotnetCommand(Log, "run", "Program.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut("hello");
+
+        // IDE0400 can be suppressed via NoWarn.
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), """
+            #:property NoWarn=IDE0400
+            Console.WriteLine("hello");
+            """);
+
+        new DotnetCommand(Log, "run", "Program.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut("hello");
+    }
+
+    [Fact]
+    public void MissingShebangWarning_IncludedFile()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+
+        File.WriteAllText(Path.Join(testInstance.Path, "Directory.Build.props"), """
+            <Project>
+              <PropertyGroup>
+                <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+                <ExperimentalFileBasedProgramEnableIncludeDirective>true</ExperimentalFileBasedProgramEnableIncludeDirective>
+                <ExperimentalFileBasedProgramEnableTransitiveDirectives>true</ExperimentalFileBasedProgramEnableTransitiveDirectives>
+              </PropertyGroup>
+            </Project>
+            """);
+
+        // Included file without shebang should not produce IDE0400.
+        File.WriteAllText(Path.Join(testInstance.Path, "Util.cs"), """
+            class Util { public static string Greet() => "hello"; }
+            """);
+
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), """
+            #!/usr/bin/env dotnet
+            #:include Util.cs
+            Console.WriteLine(Util.Greet());
+            """);
+
+        new DotnetCommand(Log, "run", "Program.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOut("hello");
+
+        // Currently even if the non-entry-point file has a shebang, no warning is produced.
+        File.WriteAllText(Path.Join(testInstance.Path, "Util.cs"), """
+            #!/usr/bin/env dotnet
+            class Util { public static string Greet() => "hello"; }
+            """);
+
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), """
+            #:include Util.cs
+            Console.WriteLine(Util.Greet());
+            """);
+
+        new DotnetCommand(Log, "run", "Program.cs")
+            .WithWorkingDirectory(testInstance.Path)
+            .Execute()
+            .Should().Pass()
+            .And.HaveStdOutContaining("Program.cs(2,1): warning IDE0400")
+            .And.HaveStdOutContaining("hello");
+    }
+
     /// <summary>
     /// File-based projects using the default SDK do not include embedded resources by default.
     /// </summary>
