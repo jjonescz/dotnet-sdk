@@ -3,6 +3,7 @@
 
 #nullable disable
 
+using System.Diagnostics;
 using Microsoft.DotNet.Cli.Commands;
 using Microsoft.DotNet.Cli.Utils;
 using Microsoft.TemplateEngine.Utils;
@@ -116,6 +117,179 @@ namespace Microsoft.DotNet.Cli.Run.Tests
                 .Execute()
                 .Should().Pass()
                          .And.HaveStdOutContaining("Hello World!");
+        }
+
+        [WindowsOnlyFact]
+        public void ItFailsToRebuildWhenOutputAssemblyIsLoadedAndBuildLoadCacheIsDisabled()
+        {
+            var (testAsset, projectDirectory, projectFile) = CreateBuildLoadCacheTestProject("BuildLoadCacheDisabled");
+            var buildCommand = new BuildCommand(testAsset, "BuildLoadCacheDisabled");
+            buildCommand.Execute().Should().Pass();
+
+            string outputAssembly = Path.Combine(buildCommand.GetOutputDirectory(ToolsetInfo.CurrentTargetFramework).FullName, "BuildLoadCacheDisabled.dll");
+            string readyFile = Path.Combine(testAsset.Path, "ready.txt");
+            string exitFile = Path.Combine(testAsset.Path, "exit.txt");
+
+            using Process runningApp = StartDotnetProcess(projectDirectory, readyFile, exitFile, "exec", outputAssembly, readyFile, exitFile);
+            try
+            {
+                WaitForReadyFile(readyFile).Should().Be(outputAssembly);
+                WriteWaitingProgram(projectDirectory, "v2");
+
+                buildCommand.ExecuteWithoutRestore()
+                    .Should().Fail()
+                    .And.HaveStdOutContaining("BuildLoadCacheDisabled.dll");
+            }
+            finally
+            {
+                StopWaitingProcess(runningApp, exitFile);
+            }
+        }
+
+        [Fact]
+        public void ItRebuildsWhenRunAssemblyIsLoaded()
+        {
+            var (testAsset, projectDirectory, projectFile) = CreateBuildLoadCacheTestProject("BuildLoadCacheEnabled");
+            var buildCommand = new BuildCommand(testAsset, "BuildLoadCacheEnabled");
+            buildCommand.Execute().Should().Pass();
+
+            bool enableBuildLoadCache = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+            string outputAssembly = Path.Combine(buildCommand.GetOutputDirectory(ToolsetInfo.CurrentTargetFramework).FullName, "BuildLoadCacheEnabled.dll");
+            string readyFile = Path.Combine(testAsset.Path, "ready.txt");
+            string exitFile = Path.Combine(testAsset.Path, "exit.txt");
+            string[] commonArguments = enableBuildLoadCache
+                ? ["/p:EnableWindowsBuildLoadCache=true"]
+                : [];
+
+            using Process runningApp = StartRunTargetProcess(
+                projectDirectory,
+                readyFile,
+                exitFile,
+                projectFile,
+                [.. commonArguments, $"/p:StartArguments={readyFile} {exitFile}"]);
+            try
+            {
+                string loadedAssemblyPath = WaitForReadyFile(readyFile);
+                if (enableBuildLoadCache)
+                {
+                    loadedAssemblyPath.Should().Contain("build-load-cache");
+                }
+                else
+                {
+                    loadedAssemblyPath.Should().Be(outputAssembly);
+                }
+
+                WriteWaitingProgram(projectDirectory, "v2");
+
+                buildCommand.ExecuteWithoutRestore(commonArguments)
+                    .Should().Pass();
+            }
+            finally
+            {
+                StopWaitingProcess(runningApp, exitFile);
+            }
+        }
+
+        private (TestAsset TestAsset, string ProjectDirectory, string ProjectFile) CreateBuildLoadCacheTestProject(string projectName)
+        {
+            var testProject = new TestProject(projectName)
+            {
+                IsExe = true,
+                TargetFrameworks = ToolsetInfo.CurrentTargetFramework,
+            };
+            testProject.AdditionalProperties["UseAppHost"] = "false";
+            testProject.SourceFiles["Program.cs"] = GetWaitingProgramSource("v1");
+
+            var testAsset = _testAssetsManager.CreateTestProject(testProject);
+            string projectDirectory = Path.Combine(testAsset.Path, projectName);
+            string projectFile = Path.Combine(projectDirectory, projectName + ".csproj");
+            return (testAsset, projectDirectory, projectFile);
+        }
+
+        private static void WriteWaitingProgram(string projectDirectory, string marker)
+        {
+            File.WriteAllText(Path.Combine(projectDirectory, "Program.cs"), GetWaitingProgramSource(marker));
+        }
+
+        private static string GetWaitingProgramSource(string marker) => $$"""
+            using System;
+            using System.IO;
+            using System.Reflection;
+            using System.Threading;
+
+            string readyFile = args[0];
+            string exitFile = args[1];
+            File.WriteAllText(readyFile, Assembly.GetExecutingAssembly().Location);
+            while (!File.Exists(exitFile))
+            {
+                Thread.Sleep(100);
+            }
+
+            Console.WriteLine("{{marker}}");
+            """;
+
+        private static Process StartDotnetProcess(string workingDirectory, string readyFile, string exitFile, params string[] arguments)
+        {
+            File.Delete(readyFile);
+            File.Delete(exitFile);
+
+            var startInfo = new ProcessStartInfo(SdkTestContext.Current.ToolsetUnderTest.DotNetHostPath)
+            {
+                WorkingDirectory = workingDirectory,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+
+            foreach (string argument in arguments)
+            {
+                startInfo.ArgumentList.Add(argument);
+            }
+
+            return Process.Start(startInfo);
+        }
+
+        private static Process StartRunTargetProcess(string workingDirectory, string readyFile, string exitFile, string projectFile, params string[] arguments)
+        {
+            File.Delete(readyFile);
+            File.Delete(exitFile);
+
+            var commandSpec = SdkTestContext.Current.ToolsetUnderTest.CreateCommandForTarget("Run", [projectFile, .. arguments]);
+            commandSpec.WorkingDirectory = workingDirectory;
+            var startInfo = commandSpec.ToProcessStartInfo();
+            startInfo.RedirectStandardOutput = true;
+            startInfo.RedirectStandardError = true;
+            return Process.Start(startInfo);
+        }
+
+        private static string WaitForReadyFile(string readyFile)
+        {
+            var stopwatch = Stopwatch.StartNew();
+            while (!File.Exists(readyFile))
+            {
+                if (stopwatch.Elapsed > TimeSpan.FromSeconds(30))
+                {
+                    throw new TimeoutException($"Timed out waiting for '{readyFile}'.");
+                }
+
+                Thread.Sleep(100);
+            }
+
+            return File.ReadAllText(readyFile);
+        }
+
+        private static void StopWaitingProcess(Process process, string exitFile)
+        {
+            if (process.HasExited)
+            {
+                return;
+            }
+
+            File.WriteAllText(exitFile, string.Empty);
+            if (!process.WaitForExit(5000))
+            {
+                process.Kill(entireProcessTree: true);
+            }
         }
 
         [Fact]

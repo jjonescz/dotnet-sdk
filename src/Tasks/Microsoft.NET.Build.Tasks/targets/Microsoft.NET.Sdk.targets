@@ -28,6 +28,7 @@ Copyright (c) .NET Foundation. All rights reserved.
   <UsingTask TaskName="GenerateRuntimeConfigurationFiles" AssemblyFile="$(MicrosoftNETBuildTasksAssembly)" />
   <UsingTask TaskName="GetAssemblyVersion" AssemblyFile="$(MicrosoftNETBuildTasksAssembly)" />
   <UsingTask TaskName="GenerateSatelliteAssemblies" AssemblyFile="$(MicrosoftNETBuildTasksAssembly)" />
+  <UsingTask TaskName="CreateBuildLoadCache" AssemblyFile="$(MicrosoftNETBuildTasksAssembly)" />
 
   <PropertyGroup>
     <DisableStandardFrameworkResolution Condition="'$(DisableStandardFrameworkResolution)' == ''">$(_IsNETCoreOrNETStandard)</DisableStandardFrameworkResolution>
@@ -46,6 +47,10 @@ Copyright (c) .NET Foundation. All rights reserved.
     <_GeneratePublishDependencyFilePropertyInputsCache>$([MSBuild]::NormalizePath($(MSBuildProjectDirectory), $(_GeneratePublishDependencyFilePropertyInputsCache)))</_GeneratePublishDependencyFilePropertyInputsCache>
     <_GenerateSingleFileBundlePropertyInputsCache Condition="'$(_GenerateSingleFileBundlePropertyInputsCache)' == ''">$(IntermediateOutputPath)$(MSBuildProjectName).genbundle.cache</_GenerateSingleFileBundlePropertyInputsCache>
     <_GenerateSingleFileBundlePropertyInputsCache>$([MSBuild]::NormalizePath($(MSBuildProjectDirectory), $(_GenerateSingleFileBundlePropertyInputsCache)))</_GenerateSingleFileBundlePropertyInputsCache>
+    <EnableWindowsBuildLoadCache Condition="'$(EnableWindowsBuildLoadCache)' == ''">false</EnableWindowsBuildLoadCache>
+    <_EnableWindowsBuildLoadCache Condition="'$(EnableWindowsBuildLoadCache)' == 'true' and $([MSBuild]::IsOSPlatform('Windows'))">true</_EnableWindowsBuildLoadCache>
+    <WindowsBuildLoadCacheRoot Condition="'$(WindowsBuildLoadCacheRoot)' == ''">$(BaseIntermediateOutputPath)build-load-cache</WindowsBuildLoadCacheRoot>
+    <WindowsBuildLoadCacheRoot>$([MSBuild]::NormalizePath($(MSBuildProjectDirectory), $(WindowsBuildLoadCacheRoot)))</WindowsBuildLoadCacheRoot>
   </PropertyGroup>
 
   <!-- For .NET 8 and higher, we will by default use a simplified "portable" RID graph -->
@@ -486,6 +491,26 @@ Copyright (c) .NET Foundation. All rights reserved.
     </ItemGroup>
 
 
+  </Target>
+
+  <Target Name="_CreateAnalyzerBuildLoadCache"
+          BeforeTargets="CoreCompile"
+          Condition="'$(_EnableWindowsBuildLoadCache)' == 'true' and '@(Analyzer)' != ''">
+    <ItemGroup>
+      <_BuildLoadCacheAnalyzer Include="@(Analyzer)" Condition="Exists('%(Analyzer.Identity)')" />
+    </ItemGroup>
+
+    <CreateBuildLoadCache Items="@(_BuildLoadCacheAnalyzer)"
+                          CacheRoot="$(WindowsBuildLoadCacheRoot)"
+                          CacheKind="analyzers"
+                          Condition="'@(_BuildLoadCacheAnalyzer)' != ''">
+      <Output TaskParameter="CachedItems" ItemName="_BuildLoadCacheCachedAnalyzer" />
+    </CreateBuildLoadCache>
+
+    <ItemGroup Condition="'@(_BuildLoadCacheCachedAnalyzer)' != ''">
+      <Analyzer Remove="@(_BuildLoadCacheAnalyzer)" />
+      <Analyzer Include="@(_BuildLoadCacheCachedAnalyzer)" />
+    </ItemGroup>
   </Target>
 
   <Target Name="_SdkBeforeClean">
@@ -1448,6 +1473,44 @@ Copyright (c) .NET Foundation. All rights reserved.
     <!-- Ensure $(RunWorkingDirectory) is a full path -->
     <RunWorkingDirectory Condition="'$(RunWorkingDirectory)' != '' and '$([System.IO.Path]::IsPathRooted($(RunWorkingDirectory)))' != 'true'">$([System.IO.Path]::GetFullPath($([System.IO.Path]::Combine('$(MSBuildProjectDirectory)', '$(RunWorkingDirectory)'))))</RunWorkingDirectory>
   </PropertyGroup>
+
+  <Target Name="_CreateRunBuildLoadCache"
+          BeforeTargets="ComputeRunArguments"
+          Condition="'$(_EnableWindowsBuildLoadCache)' == 'true' and '$(TargetFrameworkIdentifier)' == '.NETCoreApp' and '$(_IsExecutable)' == 'true' and Exists('$(TargetPath)')">
+    <PropertyGroup>
+      <_BuildLoadCacheTargetFullPath>$([System.IO.Path]::GetFullPath('$(TargetPath)'))</_BuildLoadCacheTargetFullPath>
+      <_BuildLoadCacheAppHostFullPath>$([System.IO.Path]::GetFullPath('$(TargetDir)$(AssemblyName)$(_NativeExecutableExtension)'))</_BuildLoadCacheAppHostFullPath>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <_BuildLoadCacheRunFile Include="$(TargetDir)**\*"
+                              Exclude="$(TargetDir)**\*.pdb;$(TargetDir)**\*.xml">
+        <DestinationRelativePath>%(RecursiveDir)%(Filename)%(Extension)</DestinationRelativePath>
+      </_BuildLoadCacheRunFile>
+    </ItemGroup>
+
+    <CreateBuildLoadCache Items="@(_BuildLoadCacheRunFile)"
+                          CacheRoot="$(WindowsBuildLoadCacheRoot)"
+                          CacheKind="run"
+                          Condition="'@(_BuildLoadCacheRunFile)' != ''">
+      <Output TaskParameter="CachedItems" ItemName="_BuildLoadCacheCachedRunFile" />
+      <Output TaskParameter="CacheDirectory" PropertyName="BuildLoadCacheRunDirectory" />
+    </CreateBuildLoadCache>
+
+    <ItemGroup>
+      <_BuildLoadCacheCachedTarget Include="@(_BuildLoadCacheCachedRunFile)"
+                                   Condition="'%(_BuildLoadCacheCachedRunFile.OriginalFullPath)' == '$(_BuildLoadCacheTargetFullPath)'" />
+      <_BuildLoadCacheCachedAppHost Include="@(_BuildLoadCacheCachedRunFile)"
+                                    Condition="'%(_BuildLoadCacheCachedRunFile.OriginalFullPath)' == '$(_BuildLoadCacheAppHostFullPath)'" />
+    </ItemGroup>
+
+    <PropertyGroup>
+      <_BuildLoadCacheCachedTargetPath>@(_BuildLoadCacheCachedTarget->'%(Identity)')</_BuildLoadCacheCachedTargetPath>
+      <_BuildLoadCacheCachedAppHostPath>@(_BuildLoadCacheCachedAppHost->'%(Identity)')</_BuildLoadCacheCachedAppHostPath>
+      <RunCommand Condition="'$(UseAppHost)' == 'true' and '$(StartAction)' != 'Program' and '$(RunCommand)' == '$(TargetDir)$(AssemblyName)$(_NativeExecutableExtension)' and '$(_BuildLoadCacheCachedAppHostPath)' != ''">$(_BuildLoadCacheCachedAppHostPath)</RunCommand>
+      <RunArguments Condition="'$(UseAppHost)' != 'true' and '$(StartAction)' != 'Program' and '$(RunCommand)' == 'dotnet' and '$(_BuildLoadCacheCachedTargetPath)' != ''">exec &quot;$(_BuildLoadCacheCachedTargetPath)&quot; $(StartArguments)</RunArguments>
+    </PropertyGroup>
+  </Target>
 
   <ItemGroup>
     <!-- Signals that this project supports the target-based run invocation protocol powered by the ComputeRunArguments target. -->
