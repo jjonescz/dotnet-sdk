@@ -5,9 +5,9 @@ using System.Runtime.CompilerServices;
 
 namespace Microsoft.NET.Build.Tests
 {
-    public class GivenThatWeWantToUseBuildLoadCache : SdkTest
+    public class GivenThatWeWantToUseBuildLoadIsolation : SdkTest
     {
-        public GivenThatWeWantToUseBuildLoadCache(ITestOutputHelper log) : base(log)
+        public GivenThatWeWantToUseBuildLoadIsolation(ITestOutputHelper log) : base(log)
         {
         }
 
@@ -16,10 +16,10 @@ namespace Microsoft.NET.Build.Tests
         {
             var testAsset = CreateAnalyzerTestAsset();
 
-            var analyzers = GetAnalyzers(testAsset, "/p:EnableWindowsBuildLoadCache=true");
+            var analyzers = GetAnalyzers(testAsset, "/p:EnableWindowsBuildLoadIsolation=true");
 
             analyzers.Should().NotBeEmpty();
-            analyzers.Should().OnlyContain(path => IsInBuildLoadCache(path));
+            analyzers.Should().OnlyContain(path => IsInBuildLoadIsolation(path));
         }
 
         [WindowsOnlyFact]
@@ -30,12 +30,12 @@ namespace Microsoft.NET.Build.Tests
             var analyzers = GetAnalyzers(testAsset);
 
             analyzers.Should().NotBeEmpty();
-            analyzers.Should().NotContain(path => IsInBuildLoadCache(path));
+            analyzers.Should().NotContain(path => IsInBuildLoadIsolation(path));
         }
 
         private TestAsset CreateAnalyzerTestAsset([CallerMemberName] string identifier = "")
         {
-            var testProject = new TestProject("BuildLoadCacheAnalyzers")
+            var testProject = new TestProject("BuildLoadIsolationAnalyzers")
             {
                 TargetFrameworks = ToolsetInfo.CurrentTargetFramework,
             };
@@ -56,9 +56,9 @@ namespace Microsoft.NET.Build.Tests
             return getValuesCommand.GetValues();
         }
 
-        private static bool IsInBuildLoadCache(string path)
+        private static bool IsInBuildLoadIsolation(string path)
         {
-            return path.Contains($"{Path.DirectorySeparatorChar}build-load-cache{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase);
+            return path.Contains($"{Path.DirectorySeparatorChar}build-load-isolation{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase);
         }
     }
 }

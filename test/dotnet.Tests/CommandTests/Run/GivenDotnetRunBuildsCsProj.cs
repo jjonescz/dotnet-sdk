@@ -120,13 +120,13 @@ namespace Microsoft.DotNet.Cli.Run.Tests
         }
 
         [WindowsOnlyFact]
-        public void ItFailsToRebuildWhenOutputAssemblyIsLoadedAndBuildLoadCacheIsDisabled()
+        public void ItFailsToRebuildWhenOutputAssemblyIsLoadedAndBuildLoadIsolationIsDisabled()
         {
-            var (testAsset, projectDirectory, projectFile) = CreateBuildLoadCacheTestProject("BuildLoadCacheDisabled");
-            var buildCommand = new BuildCommand(testAsset, "BuildLoadCacheDisabled");
+            var (testAsset, projectDirectory, projectFile) = CreateBuildLoadIsolationTestProject("BuildLoadIsolationDisabled");
+            var buildCommand = new BuildCommand(testAsset, "BuildLoadIsolationDisabled");
             buildCommand.Execute().Should().Pass();
 
-            string outputAssembly = Path.Combine(buildCommand.GetOutputDirectory(ToolsetInfo.CurrentTargetFramework).FullName, "BuildLoadCacheDisabled.dll");
+            string outputAssembly = Path.Combine(buildCommand.GetOutputDirectory(ToolsetInfo.CurrentTargetFramework).FullName, "BuildLoadIsolationDisabled.dll");
             string readyFile = Path.Combine(testAsset.Path, "ready.txt");
             string exitFile = Path.Combine(testAsset.Path, "exit.txt");
 
@@ -138,7 +138,7 @@ namespace Microsoft.DotNet.Cli.Run.Tests
 
                 buildCommand.ExecuteWithoutRestore()
                     .Should().Fail()
-                    .And.HaveStdOutContaining("BuildLoadCacheDisabled.dll");
+                    .And.HaveStdOutContaining("BuildLoadIsolationDisabled.dll");
             }
             finally
             {
@@ -149,16 +149,16 @@ namespace Microsoft.DotNet.Cli.Run.Tests
         [Fact]
         public void ItRebuildsWhenRunAssemblyIsLoaded()
         {
-            var (testAsset, projectDirectory, projectFile) = CreateBuildLoadCacheTestProject("BuildLoadCacheEnabled");
-            var buildCommand = new BuildCommand(testAsset, "BuildLoadCacheEnabled");
+            var (testAsset, projectDirectory, projectFile) = CreateBuildLoadIsolationTestProject("BuildLoadIsolationEnabled");
+            var buildCommand = new BuildCommand(testAsset, "BuildLoadIsolationEnabled");
             buildCommand.Execute().Should().Pass();
 
-            bool enableBuildLoadCache = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
-            string outputAssembly = Path.Combine(buildCommand.GetOutputDirectory(ToolsetInfo.CurrentTargetFramework).FullName, "BuildLoadCacheEnabled.dll");
+            bool enableBuildLoadIsolation = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+            string outputAssembly = Path.Combine(buildCommand.GetOutputDirectory(ToolsetInfo.CurrentTargetFramework).FullName, "BuildLoadIsolationEnabled.dll");
             string readyFile = Path.Combine(testAsset.Path, "ready.txt");
             string exitFile = Path.Combine(testAsset.Path, "exit.txt");
-            string[] commonArguments = enableBuildLoadCache
-                ? ["/p:EnableWindowsBuildLoadCache=true"]
+            string[] commonArguments = enableBuildLoadIsolation
+                ? ["/p:EnableWindowsBuildLoadIsolation=true"]
                 : [];
 
             using Process runningApp = StartRunTargetProcess(
@@ -170,9 +170,9 @@ namespace Microsoft.DotNet.Cli.Run.Tests
             try
             {
                 string loadedAssemblyPath = WaitForReadyFile(readyFile);
-                if (enableBuildLoadCache)
+                if (enableBuildLoadIsolation)
                 {
-                    loadedAssemblyPath.Should().Contain("build-load-cache");
+                    loadedAssemblyPath.Should().Contain("build-load-isolation");
                 }
                 else
                 {
@@ -190,7 +190,7 @@ namespace Microsoft.DotNet.Cli.Run.Tests
             }
         }
 
-        private (TestAsset TestAsset, string ProjectDirectory, string ProjectFile) CreateBuildLoadCacheTestProject(string projectName)
+        private (TestAsset TestAsset, string ProjectDirectory, string ProjectFile) CreateBuildLoadIsolationTestProject(string projectName)
         {
             var testProject = new TestProject(projectName)
             {

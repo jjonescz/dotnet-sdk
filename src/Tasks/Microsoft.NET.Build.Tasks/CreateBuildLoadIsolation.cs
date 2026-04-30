@@ -13,70 +13,70 @@ using Microsoft.Build.Utilities;
 
 namespace Microsoft.NET.Build.Tasks
 {
-    public sealed class CreateBuildLoadCache : TaskBase
+    public sealed class CreateBuildLoadIsolation : TaskBase
     {
         [Required]
         public ITaskItem[] Items { get; set; }
 
         [Required]
-        public string CacheRoot { get; set; }
+        public string IsolationRoot { get; set; }
 
-        public string CacheKind { get; set; } = "default";
-
-        [Output]
-        public ITaskItem[] CachedItems { get; private set; }
+        public string IsolationKind { get; set; } = "default";
 
         [Output]
-        public string CacheDirectory { get; private set; }
+        public ITaskItem[] IsolatedItems { get; private set; }
+
+        [Output]
+        public string IsolationDirectory { get; private set; }
 
         protected override void ExecuteCore()
         {
             var existingItems = Items
                 .Where(item => !string.IsNullOrEmpty(item.ItemSpec) && File.Exists(item.ItemSpec))
-                .Select(item => new CacheInput(item, Path.GetFullPath(item.ItemSpec), GetDestinationRelativePath(item)))
+                .Select(item => new IsolationInput(item, Path.GetFullPath(item.ItemSpec), GetDestinationRelativePath(item)))
                 .ToArray();
 
             if (existingItems.Length == 0)
             {
-                CachedItems = Items ?? Array.Empty<ITaskItem>();
+                IsolatedItems = Items ?? Array.Empty<ITaskItem>();
                 return;
             }
 
-            string cacheKey = ComputeCacheKey(existingItems);
-            CacheDirectory = Path.Combine(CacheRoot, CacheKind ?? "default", cacheKey);
-            Directory.CreateDirectory(CacheDirectory);
+            string isolationKey = ComputeIsolationKey(existingItems);
+            IsolationDirectory = Path.Combine(IsolationRoot, IsolationKind ?? "default", isolationKey);
+            Directory.CreateDirectory(IsolationDirectory);
 
-            var cachedItems = new List<ITaskItem>(Items.Length);
+            var isolatedItems = new List<ITaskItem>(Items.Length);
             foreach (ITaskItem item in Items)
             {
                 string sourcePath = item.ItemSpec;
                 if (string.IsNullOrEmpty(sourcePath) || !File.Exists(sourcePath))
                 {
-                    cachedItems.Add(item);
+                    isolatedItems.Add(item);
                     continue;
                 }
 
                 string destinationRelativePath = GetDestinationRelativePath(item);
-                string destinationPath = Path.Combine(CacheDirectory, destinationRelativePath);
+                string destinationPath = Path.Combine(IsolationDirectory, destinationRelativePath);
                 Directory.CreateDirectory(Path.GetDirectoryName(destinationPath));
                 EnsureMaterialized(sourcePath, destinationPath);
 
-                var cachedItem = new TaskItem(destinationPath);
-                item.CopyMetadataTo(cachedItem);
-                cachedItem.SetMetadata("OriginalItemSpec", item.ItemSpec);
-                cachedItem.SetMetadata("OriginalFullPath", Path.GetFullPath(item.ItemSpec));
-                cachedItem.SetMetadata("BuildLoadCacheKey", cacheKey);
-                cachedItem.SetMetadata("BuildLoadCacheDirectory", CacheDirectory);
-                cachedItems.Add(cachedItem);
+                var isolatedItem = new TaskItem(destinationPath);
+                item.CopyMetadataTo(isolatedItem);
+                isolatedItem.SetMetadata("OriginalItemSpec", item.ItemSpec);
+                isolatedItem.SetMetadata("OriginalFullPath", Path.GetFullPath(item.ItemSpec));
+                isolatedItem.SetMetadata("BuildLoadIsolationKey", isolationKey);
+                isolatedItem.SetMetadata("BuildLoadIsolationDirectory", IsolationDirectory);
+                isolatedItems.Add(isolatedItem);
             }
 
-            CachedItems = cachedItems.ToArray();
+            IsolatedItems = isolatedItems.ToArray();
         }
 
-        private static string ComputeCacheKey(CacheInput[] inputs)
+        private static string ComputeIsolationKey(IsolationInput[] inputs)
         {
             using SHA256 sha256 = SHA256.Create();
-            foreach (CacheInput input in inputs.OrderBy(input => input.DestinationRelativePath, StringComparer.OrdinalIgnoreCase).ThenBy(input => input.SourcePath, StringComparer.OrdinalIgnoreCase))
+            foreach (IsolationInput input in inputs.OrderBy(input => input.DestinationRelativePath, StringComparer.OrdinalIgnoreCase).ThenBy(input => input.SourcePath, StringComparer.OrdinalIgnoreCase))
             {
                 Append(sha256, input.DestinationRelativePath);
                 Append(sha256, input.SourcePath);
@@ -202,9 +202,9 @@ namespace Microsoft.NET.Build.Tasks
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern bool CreateHardLink(string lpFileName, string lpExistingFileName, IntPtr lpSecurityAttributes);
 
-        private sealed class CacheInput
+        private sealed class IsolationInput
         {
-            public CacheInput(ITaskItem item, string sourcePath, string destinationRelativePath)
+            public IsolationInput(ITaskItem item, string sourcePath, string destinationRelativePath)
             {
                 Item = item;
                 SourcePath = sourcePath;
