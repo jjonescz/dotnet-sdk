@@ -17,6 +17,14 @@ namespace Microsoft.DotNet.Cli.Commands.Project.Convert;
 
 internal sealed class ProjectConvertCommand : CommandBase<ProjectConvertCommandDefinition>
 {
+    private static readonly string[] s_knownFileItemTypes =
+    [
+        "Compile",
+        "Content",
+        "None",
+        "EmbeddedResource",
+    ];
+
     private readonly string _file;
     private readonly string? _outputDirectory;
     private readonly bool _force;
@@ -346,9 +354,14 @@ internal sealed class ProjectConvertCommand : CommandBase<ProjectConvertCommandD
             string sourceFileDirectory = PathUtilities.EnsureTrailingSlash(Path.GetDirectoryName(sourceFile)!);
 
             // Include only items we know are files.
-            var mapping = fileBuilder.GetItemMapping(fileProjectInstance, VirtualProjectBuildingCommand.ThrowingReporter);
+            var mappedFileItemTypes = fileBuilder
+                .GetItemMapping(fileProjectInstance, VirtualProjectBuildingCommand.ThrowingReporter)
+                .Select(static e => e.ItemType);
 
-            var items = mapping.SelectMany(e => fileProjectInstance.GetItems(e.ItemType));
+            var items = s_knownFileItemTypes
+                .Concat(mappedFileItemTypes)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .SelectMany(fileProjectInstance.GetItems);
 
             var topLevelFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 

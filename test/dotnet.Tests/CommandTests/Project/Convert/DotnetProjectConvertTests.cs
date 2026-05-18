@@ -1876,7 +1876,7 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
     }
 
     /// <summary>
-    /// If a file is included only via MSBuild code but is not in the mapped conversion item set, conversion won't copy it to the output directory.
+    /// If a file is included only via MSBuild code but is not in the built-in or mapped conversion item set, conversion won't copy it to the output directory.
     /// </summary>
     [Fact]
     public void Directives_IncludeDll_DirectoryBuildProps_NoMapping()
@@ -1937,7 +1937,11 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .Should().Pass();
 
         var outDir = Path.Join(testInstance.Path, "out");
-        File.Exists(Path.Join(outDir, "Lib.dll")).Should().BeFalse();
+        new DirectoryInfo(outDir)
+            .Should().HaveSubtree("""
+                Program.cs
+                Program.csproj
+                """);
         File.ReadAllText(Path.Join(outDir, "Program.csproj"))
             .Should().NotContain("<Reference");
 
@@ -2014,7 +2018,12 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .Should().Pass();
 
         var outDir = Path.Join(testInstance.Path, "out");
-        File.Exists(Path.Join(outDir, "Lib.dll")).Should().BeTrue();
+        new DirectoryInfo(outDir)
+            .Should().HaveSubtree("""
+                Lib.dll
+                Program.cs
+                Program.csproj
+                """);
         File.ReadAllText(Path.Join(outDir, "Program.csproj"))
             .Should().Contain("<Reference Include=\"Lib.dll\" />");
 
@@ -2023,6 +2032,81 @@ public sealed class DotnetProjectConvertTests(ITestOutputHelper log) : SdkTest(l
             .Execute()
             .Should().Pass()
             .And.HaveStdOut(expectedOutput);
+    }
+
+    /// <summary>
+    /// Built-in file item types are still copied when FileBasedProgramsItemMapping is customized for additional item types.
+    /// </summary>
+    [Fact]
+    public void Directives_IncludeDll_DirectoryBuildProps_BuiltInItemTypes()
+    {
+        var testInstance = _testAssetsManager.CreateTestDirectory();
+        var srcDir = Path.Join(testInstance.Path, "src");
+        var appDir = Path.Join(srcDir, "app");
+        Directory.CreateDirectory(appDir);
+
+        File.WriteAllText(Path.Join(srcDir, "content.txt"), "Content file");
+        File.WriteAllText(Path.Join(srcDir, "none.txt"), "None file");
+        File.WriteAllText(Path.Join(srcDir, "reference.txt"), "Reference file");
+        File.WriteAllText(Path.Join(srcDir, "resource.txt"), "Resource file");
+
+        File.WriteAllText(Path.Join(srcDir, "Directory.Build.props"), """
+            <Project>
+                <PropertyGroup>
+                    <FileBasedProgramsItemMapping>.dll=Reference</FileBasedProgramsItemMapping>
+                </PropertyGroup>
+                <ItemGroup>
+                    <Content Include="$(MSBuildThisFileDirectory)content.txt" />
+                    <None Include="$(MSBuildThisFileDirectory)none.txt" />
+                    <Reference Include="$(MSBuildThisFileDirectory)reference.txt" />
+                    <EmbeddedResource Include="$(MSBuildThisFileDirectory)resource.txt" />
+                </ItemGroup>
+            </Project>
+            """);
+
+        File.WriteAllText(Path.Join(appDir, "Program.cs"), """
+            Console.WriteLine("Hello from app");
+            """);
+
+        new DotnetCommand(Log, "project", "convert", "Program.cs", "-o", "../../out")
+            .WithWorkingDirectory(appDir)
+            .Execute()
+            .Should().Pass();
+
+        var outDir = Path.Join(testInstance.Path, "out");
+        new DirectoryInfo(outDir)
+            .Should().HaveSubtree("""
+                Program.cs
+                Program.csproj
+                content.txt
+                none.txt
+                reference.txt
+                resource.txt
+                """);
+
+        File.ReadAllText(Path.Join(outDir, "Program.csproj"))
+            .Should().Match($"""
+                <Project Sdk="Microsoft.NET.Sdk">
+
+                  <PropertyGroup>
+                    <OutputType>Exe</OutputType>
+                    <TargetFramework>{ToolsetInfo.CurrentTargetFramework}</TargetFramework>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <Nullable>enable</Nullable>
+                    <PublishAot>true</PublishAot>
+                    <PackAsTool>true</PackAsTool>
+                    <UserSecretsId>Program-*</UserSecretsId>
+                  </PropertyGroup>
+
+                  <ItemGroup>
+                    <Content Include="content.txt" />
+                    <Reference Include="reference.txt" />
+                    <EmbeddedResource Include="resource.txt" />
+                  </ItemGroup>
+
+                </Project>
+
+                """);
     }
 
     [Fact]
