@@ -354,30 +354,44 @@ internal sealed class ProjectConvertCommand : CommandBase<ProjectConvertCommandD
             string sourceFileDirectory = PathUtilities.EnsureTrailingSlash(Path.GetDirectoryName(sourceFile)!);
 
             // Include only items we know are files.
-            var mappedFileItemTypes = fileBuilder
-                .GetItemMapping(fileProjectInstance, VirtualProjectBuildingCommand.ThrowingReporter)
-                .Select(static e => e.ItemType);
+            var mappedFileExtensionsByItemType = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (extension, itemType) in fileBuilder.GetItemMapping(fileProjectInstance, VirtualProjectBuildingCommand.ThrowingReporter))
+            {
+                if (!mappedFileExtensionsByItemType.TryGetValue(itemType, out var extensions))
+                {
+                    extensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    mappedFileExtensionsByItemType.Add(itemType, extensions);
+                }
+
+                extensions.Add(extension);
+            }
 
             var items = s_knownFileItemTypes
-                .Concat(mappedFileItemTypes)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .SelectMany(fileProjectInstance.GetItems);
+                .SelectMany(itemType => fileProjectInstance.GetItems(itemType).Select(item => (Item: item, Extensions: (HashSet<string>?)null)))
+                .Concat(mappedFileExtensionsByItemType
+                    .Where(static entry => !s_knownFileItemTypes.Contains(entry.Key, StringComparer.OrdinalIgnoreCase))
+                    .SelectMany(entry => fileProjectInstance.GetItems(entry.Key).Select(item => (Item: item, Extensions: (HashSet<string>?)entry.Value))));
 
             var topLevelFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var item in items)
             {
                 // Escape hatch - exclude items that have metadata `ExcludeFromFileBasedAppConversion` set to `true`.
-                string include = item.GetMetadataValue("ExcludeFromFileBasedAppConversion");
+                string include = item.Item.GetMetadataValue("ExcludeFromFileBasedAppConversion");
                 if (string.Equals(include, bool.TrueString, StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
 
-                string itemFullPath = Path.GetFullPath(path: item.GetMetadataValue("FullPath"), basePath: sourceFileDirectory);
+                string itemFullPath = Path.GetFullPath(path: item.Item.GetMetadataValue("FullPath"), basePath: sourceFileDirectory);
 
                 // Exclude items that do not exist.
                 if (!File.Exists(itemFullPath))
+                {
+                    continue;
+                }
+
+                if (item.Extensions is { } extensions && !extensions.Contains(Path.GetExtension(itemFullPath)))
                 {
                     continue;
                 }
@@ -408,7 +422,7 @@ internal sealed class ProjectConvertCommand : CommandBase<ProjectConvertCommandD
                     }
                 }
 
-                yield return new IncludedItem(item.ItemType, itemFullPath, itemRelativePath);
+                yield return new IncludedItem(item.Item.ItemType, itemFullPath, itemRelativePath);
             }
         }
 
