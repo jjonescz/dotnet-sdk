@@ -57,6 +57,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.BuildClient" />
     <PackageReference Include="Microsoft.NET.HostModel" />
     <PackageReference Include="System.CommandLine" />
   </ItemGroup>
