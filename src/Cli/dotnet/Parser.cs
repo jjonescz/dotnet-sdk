@@ -3,23 +3,28 @@
 
 #if CLI_AOT
 using System.CommandLine;
+using Microsoft.DotNet.Cli.Commands.Run;
 using Microsoft.DotNet.Cli.Utils;
 
 namespace Microsoft.DotNet.Cli;
 
 public static class Parser
 {
+    internal const int FallbackToManagedCli = int.MinValue;
+
     internal static RootCommand RootCommand { get; } = CreateCommand();
 
     private static RootCommand CreateCommand()
     {
         var versionOption = new Option<bool>("--version") { Description = "Display .NET SDK version." };
         var infoOption = new Option<bool>("--info") { Description = "Display .NET information." };
+        var runCommand = AotRunCommand.Create();
 
         var rootCommand = new RootCommand("The .NET CLI")
         {
             versionOption,
             infoOption,
+            runCommand,
         };
 
         rootCommand.SetAction(parseResult =>

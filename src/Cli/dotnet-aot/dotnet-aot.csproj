@@ -42,6 +42,9 @@
   <ItemGroup>
     <Compile Include="NativeEntryPoint.cs" />
     <Compile Include="ManagedHost.cs" />
+    <Compile Include="AotRunCommand.cs" />
+    <Compile Include="..\dotnet\Commands\Run\CSharpCompilerCommand.cs" Link="Commands\Run\CSharpCompilerCommand.cs" />
+    <Compile Include="..\dotnet\Commands\Run\CSharpCompilerCommand.Generated.cs" Link="Commands\Run\CSharpCompilerCommand.Generated.cs" />
     <Compile Include="..\dotnet\Program.cs" Link="Program.cs" />
     <Compile Include="..\dotnet\CommandLineInfo.cs" Link="CommandLineInfo.cs" />
     <Compile Include="..\dotnet\Parser.cs" Link="Parser.cs" />
@@ -54,6 +57,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.NET.HostModel" />
     <PackageReference Include="System.CommandLine" />
   </ItemGroup>
 

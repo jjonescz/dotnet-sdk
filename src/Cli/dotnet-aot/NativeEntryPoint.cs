@@ -5,6 +5,45 @@ using Microsoft.DotNet.NativeWrapper;
 
 namespace Microsoft.DotNet.Cli;
 
+internal static class AotHostContext
+{
+    public static string SdkDir { get; private set; } = Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory);
+    public static string DotNetRoot { get; private set; } = Path.GetDirectoryName(Path.GetDirectoryName(SdkDir)!)!;
+
+    public static void Initialize(string dotnetRoot, string sdkDir)
+    {
+        string resolvedDotNetRoot = !string.IsNullOrEmpty(dotnetRoot)
+            ? Path.TrimEndingDirectorySeparator(dotnetRoot)
+            : Path.GetDirectoryName(Path.GetDirectoryName(SdkDir)!)!;
+
+        if (!string.IsNullOrEmpty(sdkDir))
+        {
+            SdkDir = ResolveSdkDir(Path.TrimEndingDirectorySeparator(sdkDir), resolvedDotNetRoot);
+        }
+
+        DotNetRoot = resolvedDotNetRoot;
+    }
+
+    private static string ResolveSdkDir(string sdkDir, string dotNetRoot)
+    {
+        if (File.Exists(Path.Join(sdkDir, "Roslyn", "bincore", "csc.dll")))
+        {
+            return sdkDir;
+        }
+
+        string sdkRoot = Path.Join(dotNetRoot, "sdk");
+        if (!Directory.Exists(sdkRoot))
+        {
+            return sdkDir;
+        }
+
+        return Directory.GetDirectories(sdkRoot)
+            .Where(static candidate => File.Exists(Path.Join(candidate, "Roslyn", "bincore", "csc.dll")))
+            .OrderDescending(StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault() ?? sdkDir;
+    }
+}
+
 static unsafe partial class NativeEntryPoint
 {
     [UnmanagedCallersOnly(EntryPoint = "dotnet_execute")]
@@ -20,6 +59,8 @@ static unsafe partial class NativeEntryPoint
         string dotnetRoot = PlatformStringMarshaller.ConvertToManaged(dotnetRootPtr) ?? string.Empty;
         string sdkDir = PlatformStringMarshaller.ConvertToManaged(sdkDirPtr) ?? string.Empty;
         string hostfxrPath = PlatformStringMarshaller.ConvertToManaged(hostfxrPathPtr) ?? string.Empty;
+
+        AotHostContext.Initialize(dotnetRoot, sdkDir);
 
         // Make hostfxr discoverable for NativeWrapper P/Invokes (required on non-Windows)
         if (!string.IsNullOrEmpty(hostfxrPath))
@@ -40,7 +81,11 @@ static unsafe partial class NativeEntryPoint
             var parseResult = Parser.Parse(args);
             if (parseResult.Errors.Count == 0)
             {
-                return Parser.Invoke(parseResult);
+                int exitCode = Parser.Invoke(parseResult);
+                if (exitCode != Parser.FallbackToManagedCli)
+                {
+                    return exitCode;
+                }
             }
         }
 

@@ -1,6 +1,321 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+#if CLI_AOT
+using System.Collections.Immutable;
+using System.Diagnostics;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Xml.Linq;
+using Microsoft.DotNet.Cli.Utils;
+using Microsoft.NET.HostModel.AppHost;
+
+namespace Microsoft.DotNet.Cli.Commands.Run;
+
+/// <summary>
+/// Used to invoke C# compiler in optimized NativeAOT paths of <c>dotnet run file.cs</c>.
+/// </summary>
+internal sealed partial class CSharpCompilerCommand
+{
+    [JsonSerializable(typeof(string))]
+    private partial class CSharpCompilerCommandJsonSerializerContext : JsonSerializerContext;
+
+    private static string SdkPath => field ??= Microsoft.DotNet.Cli.AotHostContext.SdkDir;
+    private static string DotNetRootPath => field ??= Microsoft.DotNet.Cli.AotHostContext.DotNetRoot;
+    private static string ClientDirectory => field ??= Path.Combine(SdkPath, "Roslyn", "bincore");
+    private static string NuGetCachePath => field ??= GetNuGetCachePath();
+    internal static string RuntimeVersion => field ??= ComputeRuntimeVersion();
+    internal static string DefaultRuntimeVersion => RuntimeVersion;
+    internal static string TargetFrameworkVersion => Product.TargetFrameworkVersion;
+    internal static string TargetFramework => field ??= $"net{TargetFrameworkVersion}";
+    private static string NetCoreAppRefPackVersion => field ??= ResolvePackVersion("Microsoft.NETCore.App.Ref");
+
+    public required string EntryPointFileFullPath { get; init; }
+    public required string ArtifactsPath { get; init; }
+    public required bool CanReuseAuxiliaryFiles { get; init; }
+
+    public string BaseDirectory => field ??= Path.GetDirectoryName(EntryPointFileFullPath)!;
+    internal string BaseDirectoryWithTrailingSeparator => field ??= BaseDirectory + Path.DirectorySeparatorChar;
+    internal string FileName => field ??= Path.GetFileName(EntryPointFileFullPath);
+    internal string FileNameWithoutExtension => field ??= Path.GetFileNameWithoutExtension(EntryPointFileFullPath);
+
+    public required ImmutableArray<string> CscArguments { get; init; }
+    public required string? BuildResultFile { get; init; }
+
+    public int Execute(out bool fallbackToNormalBuild)
+    {
+        PrepareAuxiliaryFiles(out string rspPath);
+
+        Environment.SetEnvironmentVariable("DOTNET_HOST_PATH", new Muxer().MuxerPath);
+
+        var startInfo = new ProcessStartInfo(new Muxer().MuxerPath)
+        {
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            WorkingDirectory = BaseDirectory,
+        };
+        startInfo.ArgumentList.Add("exec");
+        startInfo.ArgumentList.Add(Path.Combine(ClientDirectory, "csc.dll"));
+        startInfo.ArgumentList.Add("/noconfig");
+        startInfo.ArgumentList.Add("/nologo");
+        startInfo.ArgumentList.Add($"@{rspPath}");
+
+        using var process = Process.Start(startInfo);
+        if (process is null)
+        {
+            fallbackToNormalBuild = true;
+            return 1;
+        }
+
+        string output = process.StandardOutput.ReadToEnd();
+        string error = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+
+        Console.Out.Write(output);
+        Console.Error.Write(error);
+
+        fallbackToNormalBuild = process.ExitCode != 0 && (output.Contains("error CS0006:", StringComparison.Ordinal) || error.Contains("error CS0006:", StringComparison.Ordinal));
+
+        if (process.ExitCode == 0 && BuildResultFile != null && TryGetOutputFile(CscArguments, out var outputFile))
+        {
+            var objFile = new FileInfo(outputFile);
+            var binFile = new FileInfo(BuildResultFile);
+
+            if (!HaveMatchingSizeAndTimeStamp(objFile, binFile))
+            {
+                File.Copy(objFile.FullName, binFile.FullName, overwrite: true);
+            }
+        }
+
+        return process.ExitCode;
+
+        static bool HaveMatchingSizeAndTimeStamp(FileInfo sourceFile, FileInfo destinationFile)
+            => destinationFile.Exists && sourceFile.Exists && sourceFile.LastWriteTimeUtc == destinationFile.LastWriteTimeUtc && sourceFile.Length == destinationFile.Length;
+    }
+
+    internal static string WriteCscRspFile(string artifactsPath, ImmutableArray<string> cscArguments)
+    {
+        string rspPath = GetCscRspPath(artifactsPath);
+        File.WriteAllLines(rspPath, cscArguments);
+        return rspPath;
+    }
+
+    private static string GetCscRspPath(string artifactsPath) => Path.Join(artifactsPath, "csc.rsp");
+
+    private void PrepareAuxiliaryFiles(out string rspPath)
+    {
+        if (!CscArguments.IsDefaultOrEmpty)
+        {
+            rspPath = WriteCscRspFile(ArtifactsPath, CscArguments);
+            return;
+        }
+
+        rspPath = GetCscRspPath(ArtifactsPath);
+
+        string objDir = Path.Join(ArtifactsPath, "obj", "debug");
+        Directory.CreateDirectory(objDir);
+        string binDir = Path.Join(ArtifactsPath, "bin", "debug");
+        Directory.CreateDirectory(binDir);
+
+        string assemblyAttributes = Path.Join(objDir, $".NETCoreApp,Version=v{TargetFrameworkVersion}.AssemblyAttributes.cs");
+        if (ShouldEmit(assemblyAttributes))
+        {
+            File.WriteAllText(assemblyAttributes, GetAssemblyAttributesContent());
+        }
+
+        string globalUsings = Path.Join(objDir, $"{FileName}.GlobalUsings.g.cs");
+        if (ShouldEmit(globalUsings))
+        {
+            File.WriteAllText(globalUsings, GetGlobalUsingsContent());
+        }
+
+        string assemblyInfo = Path.Join(objDir, $"{FileName}.AssemblyInfo.cs");
+        if (ShouldEmit(assemblyInfo))
+        {
+            File.WriteAllText(assemblyInfo, GetAssemblyInfoContent());
+        }
+
+        string editorconfig = Path.Join(objDir, $"{FileName}.GeneratedMSBuildEditorConfig.editorconfig");
+        if (ShouldEmit(editorconfig))
+        {
+            File.WriteAllText(editorconfig, GetGeneratedMSBuildEditorConfigContent());
+        }
+
+        var apphostTarget = Path.Join(binDir, $"{FileNameWithoutExtension}{FileNameSuffixes.CurrentPlatform.Exe}");
+        if (ShouldEmit(apphostTarget))
+        {
+            var rid = RuntimeInformation.RuntimeIdentifier;
+            var hostPackName = $"Microsoft.NETCore.App.Host.{rid}";
+            var apphostSource = Path.Join(DotNetRootPath, "packs", hostPackName, ResolvePackVersion(hostPackName), "runtimes", rid, "native", $"apphost{FileNameSuffixes.CurrentPlatform.Exe}");
+            HostWriter.CreateAppHost(
+                appHostSourceFilePath: apphostSource,
+                appHostDestinationFilePath: apphostTarget,
+                appBinaryFilePath: $"{FileNameWithoutExtension}.dll",
+                enableMacOSCodeSign: OperatingSystem.IsMacOS());
+        }
+
+        var runtimeConfig = Path.Join(binDir, $"{FileNameWithoutExtension}{FileNameSuffixes.RuntimeConfigJson}");
+        if (ShouldEmit(runtimeConfig))
+        {
+            File.WriteAllText(runtimeConfig, GetRuntimeConfigContent());
+        }
+
+        if (ShouldEmit(rspPath))
+        {
+            IEnumerable<string> args = GetCscArguments(
+                objDir: objDir,
+                binDir: binDir);
+
+            File.WriteAllLines(rspPath, args.Select(EscapeSingleArg));
+        }
+
+        bool ShouldEmit(string file)
+        {
+            return !CanReuseAuxiliaryFiles || !File.Exists(file);
+        }
+    }
+
+    private static string EscapeSingleArg(string arg)
+    {
+        if (IsPathOption(arg, out var colonIndex))
+        {
+            return arg[..(colonIndex + 1)] + EscapePathArgument(arg[(colonIndex + 1)..]);
+        }
+
+        return EscapePathArgument(arg);
+    }
+
+    internal static string EscapePathArgument(string arg)
+    {
+        return ArgumentEscaper.EscapeSingleArg(arg, additionalShouldSurroundWithQuotes: static arg => arg.Contains('=') || arg.Contains(','));
+    }
+
+    public static bool IsPathOption(string arg, out int colonIndex)
+    {
+        if (!arg.StartsWith('/'))
+        {
+            colonIndex = -1;
+            return false;
+        }
+
+        foreach (var optionName in new[] { "reference:", "analyzer:", "additionalfile:", "analyzerconfig:", "embed:", "resource:", "linkresource:", "ruleset:", "keyfile:", "link:" })
+        {
+            if (arg.AsSpan(1).StartsWith(optionName, StringComparison.OrdinalIgnoreCase))
+            {
+                colonIndex = optionName.Length;
+                return true;
+            }
+        }
+
+        colonIndex = -1;
+        return false;
+    }
+
+    private static string ComputeRuntimeVersion()
+    {
+        string runtimeConfigPath = Path.Combine(SdkPath, "dotnet.runtimeconfig.json");
+        if (File.Exists(runtimeConfigPath))
+        {
+            using var stream = File.OpenRead(runtimeConfigPath);
+            using var jsonDoc = JsonDocument.Parse(stream);
+
+            JsonElement root = jsonDoc.RootElement;
+            if (root.TryGetProperty("runtimeOptions", out JsonElement runtimeOptions) &&
+                runtimeOptions.TryGetProperty("framework", out JsonElement framework) &&
+                framework.TryGetProperty("version", out JsonElement version) &&
+                version.GetString() is { Length: > 0 } runtimeVersion)
+            {
+                return runtimeVersion;
+            }
+        }
+
+        return Path.GetFileName(Path.GetDirectoryName(System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory()))!;
+    }
+
+    private static string GetNuGetCachePath()
+    {
+        if (Environment.GetEnvironmentVariable("NUGET_PACKAGES") is { Length: > 0 } packagesPath)
+        {
+            return packagesPath;
+        }
+
+        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages");
+    }
+
+    private static string ResolvePackVersion(string packName)
+    {
+        string packRoot = Path.Join(DotNetRootPath, "packs", packName);
+        string exactPackPath = Path.Join(packRoot, RuntimeVersion);
+        if (Directory.Exists(exactPackPath))
+        {
+            return RuntimeVersion;
+        }
+
+        return Directory.GetDirectories(packRoot)
+            .Select(Path.GetFileName)
+            .Where(static version => !string.IsNullOrEmpty(version))
+            .OrderDescending(StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault()
+            ?? throw new InvalidOperationException($"No installed pack versions were found under '{packRoot}'. The SDK installation may be corrupted.");
+    }
+
+    private IEnumerable<string> GetFrameworkReferenceArguments()
+        => GetFrameworkArguments(type: "Managed", language: null, argPrefix: "/reference:");
+
+    private IEnumerable<string> GetFrameworkAnalyzerArguments()
+        => GetFrameworkArguments(type: "Analyzer", language: "cs", argPrefix: "/analyzer:");
+
+    private IEnumerable<string> GetFrameworkArguments(string type, string? language, string argPrefix)
+    {
+        var packRoot = Path.Join(DotNetRootPath, "packs", "Microsoft.NETCore.App.Ref", NetCoreAppRefPackVersion);
+        var frameworkListPath = Path.Join(packRoot, "data", "FrameworkList.xml");
+        if (!File.Exists(frameworkListPath))
+        {
+            throw new InvalidOperationException($"FrameworkList.xml not found at '{frameworkListPath}'. The SDK installation may be corrupted.");
+        }
+
+        var frameworkList = XDocument.Load(frameworkListPath);
+        foreach (var file in frameworkList.Root?.Elements("File") ?? [])
+        {
+            if (file.Attribute("Type")?.Value.Equals(type, StringComparison.OrdinalIgnoreCase) != true)
+            {
+                continue;
+            }
+
+            if (language is not null && file.Attribute("Language")?.Value.Equals(language, StringComparison.OrdinalIgnoreCase) != true)
+            {
+                continue;
+            }
+
+            var filePath = file.Attribute("Path")?.Value;
+            if (!string.IsNullOrEmpty(filePath))
+            {
+                yield return $"{argPrefix}{Path.Join(packRoot, filePath)}";
+            }
+        }
+    }
+
+    private string BaseDirectoryForCompilerOutput(string outputFile)
+        => Path.IsPathFullyQualified(outputFile) ? outputFile : Path.GetFullPath(outputFile, BaseDirectory);
+
+    private bool TryGetOutputFile(ImmutableArray<string> cscArguments, out string outputFile)
+    {
+        foreach (var arg in cscArguments)
+        {
+            if (arg.StartsWith("/out:", StringComparison.OrdinalIgnoreCase))
+            {
+                outputFile = BaseDirectoryForCompilerOutput(arg[5..].Trim('"'));
+                return true;
+            }
+        }
+
+        outputFile = string.Empty;
+        return false;
+    }
+}
+
+#else
 using System.Buffers;
 using System.Collections.Immutable;
 using System.Diagnostics;
@@ -437,3 +752,4 @@ internal sealed partial class CSharpCompilerCommand
         }
     }
 }
+#endif

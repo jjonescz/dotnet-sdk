@@ -12,6 +12,12 @@ using Xunit.Sdk;
 
 namespace Microsoft.DotNet.Cli.Run.Tests;
 
+public enum RunFileInvocationMode
+{
+    Dotnet,
+    Aot,
+}
+
 public sealed class RunFileTestFixture(IMessageSink sink) : IAsyncLifetime
 {
     public ValueTask InitializeAsync()
@@ -36,6 +42,8 @@ public sealed class RunFileTestFixture(IMessageSink sink) : IAsyncLifetime
 
 public abstract class RunFileTestBase(ITestOutputHelper log) : SdkTest(log), IClassFixture<RunFileTestFixture>
 {
+    private static readonly Lazy<string> s_aotCliPath = new(PrepareAotCli);
+
     internal static string s_includeExcludeDefaultKnownExtensions
         => field ??= string.Join(", ", CSharpDirective.IncludeOrExclude.DefaultMapping.Select(static e => e.Extension));
 
@@ -208,9 +216,10 @@ public abstract class RunFileTestBase(ITestOutputHelper log) : SdkTest(log), ICl
         string expectedOutput = "Hello from Program",
         string programFileName = "Program.cs",
         string? workDir = null,
+        RunFileInvocationMode invocationMode = RunFileInvocationMode.Dotnet,
         Func<TestCommand, TestCommand>? customizeCommand = null)
     {
-        string prefix = expectedLevel switch
+        string prefix = invocationMode == RunFileInvocationMode.Aot ? string.Empty : expectedLevel switch
         {
             BuildLevel.None => CliCommandStrings.NoBinaryLogBecauseUpToDate + Environment.NewLine,
             BuildLevel.Csc => CliCommandStrings.NoBinaryLogBecauseRunningJustCsc + Environment.NewLine,
@@ -218,7 +227,11 @@ public abstract class RunFileTestBase(ITestOutputHelper log) : SdkTest(log), ICl
             _ => throw new ArgumentOutOfRangeException(paramName: nameof(expectedLevel)),
         };
 
-        var command = new DotnetCommand(Log, ["run", programFileName, "-bl", .. args])
+        string[] commandArguments = invocationMode == RunFileInvocationMode.Aot
+            ? ["run", programFileName, .. args]
+            : ["run", programFileName, "-bl", .. args];
+
+        var command = CreateRunCommand(invocationMode, commandArguments)
             .WithWorkingDirectory(workDir ?? testInstance.Path)
             .WithEnvironmentVariable(CommandLoggingContext.Variables.Verbose, bool.TrueString)
             .WithEnvironmentVariable(CommandLoggingContext.Variables.VerboseToStdErr, bool.TrueString);
@@ -248,5 +261,55 @@ public abstract class RunFileTestBase(ITestOutputHelper log) : SdkTest(log), ICl
         {
             binlog.Delete();
         }
+    }
+
+    private protected TestCommand CreateRunCommand(RunFileInvocationMode invocationMode, params string[] args)
+    {
+        return invocationMode switch
+        {
+            RunFileInvocationMode.Dotnet => new DotnetCommand(Log, args),
+            RunFileInvocationMode.Aot => new RunExeCommand(Log, s_aotCliPath.Value, args)
+                .WithEnvironmentVariable(EnvironmentVariableNames.DOTNET_CLI_ENABLEAOT, bool.TrueString),
+            _ => throw new ArgumentOutOfRangeException(nameof(invocationMode), invocationMode, null),
+        };
+    }
+
+    private static string PrepareAotCli()
+    {
+        var toolset = SdkTestContext.Current.ToolsetUnderTest;
+        string rid = RuntimeInformation.RuntimeIdentifier;
+        string configuration =
+#if DEBUG
+            "Debug";
+#else
+            "Release";
+#endif
+
+        string repoRoot = toolset.RepoRoot ?? throw new InvalidOperationException("AOT CLI tests require a repo-root test context.");
+        string sourceDnPath = Path.Join(repoRoot, "artifacts", "bin", "dn", configuration, ToolsetInfo.CurrentTargetFramework, rid, "native", $"dn{Constants.ExeSuffix}");
+        File.Exists(sourceDnPath).Should().BeTrue($"AOT CLI tests require the native dn host to be built at '{sourceDnPath}'.");
+
+        string dotnetAotFileName = OperatingSystem.IsWindows()
+            ? "dotnet-aot.dll"
+            : OperatingSystem.IsMacOS()
+                ? "libdotnet-aot.dylib"
+                : "libdotnet-aot.so";
+
+        string sourceDotnetAotPath = Path.Join(repoRoot, "artifacts", "bin", "dotnet-aot", configuration, ToolsetInfo.CurrentTargetFramework, rid, "native", dotnetAotFileName);
+        if (!File.Exists(sourceDotnetAotPath))
+        {
+            sourceDotnetAotPath = Path.Join(toolset.SdkFolderUnderTest, dotnetAotFileName);
+        }
+
+        File.Exists(sourceDotnetAotPath).Should().BeTrue($"AOT CLI tests require the native dotnet-aot library in the SDK under test at '{sourceDotnetAotPath}'.");
+
+        string aotCliDirectory = Path.Join(SdkTestContext.Current.TestExecutionDirectory, "aot-cli");
+        Directory.CreateDirectory(aotCliDirectory);
+
+        string destinationDnPath = Path.Join(aotCliDirectory, Path.GetFileName(sourceDnPath));
+        File.Copy(sourceDnPath, destinationDnPath, overwrite: true);
+        File.Copy(sourceDotnetAotPath, Path.Join(aotCliDirectory, dotnetAotFileName), overwrite: true);
+
+        return destinationDnPath;
     }
 }

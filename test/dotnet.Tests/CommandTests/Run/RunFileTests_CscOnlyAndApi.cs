@@ -15,6 +15,31 @@ namespace Microsoft.DotNet.Cli.Run.Tests;
 
 public sealed class RunFileTests_CscOnlyAndApi(ITestOutputHelper log) : RunFileTestBase(log)
 {
+    [Theory, CombinatorialData]
+    public void UpToDate_Simple(RunFileInvocationMode invocationMode)
+    {
+        var testInstance = TestAssetsManager.CreateTestDirectory(baseDirectory: OutOfTreeBaseDirectory);
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), """
+            Console.WriteLine("Hello v1");
+            """);
+
+        // Remove artifacts from possible previous runs of this test.
+        var artifactsDir = VirtualProjectBuilder.GetArtifactsPath(Path.Join(testInstance.Path, "Program.cs"));
+        if (Directory.Exists(artifactsDir)) Directory.Delete(artifactsDir, recursive: true);
+
+        Build(testInstance, BuildLevel.Csc, expectedOutput: "Hello v1", invocationMode: invocationMode);
+
+        Build(testInstance, BuildLevel.None, expectedOutput: "Hello v1", invocationMode: invocationMode);
+
+        File.WriteAllText(Path.Join(testInstance.Path, "Program.cs"), """
+            Console.WriteLine("Hello v2");
+            """);
+
+        Build(testInstance, BuildLevel.Csc, expectedOutput: "Hello v2", invocationMode: invocationMode);
+
+        Build(testInstance, BuildLevel.None, expectedOutput: "Hello v2", invocationMode: invocationMode);
+    }
+
     [Fact]
     public void UpToDate()
     {
