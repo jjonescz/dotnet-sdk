@@ -4,12 +4,15 @@
 #nullable disable
 
 using System.CommandLine;
+#if !CLI_AOT
 using Microsoft.DotNet.Cli.Extensions;
+#endif
 
 namespace Microsoft.DotNet.Cli;
 
 public abstract class CommandBase
 {
+#if !CLI_AOT
     protected ParseResult _parseResult;
 
     protected CommandBase(ParseResult parseResult)
@@ -17,19 +20,24 @@ public abstract class CommandBase
         _parseResult = parseResult;
         ShowHelpOrErrorIfAppropriate(parseResult);
     }
+#endif
 
     protected CommandBase() { }
 
+#if !CLI_AOT
     protected virtual void ShowHelpOrErrorIfAppropriate(ParseResult parseResult)
     {
         parseResult.ShowHelpOrErrorIfAppropriate();
     }
+#endif
 
     public abstract int Execute();
 }
 
+#if !CLI_AOT
 public abstract class CommandBase<TDefinition>(ParseResult parseResult) : CommandBase(parseResult)
     where TDefinition : Command
 {
     protected TDefinition Definition { get; } = (TDefinition)parseResult.CommandResult.Command;
 }
+#endif

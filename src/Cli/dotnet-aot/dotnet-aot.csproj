@@ -43,17 +43,23 @@
     <Compile Include="NativeEntryPoint.cs" />
     <Compile Include="ManagedHost.cs" />
     <Compile Include="AotRunCommand.cs" />
-    <Compile Include="..\dotnet\Commands\Run\CSharpCompilerCommand.cs" Link="Commands\Run\CSharpCompilerCommand.cs" />
-    <Compile Include="..\dotnet\Commands\Run\CSharpCompilerCommand.Generated.cs" Link="Commands\Run\CSharpCompilerCommand.Generated.cs" />
-    <Compile Include="..\dotnet\Program.cs" Link="Program.cs" />
+    <Compile Include="..\dotnet\Commands\Run\RunCommand.cs" LinkBase="Commands\Run" />
+    <Compile Include="..\dotnet\Commands\Run\RunProperties.cs" LinkBase="Commands\Run" />
+    <Compile Include="..\dotnet\Commands\Run\VirtualProjectBuildingCommand.cs" LinkBase="Commands\Run" />
+    <Compile Include="..\dotnet\Commands\Run\CSharpCompilerCommand.cs" LinkBase="Commands\Run" />
+    <Compile Include="..\dotnet\Commands\Run\CSharpCompilerCommand.Generated.cs" LinkBase="Commands\Run" />
+    <Compile Include="..\dotnet\CommandBase.cs" Link="CommandBase.cs" />
     <Compile Include="..\dotnet\CommandLineInfo.cs" Link="CommandLineInfo.cs" />
+    <Compile Include="..\dotnet\LoggerUtility.cs" Link="LoggerUtility.cs" />
     <Compile Include="..\dotnet\Parser.cs" Link="Parser.cs" />
+    <Compile Include="..\dotnet\Program.cs" Link="Program.cs" />
     <Compile Include="$(RepoRoot)src\Common\EnvironmentVariableNames.cs" LinkBase="Common" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Microsoft.DotNet.Cli.Utils\Microsoft.DotNet.Cli.Utils.csproj" GlobalPropertiesToRemove="PublishDir" />
     <ProjectReference Include="..\..\Resolvers\Microsoft.DotNet.NativeWrapper\Microsoft.DotNet.NativeWrapper.csproj" GlobalPropertiesToRemove="PublishDir" />
+    <ProjectReference Include="$(RepoRoot)src\Microsoft.DotNet.ProjectTools\Microsoft.DotNet.ProjectTools.csproj" GlobalPropertiesToRemove="PublishDir" />
   </ItemGroup>
 
   <ItemGroup>

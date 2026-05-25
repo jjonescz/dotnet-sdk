@@ -7,6 +7,7 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+#if !CLI_AOT
 using Microsoft.Build.Evaluation;
 using Microsoft.Build.Execution;
 using Microsoft.Build.Framework;
@@ -15,8 +16,11 @@ using Microsoft.Build.Logging.SimpleErrorLogger;
 using Microsoft.CodeAnalysis;
 using Microsoft.DotNet.Cli.Commands.Clean.FileBasedAppArtifacts;
 using Microsoft.DotNet.Cli.Commands.Restore;
+#endif
 using Microsoft.DotNet.Cli.Utils;
+#if !CLI_AOT
 using Microsoft.DotNet.Cli.Utils.Extensions;
+#endif
 using Microsoft.DotNet.FileBasedPrograms;
 using Microsoft.DotNet.ProjectTools;
 
@@ -68,7 +72,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
     /// <summary>
     /// For purposes of determining whether CSC is enough to build as opposed to full MSBuild,
     /// we can ignore properties that do not affect the build on their own.
-    /// See also the <c>IsMSBuildFile</c> flag in <see cref="s_implicitBuildFiles"/>.
+    /// See also the <c>IsMSBuildFile</c> flag in <see cref="RunFileBuildArtifacts"/>.
     /// </summary>
     /// <remarks>
     /// This is an <see cref="IEnumerable{T}"/> rather than <see cref="ImmutableArray{T}"/> to avoid boxing at the use site.
@@ -118,12 +122,14 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
     public VirtualProjectBuilder Builder { get; }
     public MSBuildArgs MSBuildArgs { get; }
 
+#if !CLI_AOT
     /// <summary>
     /// Keeps strong references to <see cref="VirtualProjectBuilder"/>s created for <c>#:ref</c> directives,
     /// preventing their <see cref="ProjectRootElement"/>s from being garbage collected
     /// (same reason as <c>VirtualProjectBuilder._projectRootElement</c>).
     /// </summary>
     private readonly List<VirtualProjectBuilder> _referencedBuilders = [];
+#endif
 
     public ImmutableArray<CSharpDirective> Directives
     {
@@ -146,6 +152,10 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
     }
 
     public ImmutableArray<CSharpDirective> EvaluatedDirectives { get; private set; }
+
+#if CLI_AOT
+    public bool FallBackToNativeCli { get; private set; }
+#endif
 
     public VirtualProjectBuildingCommand(
         string entryPointFileFullPath,
@@ -170,6 +180,16 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         bool evalOnly = msbuildGet && Builder.RequestedTargets is null or [];
         bool minimizeStdOut = msbuildGet && MSBuildArgs.GetResultOutputFile is null or [];
 
+#if CLI_AOT
+        FallBackToNativeCli = false;
+        var binaryLoggerArg = GetBinaryLoggerArg(MSBuildArgs.OtherMSBuildArgs);
+        if (binaryLoggerArg != null)
+        {
+            Reporter.Verbose.WriteLine($"Falling back to managed CLI because of binary logger arg '{binaryLoggerArg}'.");
+            FallBackToNativeCli = true;
+            return 1;
+        }
+#else
         var verbosity = MSBuildArgs.Verbosity ?? MSBuildForwardingAppWithoutLogging.DefaultVerbosity;
         var consoleLogger = NoConsoleLogger
             ? null
@@ -177,6 +197,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
             ? new SimpleErrorLogger()
             : CommonRunHelpers.GetConsoleLogger(MSBuildArgs.CloneWithExplicitArgs([$"--verbosity:{verbosity}", .. MSBuildArgs.OtherMSBuildArgs]));
         var binaryLogger = GetBinaryLogger(MSBuildArgs.OtherMSBuildArgs);
+#endif
 
         CacheInfo? cache = null;
 
@@ -214,10 +235,12 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
 
                 if (buildLevel is BuildLevel.None)
                 {
+#if !CLI_AOT
                     if (binaryLogger is not null)
                     {
                         Reporter.Output.WriteLine(CliCommandStrings.NoBinaryLogBecauseUpToDate.Yellow());
                     }
+#endif
 
                     // No rebuild, can reuse run properties.
                     cache?.CurrentEntry.Run = cache.PreviousEntry?.Run;
@@ -251,10 +274,12 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                             MarkBuildSuccess(cache);
                         }
 
+#if !CLI_AOT
                         if (binaryLogger is not null)
                         {
                             Reporter.Output.WriteLine(CliCommandStrings.NoBinaryLogBecauseRunningJustCsc.Yellow());
                         }
+#endif
 
                         return result;
                     }
@@ -268,6 +293,11 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
             MarkBuildStart();
         }
 
+#if CLI_AOT
+        Reporter.Verbose.WriteLine("Falling back to managed CLI because full build is needed.");
+        FallBackToNativeCli = true;
+        return 1;
+#else
         if (!NoWriteBuildMarkers && !msbuildGet)
         {
             CleanFileBasedAppArtifactsCommand.StartAutomaticCleanupIfNeeded();
@@ -424,8 +454,13 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                 }
             };
         }
+#endif
 
+#if CLI_AOT
+        static string? GetBinaryLoggerArg(IReadOnlyList<string>? args)
+#else
         static Lazy<FacadeLogger>? GetBinaryLogger(IReadOnlyList<string>? args)
+#endif
         {
             if (args is null) return null;
             // Like in MSBuild, only the last binary logger is used.
@@ -434,6 +469,9 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                 var arg = args[i];
                 if (LoggerUtility.IsBinLogArgument(arg))
                 {
+#if CLI_AOT
+                    return arg;
+#else
                     // We don't want to create the binlog file until actually needed, hence we wrap this in a Lazy.
                     return new(() =>
                     {
@@ -445,12 +483,14 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                         };
                         return LoggerUtility.CreateFacadeLogger([logger]);
                     });
+#endif
                 }
             }
 
             return null;
         }
 
+#if !CLI_AOT
         void CacheCscArguments(CacheInfo cache, BuildResult result)
         {
             if (result.TryGetResultsForTarget(Constants.CoreCompile, out var coreCompileResult) &&
@@ -494,8 +534,9 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                 return arg;
             }
         }
+#endif
 
-        void ReuseInfoFromPreviousCacheEntry(CacheInfo cache)
+        static void ReuseInfoFromPreviousCacheEntry(CacheInfo cache)
         {
             Debug.Assert(cache.CurrentEntry.AdditionalSources.Count == 0);
 
@@ -508,6 +549,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
             }
         }
 
+#if !CLI_AOT
         void WriteCscRsp(CacheInfo cache)
         {
             if (cache.CurrentEntry.CscArguments.IsDefaultOrEmpty)
@@ -697,6 +739,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
                 stream.Write(Encoding.UTF8.GetBytes(Environment.NewLine));
             }
         }
+#endif
     }
 
     /// <summary>
@@ -1172,6 +1215,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         JsonSerializer.Serialize(stream, cache.CurrentEntry, RunFileJsonSerializerContext.Default.RunFileBuildCacheEntry);
     }
 
+#if !CLI_AOT
     public ProjectInstance CreateProjectInstance(ProjectCollection projectCollection)
     {
         return CreateProjectInstance(projectCollection, addGlobalProperties: null);
@@ -1251,6 +1295,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
             }
         }
     }
+#endif
 
     /// <summary>
     /// Creates a temporary subdirectory for file-based apps.
@@ -1277,6 +1322,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
             $"{new SourceFile(path, text).GetLocationString(textSpan)}: {FileBasedProgramsResources.DirectiveError}: {message}",
             innerException);
 
+#if !CLI_AOT
     public static SourceFile RemoveDirectivesFromFile(SourceFile sourceFile)
     {
         var editor = FileBasedAppSourceEditor.Load(sourceFile);
@@ -1294,6 +1340,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         var modifiedFile = RemoveDirectivesFromFile(sourceFile);
         (modifiedFile with { Path = targetFilePath }).Save();
     }
+#endif
 }
 
 internal sealed class RunFileBuildCacheEntry
@@ -1363,7 +1410,9 @@ internal sealed class RunFileBuildCacheEntry
 }
 
 [JsonSerializable(typeof(RunFileBuildCacheEntry))]
+#if !CLI_AOT
 [JsonSerializable(typeof(RunFileArtifactsMetadata))]
+#endif
 internal partial class RunFileJsonSerializerContext : JsonSerializerContext;
 
 internal enum BuildLevel
