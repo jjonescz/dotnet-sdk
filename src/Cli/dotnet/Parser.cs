@@ -18,7 +18,7 @@ public static class Parser
     {
         var versionOption = new Option<bool>("--version") { Description = "Display .NET SDK version." };
         var infoOption = new Option<bool>("--info") { Description = "Display .NET information." };
-        var runCommand = AotRunCommand.Create();
+        var runCommand = RunCommand.CreateAotCommand();
 
         var rootCommand = new RootCommand("The .NET CLI")
         {

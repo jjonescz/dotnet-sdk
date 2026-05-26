@@ -30,7 +30,9 @@ public sealed class VirtualProjectBuilder
     /// would fail to find the <see cref="ProjectRootElement"/> in the cache and try to load it from disk,
     /// resulting in MSB4025 because the virtual project file does not exist on disk.
     /// </summary>
+#if !CLI_AOT
     private ProjectRootElement? _projectRootElement;
+#endif
 
     internal string EntryPointFileFullPath { get; }
 
@@ -435,7 +437,9 @@ public sealed class VirtualProjectBuilder
                 using var xmlReader = XmlReader.Create(reader);
                 var projectRoot = ProjectRootElement.Create(xmlReader, projectCollection);
                 projectRoot.FullPath = GetVirtualProjectPath(EntryPointFileFullPath);
+#if !CLI_AOT
                 _projectRootElement = projectRoot;
+#endif
                 return projectRoot;
             }
         }

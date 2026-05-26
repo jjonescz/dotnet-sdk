@@ -7,6 +7,7 @@ using System.CommandLine;
 using System.CommandLine.Parsing;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+#if !CLI_AOT
 using Microsoft.Build.Evaluation;
 using Microsoft.Build.Exceptions;
 using Microsoft.Build.Execution;
@@ -15,11 +16,14 @@ using Microsoft.DotNet.Cli.CommandFactory;
 using Microsoft.DotNet.Cli.CommandLine;
 using Microsoft.DotNet.Cli.Commands.Restore;
 using Microsoft.DotNet.Cli.Extensions;
+#endif
 using Microsoft.DotNet.Cli.Utils;
 using Microsoft.DotNet.Cli.Utils.Extensions;
 using Microsoft.DotNet.FileBasedPrograms;
 using Microsoft.DotNet.ProjectTools;
+#if !CLI_AOT
 using Microsoft.DotNet.Utilities;
+#endif
 
 namespace Microsoft.DotNet.Cli.Commands.Run;
 
@@ -96,11 +100,13 @@ public class RunCommand
     /// </summary>
     public bool ListDevices { get; }
 
+#if !CLI_AOT
     /// <summary>
     /// Tracks whether restore was performed during device selection phase.
     /// If true, we should skip restore in the build phase to avoid redundant work.
     /// </summary>
     private bool _restoreDoneForDeviceSelection;
+#endif
 
     /// <param name="applicationArgs">unparsed/arbitrary CLI tokens to be passed to the running application</param>
     public RunCommand(
@@ -142,6 +148,46 @@ public class RunCommand
 
     public int Execute()
     {
+#if CLI_AOT
+        if (NoCache || ProjectFileFullPath is not null || EntryPointFileFullPath is null)
+        {
+            return Microsoft.DotNet.Cli.Parser.FallbackToManagedCli;
+        }
+
+        if (!NoLaunchProfile && HasLaunchSettings(EntryPointFileFullPath))
+        {
+            return Microsoft.DotNet.Cli.Parser.FallbackToManagedCli;
+        }
+
+        var projectBuilder = CreateProjectBuilder();
+        RunFileBuildCacheEntry? cacheEntry;
+        if (NoBuild)
+        {
+            projectBuilder.MarkArtifactsFolderUsed();
+            cacheEntry = projectBuilder.GetPreviousCacheEntry();
+        }
+        else
+        {
+            int buildResult = projectBuilder.Execute();
+            if (projectBuilder.FallBackToNativeCli)
+            {
+                return Microsoft.DotNet.Cli.Parser.FallbackToManagedCli;
+            }
+
+            if (buildResult != 0)
+            {
+                return buildResult;
+            }
+
+            cacheEntry = projectBuilder.LastBuild.Level is BuildLevel.None
+                ? projectBuilder.LastBuild.Cache?.PreviousEntry
+                : projectBuilder.LastBuild.Cache?.CurrentEntry;
+        }
+
+        return TryRunFromCache(projectBuilder, cacheEntry, ApplicationArgs, out int exitCode)
+            ? exitCode
+            : Microsoft.DotNet.Cli.Parser.FallbackToManagedCli;
+#else
         if (NoBuild && NoCache)
         {
             throw new GracefulException(CliCommandStrings.CannotCombineOptions, RunCommandDefinition.NoCacheOptionName, RunCommandDefinition.NoBuildOptionName);
@@ -232,8 +278,107 @@ public class RunCommand
         {
             logger?.ReallyShutdown();
         }
+#endif
     }
 
+#if CLI_AOT
+    private static bool HasLaunchSettings(string entryPointFileFullPath)
+    {
+        string? directory = Path.GetDirectoryName(entryPointFileFullPath);
+        return directory is not null && File.Exists(Path.Join(directory, "Properties", "launchSettings.json"));
+    }
+
+    private bool TryRunFromCache(VirtualProjectBuildingCommand projectBuilder, RunFileBuildCacheEntry? cacheEntry, string[] applicationArgs, out int exitCode)
+    {
+        if (cacheEntry?.BuildLevel == BuildLevel.Csc)
+        {
+            exitCode = RunCscBuiltProgram(projectBuilder, applicationArgs);
+            return true;
+        }
+
+        if (cacheEntry?.Run is { } runProperties)
+        {
+            exitCode = RunFromProperties(runProperties, applicationArgs);
+            return true;
+        }
+
+        exitCode = 0;
+        return false;
+    }
+
+    private int RunCscBuiltProgram(VirtualProjectBuildingCommand projectBuilder, string[] applicationArgs)
+    {
+        string exePath = Path.Join(
+            projectBuilder.Builder.ArtifactsPath,
+            "bin",
+            "debug",
+            Path.GetFileNameWithoutExtension(EntryPointFileFullPath) + FileNameSuffixes.CurrentPlatform.Exe);
+
+        return RunProcess(
+            exePath,
+            ArgumentEscaper.EscapeAndConcatenateArgArrayForProcessStart(applicationArgs),
+            workingDirectory: Path.GetDirectoryName(EntryPointFileFullPath),
+            runtimeIdentifier: RuntimeInformation.RuntimeIdentifier,
+            defaultAppHostRuntimeIdentifier: RuntimeInformation.RuntimeIdentifier,
+            targetFrameworkVersion: $"v{VirtualProjectBuildingCommand.TargetFrameworkVersion}");
+    }
+
+    private static int RunFromProperties(RunProperties runProperties, string[] applicationArgs)
+    {
+        string arguments = runProperties.Arguments ?? string.Empty;
+        if (applicationArgs.Length != 0)
+        {
+            arguments = string.IsNullOrEmpty(arguments)
+                ? ArgumentEscaper.EscapeAndConcatenateArgArrayForProcessStart(applicationArgs)
+                : arguments + " " + ArgumentEscaper.EscapeAndConcatenateArgArrayForProcessStart(applicationArgs);
+        }
+
+        return RunProcess(
+            runProperties.Command,
+            arguments,
+            runProperties.WorkingDirectory,
+            runProperties.RuntimeIdentifier,
+            runProperties.DefaultAppHostRuntimeIdentifier,
+            runProperties.TargetFrameworkVersion);
+    }
+
+    private static int RunProcess(
+        string fileName,
+        string arguments,
+        string? workingDirectory,
+        string runtimeIdentifier,
+        string defaultAppHostRuntimeIdentifier,
+        string targetFrameworkVersion)
+    {
+        var startInfo = new ProcessStartInfo(fileName)
+        {
+            Arguments = arguments,
+            UseShellExecute = false,
+        };
+
+        if (!string.IsNullOrEmpty(workingDirectory))
+        {
+            startInfo.WorkingDirectory = workingDirectory;
+        }
+
+        string? rootVariableName = EnvironmentVariableNames.TryGetDotNetRootVariableName(runtimeIdentifier, defaultAppHostRuntimeIdentifier, targetFrameworkVersion);
+        if (rootVariableName is not null && string.IsNullOrEmpty(Environment.GetEnvironmentVariable(rootVariableName)))
+        {
+            startInfo.Environment[rootVariableName] = Microsoft.DotNet.Cli.AotHostContext.DotNetRoot;
+        }
+
+        using var process = Process.Start(startInfo);
+        if (process is null)
+        {
+            return 1;
+        }
+
+        process.WaitForExit();
+        return process.ExitCode;
+    }
+#endif
+
+#if !CLI_AOT
     internal ICommand GetTargetCommand(LaunchProfile? launchSettings, Func<ProjectCollection, ProjectInstance>? projectFactory, RunProperties? cachedRunProperties, FacadeLogger? logger)
         => launchSettings switch
         {
@@ -512,6 +657,7 @@ public class RunCommand
             throw new GracefulException(CliCommandStrings.RunCommandException);
         }
     }
+#endif
 
     private static bool CanUseRunPropertiesForCscBuiltProgram(BuildLevel level, RunFileBuildCacheEntry? previousCache)
     {
@@ -561,6 +707,7 @@ public class RunCommand
         }
     }
 
+#if !CLI_AOT
     private ICommand GetTargetCommandForProject(ProjectLaunchProfile? launchSettings, Func<ProjectCollection, ProjectInstance>? projectFactory, RunProperties? cachedRunProperties, FacadeLogger? logger)
     {
         ICommand command;
@@ -705,7 +852,9 @@ public class RunCommand
             }
         }
     }
+#endif
 
+#if !CLI_AOT
     [DoesNotReturn]
     internal static void ThrowUnableToRunError(ProjectInstance project)
     {
@@ -716,6 +865,7 @@ public class RunCommand
                     Product.TargetFrameworkVersion,
                     project.GetPropertyValue("OutputType")));
     }
+#endif
 
     private static string? DiscoverProjectFilePath(string? filePath, string? projectFileOrDirectoryPath, bool readCodeFromStdin, ref string[] args, out string? entryPointFilePath)
     {
@@ -750,7 +900,11 @@ public class RunCommand
         // Check if the project file actually exists when it's specified as a direct file path
         if (projectFilePath is not null && !emptyProjectOption && !File.Exists(projectFilePath))
         {
+#if CLI_AOT
+            throw new GracefulException($"Project file '{projectFilePath}' does not exist.");
+#else
             throw new GracefulException(CliCommandStrings.CmdNonExistentFileErrorDescription, projectFilePath);
+#endif
         }
 
         // If no project exists in the directory and no --project was given,
@@ -761,7 +915,11 @@ public class RunCommand
 
         if (entryPointFilePath is null && projectFilePath is null)
         {
+#if CLI_AOT
+            throw new GracefulException("No project or file-based app entry point was found.");
+#else
             throw new GracefulException(CliCommandStrings.RunCommandExceptionNoProjects, projectFileOrDirectoryPath, "--project");
+#endif
         }
 
         return projectFilePath;
@@ -777,7 +935,11 @@ public class RunCommand
 
             if (projectFiles.Length > 1)
             {
+#if CLI_AOT
+                throw new GracefulException($"Multiple project files were found in '{directory}'.");
+#else
                 throw new GracefulException(CliCommandStrings.RunCommandExceptionMultipleProjects, directory);
+#endif
             }
 
             return projectFiles[0];
@@ -807,6 +969,155 @@ public class RunCommand
         }
     }
 
+#if CLI_AOT
+    internal static System.CommandLine.Command CreateAotCommand()
+    {
+        var fileOption = new Option<string?>("--file") { Description = "Path to the file-based program." };
+        var projectOption = new Option<string?>("--project");
+        var noBuildOption = new Option<bool>("--no-build") { Arity = ArgumentArity.Zero };
+        var noRestoreOption = new Option<bool>("--no-restore") { Arity = ArgumentArity.Zero };
+        var noLaunchProfileOption = new Option<bool>("--no-launch-profile") { Arity = ArgumentArity.Zero };
+        var launchProfileOption = new Option<string?>("--launch-profile", "-lp");
+        var noCacheOption = new Option<bool>("--no-cache") { Arity = ArgumentArity.Zero };
+        var applicationArguments = new Argument<string[]>("applicationArguments")
+        {
+            DefaultValueFactory = _ => [],
+            Description = "Arguments passed to the application that is being run."
+        };
+
+        var runCommand = new System.CommandLine.Command("run", "Run a file-based app.")
+        {
+            fileOption,
+            projectOption,
+            noBuildOption,
+            noRestoreOption,
+            noLaunchProfileOption,
+            launchProfileOption,
+            noCacheOption,
+            applicationArguments,
+        };
+
+        runCommand.TreatUnmatchedTokensAsErrors = false;
+        runCommand.SetAction(parseResult => RunAot(
+            parseResult,
+            fileOption,
+            projectOption,
+            noBuildOption,
+            noRestoreOption,
+            noLaunchProfileOption,
+            launchProfileOption,
+            noCacheOption,
+            applicationArguments));
+
+        return runCommand;
+    }
+
+    private static int RunAot(
+        ParseResult parseResult,
+        Option<string?> fileOption,
+        Option<string?> projectOption,
+        Option<bool> noBuildOption,
+        Option<bool> noRestoreOption,
+        Option<bool> noLaunchProfileOption,
+        Option<string?> launchProfileOption,
+        Option<bool> noCacheOption,
+        Argument<string[]> applicationArguments)
+    {
+        if (parseResult.GetValue(projectOption) is not null ||
+            parseResult.GetValue(noCacheOption) ||
+            parseResult.GetValue(launchProfileOption) is { Length: > 0 } ||
+            HasUnsupportedOptions(parseResult))
+        {
+            return Microsoft.DotNet.Cli.Parser.FallbackToManagedCli;
+        }
+
+        string[] args = parseResult.GetValue(applicationArguments) ?? [];
+        if (!TryResolveAotEntryPoint(parseResult.GetValue(fileOption), ref args, out string? entryPointFilePath))
+        {
+            return Microsoft.DotNet.Cli.Parser.FallbackToManagedCli;
+        }
+
+        var command = new RunCommand(
+            noBuild: parseResult.GetValue(noBuildOption),
+            projectFileFullPath: null,
+            entryPointFileFullPath: entryPointFilePath,
+            launchProfile: string.Empty,
+            noLaunchProfile: parseResult.GetValue(noLaunchProfileOption),
+            noLaunchProfileArguments: false,
+            device: null,
+            listDevices: false,
+            noRestore: parseResult.GetValue(noRestoreOption) || parseResult.GetValue(noBuildOption),
+            noCache: false,
+            interactive: false,
+            msbuildArgs: MSBuildArgs.FromVerbosity(VerbosityOptions.quiet),
+            applicationArgs: args,
+            readCodeFromStdin: false,
+            environmentVariables: ImmutableDictionary<string, string>.Empty);
+
+        return command.Execute();
+
+        static bool HasUnsupportedOptions(ParseResult parseResult)
+        {
+            foreach (var token in parseResult.Tokens.TakeWhile(static token => token.Type != TokenType.DoubleDash))
+            {
+                if (token.Type == TokenType.Option && token.Value is not "--file" and not "--no-build" and not "--no-restore" and not "--no-launch-profile")
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+    }
+
+    private static bool TryResolveAotEntryPoint(string? fileOption, ref string[] args, out string? entryPointFileFullPath)
+    {
+        if (fileOption is not null)
+        {
+            entryPointFileFullPath = Path.GetFullPath(fileOption);
+            return IsValidAotEntryPointPath(entryPointFileFullPath);
+        }
+
+        if (Directory.GetFiles(Directory.GetCurrentDirectory(), "*.*proj").Length != 0)
+        {
+            entryPointFileFullPath = null;
+            return false;
+        }
+
+        if (args is [{ } candidate, ..] && IsValidAotEntryPointPath(candidate))
+        {
+            entryPointFileFullPath = Path.GetFullPath(candidate);
+            args = args[1..];
+            return true;
+        }
+
+        entryPointFileFullPath = null;
+        return false;
+    }
+
+    private static bool IsValidAotEntryPointPath(string entryPointFilePath)
+    {
+        if (!File.Exists(entryPointFilePath))
+        {
+            return false;
+        }
+
+        if (entryPointFilePath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        try
+        {
+            using var stream = File.OpenRead(entryPointFilePath);
+            return stream.ReadByte() == '#' && stream.ReadByte() == '!';
+        }
+        catch
+        {
+            return false;
+        }
+    }
+#else
     public static RunCommand FromArgs(string[] args)
     {
         var parseResult = Parser.Parse(["dotnet", "run", .. args]);
@@ -1027,7 +1338,9 @@ public class RunCommand
         var newParseResult = Parser.Parse(tokensToParse);
         return newParseResult;
     }
+#endif
 
+#if !CLI_AOT
     /// <summary>
     /// Sends telemetry about the run operation.
     /// </summary>
@@ -1169,4 +1482,5 @@ public class RunCommand
 
         return null;
     }
+#endif
 }

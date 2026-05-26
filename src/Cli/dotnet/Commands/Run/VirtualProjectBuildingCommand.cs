@@ -129,7 +129,6 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
     /// (same reason as <c>VirtualProjectBuilder._projectRootElement</c>).
     /// </summary>
     private readonly List<VirtualProjectBuilder> _referencedBuilders = [];
-#endif
 
     public ImmutableArray<CSharpDirective> Directives
     {
@@ -152,6 +151,7 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
     }
 
     public ImmutableArray<CSharpDirective> EvaluatedDirectives { get; private set; }
+#endif
 
 #if CLI_AOT
     public bool FallBackToNativeCli { get; private set; }
@@ -812,18 +812,30 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
     /// </summary>
     private CacheInfo? ComputeCacheEntry()
     {
+#if CLI_AOT
+        if (ContainsFileLevelDirective(Builder.EntryPointFileFullPath))
+        {
+            Reporter.Verbose.WriteLine("Skipping computing cache in AOT because there are directives.");
+            return null;
+        }
+
+        ImmutableArray<string> directives = [];
+#else
         if (Directives.Any(static d => d is CSharpDirective.Project or CSharpDirective.Ref))
         {
             Reporter.Verbose.WriteLine("Skipping computing cache because there are project or ref directives.");
             return null;
         }
 
+        ImmutableArray<string> directives = Directives
+            .Where(static d => d is not CSharpDirective.Shebang)
+            .Select(static d => d.ToString())
+            .ToImmutableArray();
+#endif
+
         var cacheEntry = new RunFileBuildCacheEntry(MSBuildArgs.GlobalProperties?.ToDictionary(StringComparer.OrdinalIgnoreCase) ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase))
         {
-            Directives = Directives
-                .Where(static d => d is not CSharpDirective.Shebang)
-                .Select(static d => d.ToString())
-                .ToImmutableArray(),
+            Directives = directives,
             SdkVersion = Product.Version,
             RuntimeVersion = CSharpCompilerCommand.RuntimeVersion,
         };
@@ -841,6 +853,21 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
             CurrentEntry = cacheEntry,
             ExampleMSBuildFile = exampleMSBuildFile,
         };
+
+#if CLI_AOT
+        static bool ContainsFileLevelDirective(string entryPointFileFullPath)
+        {
+            foreach (var line in File.ReadLines(entryPointFileFullPath))
+            {
+                if (line.AsSpan().TrimStart().StartsWith("#:", StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+#endif
     }
 
     // internal for testing
@@ -1316,13 +1343,13 @@ internal sealed class VirtualProjectBuildingCommand : CommandBase
         }
     }
 
+#if !CLI_AOT
     public static readonly ErrorReporter ThrowingReporter =
         static (text, path, textSpan, message, innerException) =>
             throw new GracefulException(
             $"{new SourceFile(path, text).GetLocationString(textSpan)}: {FileBasedProgramsResources.DirectiveError}: {message}",
             innerException);
 
-#if !CLI_AOT
     public static SourceFile RemoveDirectivesFromFile(SourceFile sourceFile)
     {
         var editor = FileBasedAppSourceEditor.Load(sourceFile);

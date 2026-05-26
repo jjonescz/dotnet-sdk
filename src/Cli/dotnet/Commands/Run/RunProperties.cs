@@ -1,8 +1,10 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+#if !CLI_AOT
 using System.Diagnostics.CodeAnalysis;
 using Microsoft.Build.Execution;
+#endif
 using Microsoft.DotNet.Cli.Utils;
 
 namespace Microsoft.DotNet.Cli.Commands.Run;
@@ -20,6 +22,7 @@ internal sealed record RunProperties(
     {
     }
 
+#if !CLI_AOT
     internal static bool TryFromProject(ProjectInstance project, [NotNullWhen(returnValue: true)] out RunProperties? result)
     {
         result = new RunProperties(
@@ -48,6 +51,7 @@ internal sealed record RunProperties(
 
         return result;
     }
+#endif
 
     internal RunProperties WithApplicationArguments(string[] applicationArgs)
     {
