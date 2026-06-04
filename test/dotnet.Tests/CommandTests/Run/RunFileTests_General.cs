@@ -837,7 +837,6 @@ public sealed class RunFileTests_General(ITestOutputHelper log) : RunFileTestBas
     [InlineData("build", "someArg", "Program.cs")]
     [InlineData("clean", "someArg", "Program.cs")]
     [InlineData("publish", "someArg", "Program.cs")]
-    [InlineData("build", "Program.cs", "-consoleLoggerParameters:NoSummary")]
     public void ExtraArgWithFileEntryPoint_Warns(string command, string arg1, string arg2)
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
@@ -880,6 +879,10 @@ public sealed class RunFileTests_General(ITestOutputHelper log) : RunFileTestBas
     [Theory]
     [InlineData("Program.cs")]
     [InlineData("--no-incremental", "Program.cs")]
+    [InlineData("Program.cs", "-consoleLoggerParameters:NoSummary")]
+    [InlineData("Program.cs", "-tl:off")]
+    [InlineData("Program.cs", "--terminalLogger:off")]
+    [InlineData("--target=Build", "Program.cs", "-tl:off")]
     public void SingleFileEntryPoint_NoWarning(params string[] extraArgs)
     {
         var testInstance = _testAssetsManager.CreateTestDirectory();
