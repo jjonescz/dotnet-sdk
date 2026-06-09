@@ -60,6 +60,38 @@ namespace Microsoft.DotNet.Tests.ParserTests
             runCommand.MSBuildArgs.OtherMSBuildArgs.Should().NotContain("-tl:off");
         }
 
+        [Fact]
+        public void RunParserDoesNotTreatApplicationArgumentAfterBinaryLoggerAsBinaryLoggerParameter()
+        {
+            var tam = new TestAssetsManager(output);
+            var testAsset = tam.CopyTestAsset("HelloWorld").WithSource();
+            var newWorkingDir = testAsset.Path;
+
+            Directory.SetCurrentDirectory(newWorkingDir);
+
+            var runCommand = RunCommand.FromArgs(["b0", "-bl", "b1", "--", "a0", "-bl", "a1"]);
+
+            runCommand.ApplicationArgs.Should().Equal("b0", "b1", "a0", "-bl", "a1");
+            runCommand.MSBuildArgs.OtherMSBuildArgs.Should().Contain("-bl");
+            runCommand.MSBuildArgs.OtherMSBuildArgs.Should().NotContain("b1");
+        }
+
+        [Fact]
+        public void RunParserDoesNotTreatApplicationArgumentAfterTerminalLoggerAsTerminalLoggerParameter()
+        {
+            var tam = new TestAssetsManager(output);
+            var testAsset = tam.CopyTestAsset("HelloWorld").WithSource();
+            var newWorkingDir = testAsset.Path;
+
+            Directory.SetCurrentDirectory(newWorkingDir);
+
+            var runCommand = RunCommand.FromArgs(["b0", "-tl", "b1", "--", "a0", "-tl", "a1"]);
+
+            runCommand.ApplicationArgs.Should().Equal("b0", "b1", "a0", "-tl", "a1");
+            runCommand.MSBuildArgs.OtherMSBuildArgs.Should().Contain("-tl:auto");
+            runCommand.MSBuildArgs.OtherMSBuildArgs.Should().NotContain("b1");
+        }
+
         [WindowsOnlyFact]
         public void RunParserAcceptsWindowsPathSeparatorsOnWindows()
         {
