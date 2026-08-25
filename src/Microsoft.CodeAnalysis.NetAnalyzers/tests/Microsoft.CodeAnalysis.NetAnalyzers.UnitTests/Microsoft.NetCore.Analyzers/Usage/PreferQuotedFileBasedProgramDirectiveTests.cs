@@ -114,10 +114,8 @@ public class PreferQuotedFileBasedProgramDirectiveTests
     }
 
     [TestMethod]
-    public async Task WholeValueWithBackslash_FixEscapesAsync()
+    public async Task WholeValueWithBackslash_FixPreservesItAsync()
     {
-        // The quoted form is a regular C# string literal, so a backslash in the value must be
-        // escaped for the fix to round-trip (an unescaped '\M' would be an invalid escape sequence).
         await new VerifyCS.Test
         {
             TestState =
@@ -136,7 +134,38 @@ public class PreferQuotedFileBasedProgramDirectiveTests
                 Sources =
                 {
                     ("Test0.cs", """
-                        #:project "..\\My Library"
+                        #:project "..\My Library"
+                        class Program { static void Main() { } }
+                        """),
+                },
+            },
+            CodeFixTestBehaviors = CodeFixTestBehaviors.SkipLocalDiagnosticCheck,
+            SolutionTransforms = { EnableFileBasedProgramFeature },
+        }.RunAsync(CancellationToken.None);
+    }
+
+    [TestMethod]
+    public async Task PropertyValueWithBackslash_FixPreservesItAsync()
+    {
+        await new VerifyCS.Test
+        {
+            TestState =
+            {
+                Sources =
+                {
+                    ("Test0.cs", """
+                        #:property Path=C:\Program Files
+                        class Program { static void Main() { } }
+                        """),
+                },
+                ExpectedDiagnostics = { Expected("property") },
+            },
+            FixedState =
+            {
+                Sources =
+                {
+                    ("Test0.cs", """
+                        #:property Path="C:\Program Files"
                         class Program { static void Main() { } }
                         """),
                 },

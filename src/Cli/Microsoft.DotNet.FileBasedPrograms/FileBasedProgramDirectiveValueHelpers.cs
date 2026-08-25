@@ -3,10 +3,10 @@
 
 #nullable enable
 
+using System;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Xml;
-using Microsoft.CodeAnalysis.CSharp;
 
 namespace Microsoft.DotNet.FileBasedPrograms;
 
@@ -80,8 +80,22 @@ internal static class FileBasedProgramDirectiveValueHelpers
     }
 
     /// <summary>
-    /// Wraps <paramref name="value"/> in a C# string literal when it contains a character (whitespace or a double quote)
-    /// that cannot appear in a bare directive token. Otherwise returns it unchanged.
+    /// Wraps <paramref name="value"/> in double quotes.
+    /// Backslashes are left unchanged because directive string literals do not process escape sequences.
+    /// </summary>
+    public static string Quote(string value)
+    {
+        if (value.Contains('"'))
+        {
+            throw new ArgumentException("File-level directive values cannot contain double quotes.", nameof(value));
+        }
+
+        return $"\"{value}\"";
+    }
+
+    /// <summary>
+    /// Wraps <paramref name="value"/> in double quotes when it contains whitespace.
+    /// Otherwise returns it unchanged.
     /// </summary>
     public static string QuoteIfNeeded(string value)
     {
@@ -89,7 +103,7 @@ internal static class FileBasedProgramDirectiveValueHelpers
         {
             if (char.IsWhiteSpace(c) || c == '"')
             {
-                return SymbolDisplay.FormatLiteral(value, quote: true);
+                return Quote(value);
             }
         }
 

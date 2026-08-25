@@ -194,12 +194,13 @@ and any leading and trailing white space is not considered part of the name and 
 The remainder of a directive (after the kind) is split into whitespace-separated tokens.
 Whitespace inside a value is not allowed unless the value is enclosed in double quotes (`"`).
 A value is written either bare or wrapped entirely in double quotes.
-A quoted value is lexed as a regular C# string literal (the same way `#r`/`#load` directives lex their argument),
-so its escape sequences are decoded, e.g., `#:property Description="Hello World"` sets the value to `Hello World`,
-`#:property Path="a\\b"` sets it to `a\b`, and `#:property Text="a\"b"` sets it to `a"b`.
+A quoted value is lexed the same way as a `#r`/`#load` argument:
+backslashes have no special meaning and escape sequences are not decoded.
+For example, `#:property Description="Hello World"` sets the value to `Hello World`,
+and `#:property Path="a\b"` sets it to `a\b`.
 Verbatim (`@"..."`) and raw (`"""..."""`) string literals are not supported.
 Quotes can only enclose a whole value, so `#:property A=B` and `#:property A="B"` are allowed, but `#:property A=B"C"` is an error.
-It is an error if a quote is left unterminated or if a quoted value contains an invalid escape sequence (e.g., `"a\q"`).
+It is an error if a quote is left unterminated. Because a backslash cannot escape a quote, a directive value cannot contain a double quote.
 
 `#:package`, `#:project`, and `#:ref` directives can specify additional MSBuild item metadata as trailing `Name=Value` tokens,
 e.g., `#:package Microsoft.Build@17.0.0 ExcludeAssets=runtime PrivateAssets=all`.
@@ -212,10 +213,6 @@ so `#:property Xyz="abc "`, `#:property Xyz ="abc "`, and `#:property Xyz = "abc
 as are `#:package Package@1.0.0 Note="see the docs"` and `#:package Package @ 1.0.0 Note = "see the docs"`.
 Either side of the separator can be quoted, e.g., `#:package "Humanizer"@2.0`.
 
-Because a bare value keeps a backslash literal while a quoted value follows C# escape rules,
-a Windows path is simplest written bare (`#:project C:\src\lib`)
-or with forward slashes if quoting is needed (`#:project "C:/src/my lib"`);
-quoting a backslash path requires escaping it (`"C:\\src\\my lib"`).
 
 For backward compatibility, a directive whose value contains no double quotes is still accepted in a *legacy mode*
 when its trailing whitespace-separated tokens cannot be parsed as the new metadata form:

@@ -45,7 +45,7 @@ internal static class FileLevelDirectiveHelpers
 
         tokenizer.ResetTo(result);
 
-        FindLeadingDirectives(sourceFile, triviaList, errorReporter, builder, checkDuplicates, tokenizer);
+        FindLeadingDirectives(sourceFile, triviaList, errorReporter, builder, checkDuplicates);
 
         // In conversion mode, we want to report errors for any invalid directives in the rest of the file
         // so users don't end up with invalid directives in the converted project.
@@ -88,12 +88,10 @@ internal static class FileLevelDirectiveHelpers
         SyntaxTriviaList triviaList,
         ErrorReporter errorReporter,
         ImmutableArray<CSharpDirective>.Builder? builder,
-        bool checkDuplicates = true,
-        SyntaxTokenParser? tokenizer = null)
+        bool checkDuplicates = true)
     {
         var deduplicator = new DirectiveDeduplicator();
         TextSpan previousWhiteSpaceSpan = default;
-        using var valueLexer = new DirectiveValueLexer(sourceFile.Text, tokenizer);
 
         for (var index = 0; index < triviaList.Count; index++)
         {
@@ -130,18 +128,15 @@ internal static class FileLevelDirectiveHelpers
                 TextSpan span = GetFullSpan(previousWhiteSpaceSpan, trivia);
 
                 ReadOnlySpan<char> message;
-                int messageStart;
                 if (trivia.GetStructure() is IgnoredDirectiveTriviaSyntax { Content: { RawKind: (int)SyntaxKind.StringLiteralToken } content })
                 {
                     var contentText = content.Text.AsSpan();
                     var trimmedStart = contentText.TrimStart();
                     message = trimmedStart.TrimEnd();
-                    messageStart = content.SpanStart + (contentText.Length - trimmedStart.Length);
                 }
                 else
                 {
                     message = default;
-                    messageStart = 0;
                 }
 
                 var parts = Patterns.Whitespace.Split(message.ToString(), 2);
@@ -162,8 +157,6 @@ internal static class FileLevelDirectiveHelpers
                     ErrorReporter = errorReporter,
                     DirectiveKind = name,
                     DirectiveText = value,
-                    DirectiveTextStart = messageStart + (message.Length - value.Length),
-                    ValueLexer = valueLexer,
                 };
 
                 if (CSharpDirective.Parse(context) is { } directive)
@@ -264,45 +257,6 @@ internal static partial class Patterns
     public static Regex EscapedCompilerOption { get; } = new Regex("""^/\w+:".*"$""", RegexOptions.Compiled | RegexOptions.Singleline);
 }
 
-internal sealed class DirectiveValueLexer(SourceText text, SyntaxTokenParser? parser) : IDisposable
-{
-    private readonly bool _ownsParser = parser is null;
-    private SyntaxTokenParser? _parser = parser;
-    private SyntaxTokenParser.Result? _previous;
-
-    /// <summary>
-    /// Lexes a single token starting at <paramref name="position"/>,
-    /// which must be at or after the position of the previously lexed token
-    /// (directive values are always requested in source order).
-    /// </summary>
-    public SyntaxToken LexStringLiteral(int position)
-    {
-        _parser ??= FileLevelDirectiveHelpers.CreateTokenizer(text);
-
-        // ParseNextToken also consumes the token's trailing trivia,
-        // which for a '//' comment runs to the end of the line,
-        // so the lexer can end up past the position wanted next.
-        if (_previous is { } previous)
-        {
-            Debug.Assert(position >= previous.Token.FullSpan.Start);
-            _parser.ResetTo(previous);
-        }
-
-        _parser.SkipForwardTo(position);
-        var result = _parser.ParseNextToken();
-        _previous = result;
-        return result.Token;
-    }
-
-    public void Dispose()
-    {
-        if (_ownsParser)
-        {
-            _parser?.Dispose();
-        }
-    }
-}
-
 internal struct WhiteSpaceInfo
 {
     /// <summary>
@@ -354,16 +308,6 @@ internal abstract class CSharpDirective(in CSharpDirective.ParseInfo info)
         public required string DirectiveKind { get; init; }
         public required string DirectiveText { get; init; }
 
-        /// <summary>
-        /// Position of <see cref="DirectiveText"/> within <see cref="ParseInfo.SourceFile"/>'s text.
-        /// </summary>
-        public required int DirectiveTextStart { get; init; }
-
-        /// <summary>
-        /// Lexer shared by all directives of one parse operation, used to lex quoted values.
-        /// </summary>
-        public required DirectiveValueLexer ValueLexer { get; init; }
-
         public void ReportError(string message)
             => ErrorReporter(Info.SourceFile.Text, Info.SourceFile.Path, Info.Span, message);
 
@@ -391,7 +335,7 @@ internal abstract class CSharpDirective(in CSharpDirective.ParseInfo info)
     /// One whitespace-separated token of a directive, e.g., <c>Package@1.0.0</c> or <c>Name=Value</c>.
     /// </summary>
     /// <param name="Text">
-    /// The token with any quotes removed and their escape sequences decoded.
+    /// The token with any quotes removed.
     /// </param>
     /// <param name="SeparatorIndex">
     /// Index within <paramref name="Text"/> of the separator that splits the token into its name and value,
@@ -418,8 +362,8 @@ internal abstract class CSharpDirective(in CSharpDirective.ParseInfo info)
     /// </para>
     /// <para>
     /// Each side of the separator is written either bare or wrapped entirely in double quotes (<c>"</c>), which lets it contain whitespace.
-    /// A quoted part is lexed as a regular C# string literal (the same way <c>#r</c>/<c>#load</c> lex their argument),
-    /// so escape sequences like <c>\"</c>, <c>\\</c> and <c>\t</c> are decoded; verbatim (<c>@"..."</c>) and raw (<c>"""..."""</c>) literals are not supported.
+    /// A quoted part is lexed the same way <c>#r</c>/<c>#load</c> lex their argument:
+    /// backslashes have no special meaning, and verbatim (<c>@"..."</c>) and raw (<c>"""..."""</c>) literals are not supported.
     /// A quote may therefore open only at the start of a part, and only the separator may follow a closing quote.
     /// So <c>A=B</c>, <c>A="B"</c>, and <c>"A"="B"</c> are allowed, but <c>A=B"C"</c> and <c>A="B"C</c> are errors.
     /// Returns <see langword="null"/> and reports an error if a quote is misplaced or left unterminated.
@@ -451,44 +395,29 @@ internal abstract class CSharpDirective(in CSharpDirective.ParseInfo info)
                     return null;
                 }
 
-                // Lex a regular C# string literal (like '#r') so the value can contain whitespace and use escape sequences.
-                // Verbatim (@"...") literals can't start here (the '@' would precede the quote and fail the check above),
-                // and raw ("""...""") literals lex to a different token kind and are rejected below.
-                var token = context.ValueLexer.LexStringLiteral(context.DirectiveTextStart + i);
-                var errors = token.GetDiagnostics().Where(static d => d.Severity == DiagnosticSeverity.Error).ToList();
-                if (errors.Count > 0)
+                // Raw string literals lex differently and are not valid in directives.
+                if (text.AsSpan(i).StartsWith("\"\"\""))
                 {
-                    // CS1010 ("Newline in constant") means the literal was left unterminated;
-                    // give it our clearer directive-specific message.
-                    // Forward Roslyn's message for any other lexer error (e.g. CS1009 for an invalid escape sequence).
-                    if (errors.Any(static d => d.Id == "CS1010"))
-                    {
-                        context.ReportError(FileBasedProgramsResources.UnterminatedQuoteInDirective);
-                    }
-                    else
-                    {
-                        context.ReportError(string.Format(FileBasedProgramsResources.InvalidStringLiteralInDirective, errors[0].GetMessage()));
-                    }
-
+                    context.ReportError(string.Format(FileBasedProgramsResources.ExpectedSimpleStringLiteralInDirective, text.Substring(i)));
                     return null;
                 }
 
-                if (!token.IsKind(SyntaxKind.StringLiteralToken))
+                // Like the directive lexer used by '#r', backslashes are ordinary characters rather than the start of C# escape sequences.
+                // The next quote therefore always ends the value.
+                var closingQuoteIndex = text.IndexOf('"', i + 1);
+                if (closingQuoteIndex < 0)
                 {
-                    // Any token carrying a lexer error was already reported above,
-                    // so the only thing that reaches here is a *well-formed* literal that starts with '"' yet isn't a simple string literal.
-                    // Today that can only be a raw string literal ('"""..."""').
-                    context.ReportError(string.Format(FileBasedProgramsResources.ExpectedSimpleStringLiteralInDirective, token.Text));
+                    context.ReportError(FileBasedProgramsResources.UnterminatedQuoteInDirective);
                     return null;
                 }
 
-                // The decoded value is appended to the current token (which may already hold a 'Name=' prefix);
+                // The value is appended to the current token (which may already hold a 'Name=' prefix);
                 // a quote starts a token even if it is empty (e.g., '""' is an empty token).
-                current.Append(token.ValueText);
+                current.Append(text, i + 1, closingQuoteIndex - i - 1);
                 tokenStarted = true;
                 quoteClosed = true;
                 afterSeparator = false;
-                i += token.Text.Length - 1;
+                i = closingQuoteIndex;
                 continue;
             }
 

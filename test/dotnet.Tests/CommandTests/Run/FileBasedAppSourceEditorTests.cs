@@ -335,10 +335,8 @@ public sealed class FileBasedAppSourceEditorTests : SdkTest
     }
 
     [TestMethod]
-    public void AddWithSpecialCharactersEscapes()
+    public void AddWithBackslashesPreservesThem()
     {
-        // Values containing a double quote are emitted as an escaped C# string literal; a bare backslash
-        // (no whitespace or quote) needs no quoting and round-trips as-is.
         Verify(
             """
             Console.WriteLine();
@@ -347,10 +345,10 @@ public sealed class FileBasedAppSourceEditorTests : SdkTest
             {
                 Name = "MyPackage",
                 Version = "1.0.0",
-                Metadata = ImmutableArray.Create(("Quote", "a\"b"), ("Path", "a\\b"), ("Spaced", "a\"b c")),
+                Metadata = ImmutableArray.Create(("Path", "a\\b"), ("Spaced", "a\\b c")),
             }),
             """
-            #:package MyPackage@1.0.0 Quote="a\"b" Path=a\b Spaced="a\"b c"
+            #:package MyPackage@1.0.0 Path=a\b Spaced="a\b c"
 
             Console.WriteLine();
             """));

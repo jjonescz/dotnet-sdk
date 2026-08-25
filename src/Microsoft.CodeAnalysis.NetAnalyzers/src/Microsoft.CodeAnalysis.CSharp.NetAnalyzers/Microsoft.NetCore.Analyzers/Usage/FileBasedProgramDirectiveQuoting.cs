@@ -152,7 +152,7 @@ internal static class FileBasedProgramDirectiveQuoting
         var valueAfterSeparator = value.Substring(separatorIndex + 1);
         var innerValue = valueAfterSeparator.TrimStart();
         var leadingWhitespace = valueAfterSeparator.Substring(0, valueAfterSeparator.Length - innerValue.Length);
-        newValue = value.Substring(0, separatorIndex + 1) + leadingWhitespace + SymbolDisplay.FormatLiteral(innerValue, quote: true);
+        newValue = value.Substring(0, separatorIndex + 1) + leadingWhitespace + Quote(innerValue);
         return true;
     }
 
@@ -181,7 +181,7 @@ internal static class FileBasedProgramDirectiveQuoting
         }
 
         var leadingWhitespace = valueAfterSeparator.Substring(0, valueAfterSeparator.Length - version.Length);
-        newValue = value.Substring(0, separatorIndex + 1) + leadingWhitespace + SymbolDisplay.FormatLiteral(version, quote: true);
+        newValue = value.Substring(0, separatorIndex + 1) + leadingWhitespace + Quote(version);
         return true;
     }
 

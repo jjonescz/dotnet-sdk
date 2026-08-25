@@ -2611,17 +2611,18 @@ public sealed class DotnetProjectConvertTests : SdkTest
     }
 
     [TestMethod]
-    public void Directives_QuoteEscapes()
+    public void Directives_QuotedBackslashesAreLiteral()
     {
-        // A quoted value is lexed as a regular C# string literal, so escape sequences are decoded.
+        // Like #r and #load arguments, quoted directive values do not process escape sequences.
         var testInstance = TestAssetsManager.CreateTestDirectory();
         VerifyConversion(
             baseDirectory: testInstance.Path,
             inputCSharp: """
-                #:property Quote="a\"b"
-                #:property Backslash="a\\b"
+                #:property Backslash="a\\b c"
                 #:property Tab="a\tb c"
-                #:package P1@1.0.0 Note="quote\"and\\slash"
+                #:property UnknownEscape="a\qb c"
+                #:property UnicodeEscape="\u0061 c"
+                #:package P1@1.0.0 Note="C:\Program Files\dotnet"
                 """,
             expectedProject: $"""
                 <Project Sdk="Microsoft.NET.Sdk">
@@ -2633,14 +2634,15 @@ public sealed class DotnetProjectConvertTests : SdkTest
                     <Nullable>enable</Nullable>
                     <PublishAot>true</PublishAot>
                     <PackAsTool>true</PackAsTool>
-                    <Quote>a&quot;b</Quote>
-                    <Backslash>a\b</Backslash>
-                    <Tab>a{"\t"}b c</Tab>
+                    <Backslash>a\\b c</Backslash>
+                    <Tab>a\tb c</Tab>
+                    <UnknownEscape>a\qb c</UnknownEscape>
+                    <UnicodeEscape>\u0061 c</UnicodeEscape>
                   </PropertyGroup>
 
                   <ItemGroup>
                     <PackageReference Include="P1" Version="1.0.0">
-                      <Note>quote&quot;and\slash</Note>
+                      <Note>C:\Program Files\dotnet</Note>
                     </PackageReference>
                   </ItemGroup>
 
@@ -2666,26 +2668,11 @@ public sealed class DotnetProjectConvertTests : SdkTest
     }
 
     [TestMethod]
-    public void Directives_InvalidEscapeSequence()
-    {
-        // A terminated literal with a bad escape reports the underlying C# lexer error (not "unterminated").
-        var testInstance = TestAssetsManager.CreateTestDirectory();
-        VerifyConversion(
-            baseDirectory: testInstance.Path,
-            inputCSharp: """
-                #:property Description="a\qb"
-                """,
-            expectedErrors:
-            [
-                (1, string.Format(FileBasedProgramsResources.InvalidStringLiteralInDirective, "Unrecognized escape sequence")),
-            ]);
-    }
-
-    [TestMethod]
     [DataRow("#:property A=B\"C\"")]
     [DataRow("#:property A=B\"C\"D")]
     [DataRow("#:property A=\"B\"C")]
     [DataRow("#:property A\"B\"=C")]
+    [DataRow("#:property A=\"a\\\"b\"")]
     public void Directives_InvalidQuote(string directive)
     {
         var testInstance = TestAssetsManager.CreateTestDirectory();
